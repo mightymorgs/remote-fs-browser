@@ -13,6 +13,18 @@ def entry(name, path, mode, size, modified):
             'modified': datetime.fromtimestamp(modified, timezone.utc).isoformat() if modified else None}
 
 
+def child_path(path, name):
+    """Session path of a directory entry, or None when the name cannot be addressed safely."""
+    try:
+        return normalize(path + '/' + name)
+    except ValueError:
+        return None
+
+
+def listing(rows, skipped):
+    return {'entries': rows, 'skipped': skipped}
+
+
 class LocalFilesystem:
     def __init__(self, config):
         self.root = Path(config['root']).resolve(strict=True)
@@ -70,20 +82,24 @@ class LocalFilesystem:
     def list(self, path, limit):
         path = normalize(path)
         handle = self._open(path, directory=True)
-        rows = []
+        rows, skipped = [], 0
         try:
             with os.scandir(handle) as entries:
                 for item in entries:
                     if item.is_symlink() or (os.name == 'nt' and getattr(item.stat(follow_symlinks=False), 'st_file_attributes', 0) & 0x400):
                         continue
+                    child = child_path(path, item.name)
+                    if child is None:
+                        skipped += 1
+                        continue
                     info = item.stat(follow_symlinks=False)
-                    rows.append(entry(item.name, normalize(path + '/' + item.name), info.st_mode, info.st_size, info.st_mtime))
+                    rows.append(entry(item.name, child, info.st_mode, info.st_size, info.st_mtime))
                     if len(rows) > limit:
                         break
         finally:
             if isinstance(handle, int):
                 os.close(handle)
-        return rows
+        return listing(rows, skipped)
 
     def stat(self, path):
         if os.name == 'nt':
@@ -139,15 +155,19 @@ class SMBFilesystem:
         return current
 
     def list(self, path, limit):
-        rows = []
+        rows, skipped = [], 0
         for item in self.client.scandir(self._path(path), connection_cache=self.cache):
             info = item.stat(follow_symlinks=False)
             if stat.S_ISLNK(info.st_mode) or getattr(info, 'st_file_attributes', 0) & 0x400:
                 continue
-            rows.append(entry(item.name, normalize(path + '/' + item.name), info.st_mode, info.st_size, info.st_mtime))
+            child = child_path(path, item.name)
+            if child is None:
+                skipped += 1
+                continue
+            rows.append(entry(item.name, child, info.st_mode, info.st_size, info.st_mtime))
             if len(rows) > limit:
                 break
-        return rows
+        return listing(rows, skipped)
 
     def stat(self, path):
         info = self.client.stat(self._path(path), follow_symlinks=False, connection_cache=self.cache)

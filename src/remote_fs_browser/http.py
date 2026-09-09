@@ -245,7 +245,8 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         async def lines():
             for item in data['entries']:
                 yield json.dumps(item) + '\n'
-        return StreamingResponse(lines(), media_type='application/x-ndjson', headers={'X-Listing-Truncated': str(data['truncated']).lower()})
+        return StreamingResponse(lines(), media_type='application/x-ndjson',
+                                 headers={'X-Listing-Truncated': str(data['truncated']).lower(), 'X-Listing-Skipped': str(data['skipped'])})
 
     @app.get('/api/sessions/{id}/stat')
     @app.get('/sessions/{id}/stat', include_in_schema=False)

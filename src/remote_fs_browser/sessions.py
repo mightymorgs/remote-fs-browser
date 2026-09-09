@@ -152,8 +152,10 @@ class FilesystemSession:
 
     async def list(self, path='/'):
         self.policy.require('list')
-        rows = await self._call('list', normalize(path))
-        return {'entries': rows[:self.policy.max_entries], 'truncated': len(rows) > self.policy.max_entries}
+        result = await self._call('list', normalize(path))
+        rows = result['entries']
+        return {'entries': rows[:self.policy.max_entries], 'truncated': len(rows) > self.policy.max_entries,
+                'skipped': result['skipped']}
 
     async def stat(self, path):
         self.policy.require('stat')

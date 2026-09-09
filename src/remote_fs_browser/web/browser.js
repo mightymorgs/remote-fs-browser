@@ -65,9 +65,15 @@ export class RemoteFsBrowser extends HTMLElement {
     if (!this.client) { this.status.textContent = 'Set the component client property first.'; return }
     this.status.textContent = 'Loading…'
     for (const b of this.shadowRoot.querySelectorAll('button,input,select')) b.disabled = true
-    try { await fn(); this.status.textContent = this.truncated ? 'Listing limit reached. Select a narrower folder or raise the service limit.' : '' }
+    try { await fn(); this.status.textContent = this.notes() }
     catch (error) { this.status.textContent = error.message; this.dispatchEvent(new CustomEvent('browser-error',{ detail: error })) }
     finally { for (const b of this.shadowRoot.querySelectorAll('button,input,select')) b.disabled = false; this.choose.disabled = !this.session }
+  }
+  notes() {
+    const notes = []
+    if (this.truncated) notes.push('Listing limit reached. Select a narrower folder or raise the service limit.')
+    if (this.skipped) notes.push(`${this.skipped} entries hidden (unsupported names).`)
+    return notes.join(' ')
   }
   async discover() {
     await this.action(async () => {
@@ -112,7 +118,7 @@ export class RemoteFsBrowser extends HTMLElement {
       result = await this.client.list(this.session, path)
     }
     if (generation !== this.generation || !this.isConnected) { await this.close(); return }
-    this.path = path; this.truncated = result.truncated; this.selected.textContent = path
+    this.path = path; this.truncated = result.truncated; this.skipped = result.skipped || 0; this.selected.textContent = path
     this.entries.replaceChildren(); this.nav.replaceChildren()
     this.nav.append(this.button('↑ Parent', () => this.action(() => this.show(path.replace(/\/[^/]+\/?$/, '') || '/'))), this.button('Refresh', () => this.action(() => this.show(path))))
     for (const item of result.entries) {

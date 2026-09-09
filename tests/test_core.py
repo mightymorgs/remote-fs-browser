@@ -23,7 +23,8 @@ async def test_local_sdk_and_cleanup(tmp_path):
     (tmp_path / 'file.bin').write_bytes(b'0123456789')
     async with Browser(Policy(local_roots=[str(tmp_path)])) as browser:
         session = await browser.connect({'type': 'local', 'root': str(tmp_path), 'password': 'never-save'})
-        assert len((await session.list('/'))['entries']) == 2
+        listed = await session.list('/')
+        assert len(listed['entries']) == 2 and listed['skipped'] == 0
         assert (await session.stat('/file.bin'))['size'] == 10
         assert b''.join([c async for c in session.stream('/file.bin', 3, 4)]) == b'3456'
         assert 'password' not in session.descriptor()
@@ -51,7 +52,7 @@ def test_symlink_escape(tmp_path):
         pytest.skip('Creating symlinks requires Windows developer mode')
     fs = LocalFilesystem({'root': str(root)})
     try:
-        assert fs.list('/', 100) == []
+        assert fs.list('/', 100)['entries'] == []
         with pytest.raises((OSError, ValueError)):
             fs.open('/link/secret')
     finally:
@@ -79,6 +80,20 @@ async def test_stream_chunks_and_early_close(tmp_path):
                 stream = session.stream('/large.bin')
                 assert len(await anext(stream)) == CHUNK
                 await stream.aclose()  # Does not exhaust the worker's four-handle limit.
+
+
+@pytest.mark.skipif(os.name == 'nt', reason='Colons and backslashes cannot appear in Windows file names')
+def test_listing_skips_unsupported_names(tmp_path):
+    (tmp_path / 'normal.txt').write_text('ok')
+    (tmp_path / 'Title: Subtitle.mkv').write_text('x')
+    (tmp_path / 'back\\slash.txt').write_text('x')
+    fs = LocalFilesystem({'root': str(tmp_path)})
+    try:
+        result = fs.list('/', 100)
+        assert [item['name'] for item in result['entries']] == ['normal.txt']
+        assert result['skipped'] == 2
+    finally:
+        fs.close()
 
 
 def test_local_file_handle_read(tmp_path):

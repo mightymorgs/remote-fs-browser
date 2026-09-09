@@ -4,7 +4,7 @@ import ctypes.util
 import os
 import stat
 from pathlib import Path
-from .backends import entry
+from .backends import child_path, entry, listing
 from .policy import normalize
 
 
@@ -85,7 +85,7 @@ class NFSFilesystem:
         directory = c.c_void_p()
         if self.lib.nfs_opendir(self.ctx, path.encode(), c.byref(directory)) != 0:
             raise OSError('NFS folder unavailable')
-        rows = []
+        rows, skipped = [], 0
         try:
             while True:
                 item = self.lib.nfs_readdir(self.ctx, directory)
@@ -93,14 +93,18 @@ class NFSFilesystem:
                     break
                 name = os.fsdecode(item.contents.name)
                 if name not in ('.', '..') and item.contents.type != 5:
+                    child = child_path(path, name)
+                    if child is None:
+                        skipped += 1
+                        continue
                     metadata = item.contents
                     mode = metadata.mode | ({1: stat.S_IFREG, 2: stat.S_IFDIR}.get(metadata.type, 0))
-                    rows.append(entry(name, normalize(path + '/' + name), mode, metadata.size, metadata.mtime.seconds))
+                    rows.append(entry(name, child, mode, metadata.size, metadata.mtime.seconds))
                     if len(rows) > limit:
                         break
         finally:
             self.lib.nfs_closedir(self.ctx, directory)
-        return rows
+        return listing(rows, skipped)
 
     def open(self, path):
         path = self._path(path)
