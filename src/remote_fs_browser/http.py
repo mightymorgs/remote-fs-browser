@@ -68,10 +68,10 @@ class BodyLimit:
 
 
 def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
-               authorize: Callable | None = None, credential_resolver=None):
+               authorize: Callable | None = None, credential_resolver=None, root_kinds=None):
     if not authenticate and (not token or len(token) < 32):
         raise ValueError('Configure an authentication hook or a token of at least 32 characters')
-    browser = Browser(policy)
+    browser = Browser(policy, root_kinds=root_kinds)
     owners, rates = {}, defaultdict(deque)
     logins = {}
 
@@ -95,6 +95,7 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
     app = FastAPI(title='Remote filesystem browser', version='0.1.0', lifespan=lifespan)
     app.add_middleware(BodyLimit)
     app.state.browser = browser
+    app.state.root_kinds = browser.root_kinds
 
     @app.middleware('http')
     async def access(request, call_next):

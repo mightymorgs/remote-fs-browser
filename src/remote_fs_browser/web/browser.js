@@ -37,7 +37,7 @@ export class RemoteFsBrowser extends HTMLElement {
   }
   render() {
     this.shadowRoot.replaceChildren()
-    const style = this.element('style', `:host{display:block;font:15px system-ui;color:#172230;max-width:850px}section{border:1px solid #ccd5df;border-radius:14px;padding:22px;background:#fff}h2{margin-top:0}button,input,select{font:inherit;padding:9px 12px;border:1px solid #c4cdd7;border-radius:7px;background:white;color:inherit}button{cursor:pointer}button:hover{background:#edf5f9}button:disabled{opacity:.5;cursor:wait}label{display:grid;gap:6px}form{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}nav{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.entries{max-height:360px;overflow:auto;border-block:1px solid #ddd}.entry{display:flex;align-items:center;gap:16px;padding:8px}.entry button{flex:1;text-align:left;border:0}.meta{color:#607080;font-size:12px}.status{min-height:24px;margin:12px 0}code{overflow-wrap:anywhere}.primary{background:#165d79;color:white}`)
+    const style = this.element('style', `:host{display:block;font:15px system-ui;color:#172230;max-width:850px}section{border:1px solid #ccd5df;border-radius:14px;padding:22px;background:#fff}h2{margin-top:0}button,input,select{font:inherit;padding:9px 12px;border:1px solid #c4cdd7;border-radius:7px;background:white;color:inherit}button{cursor:pointer}button:hover{background:#edf5f9}button:disabled{opacity:.5;cursor:wait}label{display:grid;gap:6px}form{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}nav{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.entries{max-height:360px;overflow:auto;border-block:1px solid #ddd}.entry{display:flex;align-items:center;gap:16px;padding:8px}.entry button{flex:1;text-align:left;border:0}.meta{color:#607080;font-size:12px}.status{min-height:24px;margin:12px 0}code{overflow-wrap:anywhere}.primary{background:#165d79;color:white}details{flex:1 1 200px;margin:4px 0}summary{cursor:pointer;font-weight:600;margin-bottom:6px}details button{display:block;width:100%;text-align:left;margin-bottom:6px}details p{margin:0}`)
     const section = this.element('section'); section.append(this.element('h2', 'Choose storage'))
     section.append(this.element('p', this.getAttribute('mode') === 'browse' ? 'Browse folders and download files visible to this host.' : 'Browse storage visible to the remote host. Select a folder to return its location.'))
     this.form = this.element('form'); this.form.onsubmit = event => event.preventDefault()
@@ -75,14 +75,17 @@ export class RemoteFsBrowser extends HTMLElement {
     if (this.skipped) notes.push(`${this.skipped} entries hidden (unsupported names).`)
     return notes.join(' ')
   }
-  async discover() {
+  async discover(scan) {
     await this.action(async () => {
       this.locations.replaceChildren()
       if (this.type.value === 'local' || !this.host.value) {
-        const result = await this.client.discover(this.type.value !== 'local')
-        for (const root of result.roots) this.locations.append(this.button(root.root, () => { this.type.value = 'local'; this.location.value = root.root }))
-        for (const note of result.notes || []) this.locations.append(this.element('p',note))
-        for (const host of result.hosts) this.locations.append(this.button(`${host.host} (${host.protocols.join(', ')})`, () => { this.host.value = host.host; this.type.value = host.protocols[0] }))
+        const result = await this.client.discover(scan ?? this.type.value !== 'local')
+        if (result.groups) this.tree(result.groups)
+        else {
+          for (const root of result.roots) this.locations.append(this.button(root.root, () => { this.type.value = 'local'; this.location.value = root.root }))
+          for (const host of result.hosts) this.locations.append(this.button(`${host.host} (${host.protocols.join(', ')})`, () => { this.host.value = host.host; this.type.value = host.protocols[0] }))
+        }
+        for (const note of result.notes || []) this.locations.append(this.element('p', note, { className: 'meta' }))
       } else {
         const result = await this.client.shares(this.type.value, this.host.value, { username: this.username.value, password: this.password.value })
         for (const location of (result.shares || result.exports || [])) {
@@ -92,6 +95,22 @@ export class RemoteFsBrowser extends HTMLElement {
         if (!(result.shares || result.exports || []).length) this.locations.append(this.element('p', 'No locations reported. Enter a share/export manually.'))
       }
     })
+  }
+  tree(groups) {
+    for (const group of groups) {
+      if (!group.items.length && !group.hint) continue
+      const details = this.element('details'); details.open = true
+      details.append(this.element('summary', group.label))
+      for (const item of group.items) details.append(this.button(item.label, () => this.pick(item)))
+      if (!group.items.length && group.hint) details.append(this.element('p', group.hint, { className: 'meta' }))
+      this.locations.append(details)
+    }
+  }
+  pick(item) {
+    this.type.value = item.type
+    if (item.type === 'local') { this.location.value = item.root; void this.connect(); return }
+    this.host.value = item.host; this.location.value = ''
+    void this.discover()
   }
   async connect() {
     await this.action(async () => {

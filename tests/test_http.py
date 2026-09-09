@@ -35,6 +35,18 @@ def test_http_streaming_and_auth(tmp_path):
         assert client.post('/sessions', content=b'x'*20000).status_code == 413
 
 
+def test_discover_groups(tmp_path):
+    root = str(tmp_path.resolve())
+    app = create_app(Policy(local_roots=[root], network_ranges=['192.0.2.0/24']), token=TOKEN, root_kinds={root: 'home'})
+    with TestClient(app) as client:
+        client.headers['Authorization'] = 'Bearer ' + TOKEN
+        data = client.get('/api/discover').json()
+        assert data['roots'] == [{'type': 'local', 'root': root, 'kind': 'home'}] and data['hosts'] == [] and data['notes']
+        assert [group['id'] for group in data['groups']] == ['local', 'smb', 'nfs']
+        assert data['groups'][0]['items'] == [{'type': 'local', 'root': root, 'kind': 'home', 'label': 'Home'}]
+        assert '192.0.2.0/24' in data['groups'][1]['hint'] and data['groups'][2]['items'] == []
+
+
 def test_principal_isolation(tmp_path):
     app = create_app(Policy(local_roots=[str(tmp_path)]), authenticate=lambda request: request.headers.get('x-user'))
     with TestClient(app) as client:

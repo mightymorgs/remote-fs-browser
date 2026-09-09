@@ -117,8 +117,7 @@ def main(argv=None):
     from .http import create_app
     import uvicorn
     policy, kinds = build_policy(args, config)
-    app = create_app(policy, token=token)
-    app.state.root_kinds = kinds
+    app = create_app(policy, token=token, root_kinds=kinds)
     bind = args.bind or config.get('bind', '127.0.0.1')
     port = args.port if args.port is not None else config.get('port', 8080)
     if not 1 <= port <= 65535:

@@ -12,6 +12,19 @@ def test_bad_paths(path):
     with pytest.raises(ValueError): normalize(path)
 
 
+def test_grouped_discovery_places_hosts_by_protocol(tmp_path):
+    from remote_fs_browser.discovery import grouped
+    policy = Policy(local_roots=[str(tmp_path)])
+    roots = [{'type': 'local', 'root': str(tmp_path / 'Media'), 'kind': 'volume'}]
+    hosts = [{'host': '192.0.2.5', 'protocols': ['smb', 'nfs']}, {'host': '192.0.2.9', 'protocols': ['nfs']}]
+    groups = grouped(policy, roots, hosts, scanned=True)
+    assert groups[0]['items'][0]['label'] == 'Media'
+    assert [item['host'] for item in groups[1]['items']] == ['192.0.2.5']
+    assert [item['host'] for item in groups[2]['items']] == ['192.0.2.5', '192.0.2.9']
+    assert groups[1]['hint'] is None
+    assert grouped(policy, roots, [], scanned=False)[1]['hint'].startswith('No networks')
+
+
 def test_policy_denies_by_default(tmp_path):
     policy = Policy()
     with pytest.raises(PermissionError): policy.local_root(tmp_path)

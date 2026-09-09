@@ -2,15 +2,33 @@
 from concurrent.futures import ThreadPoolExecutor
 import ctypes as c
 import ipaddress
+from pathlib import PurePath
 import socket
 from .policy import Policy
 
 
-def discover(policy: Policy, scan=False):
+def grouped(policy: Policy, roots, hosts, scanned):
+    """The picker's tree: This Computer, then SMB and NFS servers seen from this host."""
+    local = [{'type': 'local', 'root': row['root'], 'kind': row['kind'],
+              'label': 'Home' if row['kind'] == 'home' else PurePath(row['root']).name or row['root']} for row in roots]
+    hint = None
+    if not scanned:
+        hint = ('Press Discover to scan ' + ', '.join(policy.network_ranges) + ', or enter a server above.'
+                if policy.network_ranges else 'No networks are permitted for SMB/NFS on this service.')
+    groups = [{'id': 'local', 'label': 'This Computer', 'items': local}]
+    for protocol, label in (('smb', 'SMB'), ('nfs', 'NFS')):
+        items = [{'type': protocol, 'host': row['host'], 'label': row['host']} for row in hosts if protocol in row['protocols']]
+        groups.append({'id': protocol, 'label': label, 'items': items, 'hint': hint})
+    return groups
+
+
+def discover(policy: Policy, scan=False, root_kinds=None):
     policy.require('discover')
-    result = {'roots': [{'type': 'local', 'root': root} for root in policy.local_roots], 'hosts': [],
-              'notes': ['Automatic discovery is best effort. A hostname/IP can always be supplied within policy.']}
+    kinds = root_kinds or {}
+    result = {'roots': [{'type': 'local', 'root': root, 'kind': kinds.get(root, 'configured')} for root in policy.local_roots],
+              'hosts': [], 'notes': ['Automatic discovery is best effort. A hostname/IP can always be supplied within policy.']}
     if not scan:
+        result['groups'] = grouped(policy, result['roots'], [], False)
         return result
     hosts = set()
     for network in policy.network_ranges:
@@ -36,6 +54,7 @@ def discover(policy: Policy, scan=False):
 
     with ThreadPoolExecutor(max_workers=32) as executor:
         result['hosts'] = [row for row in executor.map(probe, sorted(hosts)) if row]
+    result['groups'] = grouped(policy, result['roots'], result['hosts'], True)
     return result
 
 

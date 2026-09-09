@@ -22,7 +22,7 @@ document.querySelector('#start').onclick = async () => {
     token.value = ''
     document.querySelector('h1').textContent = `Storage visible to ${result.hostname}`
     status.textContent = 'Connected. Access expires after eight hours.'
-    await picker.discover()
+    await picker.discover(true)
   } catch (error) { status.textContent = error.message }
 }
 document.querySelector('#logout').onclick = async () => {
@@ -44,5 +44,5 @@ document.querySelector('#copy').onclick = async () => {
 client.request('/login').then(async result => {
   document.querySelector('h1').textContent = `Storage visible to ${result.hostname}`
   document.querySelector('#login-status').textContent = 'Connected.'
-  await picker.discover()
+  await picker.discover(true)
 }).catch(() => {})

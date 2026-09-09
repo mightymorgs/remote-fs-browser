@@ -19,7 +19,7 @@ def worker(pipe, config, policy_values):
         policy = Policy(**policy_values)
         kind = config['type']
         if kind == 'discover':
-            pipe.send({'ok': discover(policy, config.get('scan', False))})
+            pipe.send({'ok': discover(policy, config.get('scan', False), config.get('root_kinds'))})
             return
         if kind in ('shares', 'exports'):
             host = policy.host(config['host'])
@@ -197,8 +197,10 @@ class FilesystemSession:
 
 
 class Browser:
-    def __init__(self, policy: Policy, credential_resolver=None):
+    def __init__(self, policy: Policy, credential_resolver=None, root_kinds=None):
         self.policy, self.credential_resolver = policy, credential_resolver
+        # Labels for the picker only ("home", "volume"); authorization stays with the policy.
+        self.root_kinds = dict(root_kinds or {})
         self.sessions = {}
         self.pending = 0
         self.closed = False
@@ -257,7 +259,7 @@ class Browser:
 
     async def discover(self, scan=False, host=None, protocol=None, credentials=None):
         self.policy.require('discover')
-        config = {'type': 'discover', 'scan': scan}
+        config = {'type': 'discover', 'scan': scan, 'root_kinds': self.root_kinds}
         if host:
             if protocol not in ('smb', 'nfs'):
                 raise ValueError('Choose smb or nfs discovery')
