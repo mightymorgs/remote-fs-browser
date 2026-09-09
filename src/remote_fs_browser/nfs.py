@@ -20,10 +20,19 @@ class DirEntry(c.Structure):
     _fields_ = [('next', c.c_void_p), ('name', c.c_char_p), ('inode', c.c_uint64), ('type', c.c_uint32), ('mode', c.c_uint32), ('size', c.c_uint64), ('atime', Timeval), ('mtime', Timeval)]
 
 
+def candidates():
+    """Where package managers put libnfs when the dynamic linker does not search there itself."""
+    import glob
+    prefixes = [os.environ.get('HOMEBREW_PREFIX'), '/opt/homebrew', '/usr/local', '/opt/local']
+    rows = [f'{prefix}/lib/libnfs.dylib' for prefix in prefixes if prefix]
+    rows += sorted(glob.glob('/usr/lib/*/libnfs.so*')) + sorted(glob.glob('/usr/local/lib/libnfs.so*'))
+    return [row for row in rows if os.path.isfile(row)]
+
+
 def library():
-    path = os.environ.get('LIBNFS_LIBRARY') or ctypes.util.find_library('nfs')
+    path = os.environ.get('LIBNFS_LIBRARY') or ctypes.util.find_library('nfs') or next(iter(candidates()), None)
     if not path:
-        raise RuntimeError('Install libnfs 6+ or set LIBNFS_LIBRARY')
+        raise RuntimeError('Install libnfs 6+ (for example: brew install libnfs) or set LIBNFS_LIBRARY')
     lib = c.CDLL(path)
     if not hasattr(lib, 'nfs_preadv'):
         raise RuntimeError('libnfs API V2 (6+) is required; run the platform installer')
