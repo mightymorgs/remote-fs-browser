@@ -6,7 +6,7 @@ from pathlib import PurePath
 import socket
 from .policy import Policy
 
-# Candidate addresses probed per scan request: four /24 ranges, about eight seconds worst case on 64 threads.
+# Candidate addresses probed per scan request: four /24 ranges, about half a minute worst case on 64 threads.
 SCAN_BUDGET = 1024
 
 
@@ -51,7 +51,8 @@ def discover(policy: Policy, scan=False, root_kinds=None):
         protocols = []
         for port, name in [(445, 'smb'), (2049, 'nfs')]:
             try:
-                with socket.create_connection((host, port), timeout=0.25):
+                # One second covers ARP resolution on Wi-Fi clients; a quarter second missed live LAN hosts.
+                with socket.create_connection((host, port), timeout=1.0):
                     protocols.append(name)
             except OSError:
                 pass
