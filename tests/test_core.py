@@ -79,3 +79,13 @@ async def test_stream_chunks_and_early_close(tmp_path):
                 stream = session.stream('/large.bin')
                 assert len(await anext(stream)) == CHUNK
                 await stream.aclose()  # Does not exhaust the worker's four-handle limit.
+
+
+def test_local_file_handle_read(tmp_path):
+    (tmp_path / 'file.bin').write_bytes(b'handle validation')
+    fs = LocalFilesystem({'root': str(tmp_path)})
+    try:
+        with fs.open('/file.bin') as stream:
+            assert stream.read() == b'handle validation'
+    finally:
+        fs.close()
