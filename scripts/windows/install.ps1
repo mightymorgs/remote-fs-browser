@@ -24,6 +24,10 @@ if (!(Test-Path "$Prefix/libnfs-src/.git")) { Checked 'git' @('clone','https://g
 $Revision = 'c69a48c8116fd50287875decd50474685937a4af'
 Checked 'git' @('-C',"$Prefix/libnfs-src",'fetch','origin',$Revision)
 Checked 'git' @('-C',"$Prefix/libnfs-src",'checkout','--detach',$Revision)
+# Restrict upstream's GCC warning flag to C, not the Windows resource compiler.
+$Checks = "$Prefix/libnfs-src/cmake/ConfigureChecks.cmake"
+$Text = [IO.File]::ReadAllText($Checks).Replace('add_definitions(-Wall)', 'add_compile_options("$<$<COMPILE_LANGUAGE:C>:-Wall>")')
+[IO.File]::WriteAllText($Checks, $Text)
 Checked 'cmake' @('-S',"$Prefix/libnfs-src",'-B',"$Prefix/build",'-G','MinGW Makefiles','-DBUILD_SHARED_LIBS=ON','-DENABLE_TLS=OFF','-DENABLE_UTILS=OFF','-DCMAKE_SHARED_LINKER_FLAGS=-static-libgcc')
 Checked 'cmake' @('--build',"$Prefix/build",'--parallel','2')
 $Dll = Get-ChildItem "$Prefix/build" -Recurse -Filter '*nfs*.dll' | Select-Object -First 1

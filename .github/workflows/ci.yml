@@ -38,6 +38,10 @@ jobs:
           choco install mingw -y --no-progress
           $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + $env:Path
           $Gcc = (Get-Command gcc).Source
+          # Upstream applies -Wall to RC files too; windres only accepts it for C.
+          $Checks = "$env:RUNNER_TEMP/libnfs/cmake/ConfigureChecks.cmake"
+          $Text = [IO.File]::ReadAllText($Checks).Replace('add_definitions(-Wall)', 'add_compile_options("$<$<COMPILE_LANGUAGE:C>:-Wall>")')
+          [IO.File]::WriteAllText($Checks, $Text)
           cmake -S "$env:RUNNER_TEMP/libnfs" -B "$env:RUNNER_TEMP/libnfs/build" -G 'MinGW Makefiles' "-DCMAKE_C_COMPILER=$Gcc" -DBUILD_SHARED_LIBS=ON -DENABLE_TLS=OFF -DENABLE_UTILS=OFF -DCMAKE_SHARED_LINKER_FLAGS=-static-libgcc
           if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
           cmake --build "$env:RUNNER_TEMP/libnfs/build" --parallel 2
