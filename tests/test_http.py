@@ -47,3 +47,24 @@ def test_rate_limit():
         client.headers['Authorization'] = 'Bearer ' + TOKEN
         assert client.get('/openapi.json').status_code == 200
         assert client.get('/openapi.json').status_code == 429
+
+
+def test_same_origin_browser_login_and_download(tmp_path):
+    (tmp_path / 'download.txt').write_bytes(b'0123456789')
+    app = create_app(Policy(local_roots=[str(tmp_path)]), token='x' * 32)
+    with TestClient(app) as client:
+        assert client.get('/').status_code == 200
+        assert client.get('/api/discover').status_code == 401
+        response = client.post('/api/login', headers={'Authorization': 'Bearer ' + 'x' * 32})
+        assert response.status_code == 200
+        assert 'HttpOnly' in response.headers['set-cookie']
+        assert client.get('/api/discover').status_code == 200
+        body = {'descriptor': {'type':'local', 'root':str(tmp_path)}}
+        assert client.post('/api/sessions', json=body, headers={'Origin':'http://evil.test'}).status_code == 403
+        opened = client.post('/api/sessions', json=body, headers={'Origin':'http://testserver'})
+        assert opened.status_code == 200
+        url = '/api/sessions/' + opened.json()['id'] + '/file?path=/download.txt'
+        response = client.get(url, headers={'Range':'bytes=2-5'})
+        assert response.status_code == 206 and response.content == b'2345'
+        assert client.delete('/api/login', headers={'Origin':'http://testserver'}).status_code == 200
+        assert client.get(url).status_code == 401

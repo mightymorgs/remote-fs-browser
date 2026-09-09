@@ -39,7 +39,7 @@ export class RemoteFsBrowser extends HTMLElement {
     this.shadowRoot.replaceChildren()
     const style = this.element('style', `:host{display:block;font:15px system-ui;color:#172230;max-width:850px}section{border:1px solid #ccd5df;border-radius:14px;padding:22px;background:#fff}h2{margin-top:0}button,input,select{font:inherit;padding:9px 12px;border:1px solid #c4cdd7;border-radius:7px;background:white;color:inherit}button{cursor:pointer}button:hover{background:#edf5f9}button:disabled{opacity:.5;cursor:wait}label{display:grid;gap:6px}form{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}nav{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.entries{max-height:360px;overflow:auto;border-block:1px solid #ddd}.entry{display:flex;align-items:center;gap:16px;padding:8px}.entry button{flex:1;text-align:left;border:0}.meta{color:#607080;font-size:12px}.status{min-height:24px;margin:12px 0}code{overflow-wrap:anywhere}.primary{background:#165d79;color:white}`)
     const section = this.element('section'); section.append(this.element('h2', 'Choose storage'))
-    section.append(this.element('p', 'Browse storage visible to the remote host. Select a folder to return its location.'))
+    section.append(this.element('p', this.getAttribute('mode') === 'browse' ? 'Browse folders and download files visible to this host.' : 'Browse storage visible to the remote host. Select a folder to return its location.'))
     this.form = this.element('form'); this.form.onsubmit = event => event.preventDefault()
     this.type = this.element('select'); this.type.setAttribute('aria-label','Storage type')
     for (const [value, label] of [['local','This machine'],['smb','SMB'],['nfs','NFS']]) this.type.append(this.element('option', label, { value }))
@@ -57,7 +57,7 @@ export class RemoteFsBrowser extends HTMLElement {
     this.nav = this.element('nav'); this.entries = this.element('div','',{ className:'entries' })
     this.entries.setAttribute('aria-label','Folder entries')
     this.selected = this.element('code','/')
-    this.choose = this.button('Select this folder', () => this.select()); this.choose.className = 'primary'; this.choose.disabled = true
+    this.choose = this.button('Select this folder', () => this.select()); this.choose.className = 'primary'; this.choose.disabled = true; this.choose.hidden = this.getAttribute('mode') === 'browse'
     section.append(this.form, this.locations, this.status, this.nav, this.entries, this.selected, this.choose, this.button('Disconnect', () => this.disconnect()))
     this.shadowRoot.append(style, section)
   }
@@ -120,6 +120,7 @@ export class RemoteFsBrowser extends HTMLElement {
       row.append(item.type === 'directory' ? this.button(`📁 ${item.name}`, () => this.action(() => this.show(item.path))) : this.element('span',item.name))
       row.append(this.element('span', item.type === 'directory' ? 'Folder' : `${item.size ?? '—'} bytes`, { className:'meta' }))
       if (item.modified) row.append(this.element('time',item.modified,{ className:'meta' }))
+      if (item.type === 'file' && this.download) row.append(this.button('Download', () => this.download(this.session, item)))
       this.entries.append(row)
     }
     if (!result.entries.length) this.entries.append(this.element('p','This folder is empty.'))

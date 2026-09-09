@@ -25,25 +25,47 @@ Remote host — Windows, macOS or Linux
 
 **Initial release:** this is a reference service and embedding SDK, not a hardened multi-tenant filesystem sandbox. See [security boundaries](SECURITY.md) and [validation](VALIDATION.md) before deployment. No secret manager, orchestration system or VPN is required by the library.
 
-## Try it
+## Serve the browser
 
-Python 3.11+ is required. NFS additionally requires **libnfs 6+ / API V2**; the installers handle this dependency. Local and SMB browsing work without loading libnfs.
-
-```sh
-python -m venv .venv
-# Windows: .venv\Scripts\activate
-. .venv/bin/activate
-pip install -e '.[test]'
-cp examples/config.example.json config.json
-```
-
-Edit the private config: choose existing `local_roots`, permitted `network_ranges`, and a random token of at least 32 characters. The example network is a documentation-only range; replace it with the networks you intend to expose. An empty roots/network list denies that class of access. Generate a token with `python -c "import secrets; print(secrets.token_urlsafe(48))"` and keep the config private (`chmod 600 config.json` on Unix).
+Install from a checkout with `pip install .` (Python 3.11+), then:
 
 ```sh
-remote-fs-browser --config config.json
+remote-fs-browser serve --port 8080
 ```
 
-Open `http://127.0.0.1:8765`, enter the token, and use the picker. To expose the service remotely, bind it to a private interface and use a VPN or TLS reverse proxy with an appropriate firewall. Tailscale works, but is optional. Authentication is required even over a VPN. No public firewall rule is installed automatically.
+Open `http://127.0.0.1:8080/` and enter the temporary token printed in the terminal. The default exposes only the current directory, read-only, on loopback. No config file is needed.
+
+To access it from another computer:
+
+```sh
+remote-fs-browser serve --bind 0.0.0.0 --port 8080 --root /srv/media
+# Or listen only on a particular interface:
+remote-fs-browser serve --bind 100.82.14.7 --port 8080
+```
+
+Open the network URL printed at startup. Detected addresses in the shared 100.64.0.0/10 range are labelled Tailscale/CGNAT; this does not require or verify Tailscale. Interface addresses are candidates, not a guarantee that your firewall permits access. Plain HTTP needs a trusted network or encrypted tunnel.
+
+The UI and API share one port and origin, with no separate frontend deployment or CORS setup. Sign-in exchanges the token for an HttpOnly, SameSite browser cookie lasting eight hours. Downloads stream directly through the browser download manager, including HTTP Range support; tokens are never put in download URLs. Sign out revokes the browser cookie.
+
+- `/?mode=browse` (default): navigate folders and download files.
+- `/?mode=select`: choose a directory and copy its credential-free descriptor.
+- `/api/discover`, `/api/sessions`, `/api/sessions/{id}/list`, `/api/sessions/{id}/file`: API endpoints. The original unprefixed SDK routes remain supported.
+
+Repeat `--root` to expose multiple folders. SMB/NFS connections and host scans require explicit permitted networks:
+
+```sh
+remote-fs-browser serve --root /srv/media --allow-network 192.168.1.0/24
+```
+
+NFS requires **libnfs 6+ / API V2**; the platform installers handle it. Local and SMB browsing work without loading libnfs. No shares are mounted into the host OS.
+
+For persistent service settings, copy `examples/config.example.json` to a private config, set your roots, permitted networks and a random token of at least 32 characters, then run:
+
+```sh
+remote-fs-browser serve --config config.json
+```
+
+Explicit CLI options override config values. Existing `remote-fs-browser --config config.json` installations still work. The example uses port 8765. No firewall rule is opened automatically, and authentication is always required.
 
 ## Python SDK
 

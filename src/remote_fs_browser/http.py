@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager, suppress
 import hmac
 import inspect
 import json
+import secrets
+import socket
 from pathlib import Path
 import time
 from typing import Callable
@@ -71,6 +73,7 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         raise ValueError('Configure an authentication hook or a token of at least 32 characters')
     browser = Browser(policy)
     owners, rates = {}, defaultdict(deque)
+    logins = {}
 
     @asynccontextmanager
     async def lifespan(app):
@@ -98,11 +101,17 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         if request.url.path in ('/', '/browser.js', '/demo.js'):
             return await call_next(request)
         principal = None
-        if authenticate:
+        cookie = request.cookies.get('remote_fs_session')
+        grant = logins.get(cookie)
+        if grant and grant[1] > time.monotonic():
+            if request.method not in ('GET', 'HEAD') and request.headers.get('origin') != str(request.base_url).rstrip('/'):
+                return JSONResponse({'detail': 'Same-origin request required'}, status_code=403)
+            principal = grant[0]
+        if not principal and authenticate:
             principal = authenticate(request)
             if inspect.isawaitable(principal):
                 principal = await principal
-        elif hmac.compare_digest(request.headers.get('authorization', '').encode(), ('Bearer ' + token).encode()):
+        elif not principal and token and hmac.compare_digest(request.headers.get('authorization', '').encode(), ('Bearer ' + token).encode()):
             principal = 'token-user'
         if not principal or not isinstance(principal, str):
             return JSONResponse({'detail': 'Authentication required'}, status_code=401)
@@ -123,6 +132,29 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         response = await call_next(request)
         response.headers['Cache-Control'] = 'no-store'
         response.headers['X-Content-Type-Options'] = 'nosniff'
+        return response
+
+    @app.post('/api/login')
+    async def login(request: Request):
+        # Exchange the service token for a short-lived HttpOnly browser cookie.
+        now = time.monotonic()
+        for key in list(logins):
+            if logins[key][1] <= now:
+                logins.pop(key, None)
+        if len(logins) >= 1024:
+            raise HTTPException(429, 'Too many browser logins')
+        key = secrets.token_urlsafe(32)
+        logins[key] = (request.state.principal, now + 28800)
+        response = JSONResponse({'hostname': socket.gethostname()})
+        response.set_cookie('remote_fs_session', key, httponly=True, samesite='strict',
+                            secure=request.url.scheme == 'https', max_age=28800, path='/api')
+        return response
+
+    @app.delete('/api/login')
+    async def logout(request: Request):
+        logins.pop(request.cookies.get('remote_fs_session'), None)
+        response = JSONResponse({'closed': True})
+        response.delete_cookie('remote_fs_session', path='/api')
         return response
 
     @app.get('/')
@@ -159,18 +191,21 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         status = 403 if isinstance(error, PermissionError) else 410 if isinstance(error, KeyError) else 504 if isinstance(error, TimeoutError) else 422
         return JSONResponse({'detail': 'Session expired; reconnect' if status == 410 else 'Request failed; check permissions, path, connection and dependencies'}, status_code=status)
 
-    @app.get('/discover')
+    @app.get('/api/discover')
+    @app.get('/discover', include_in_schema=False)
     async def discover(request: Request, scan: bool = False):
         await allowed(request, 'discover')
         return await browser.discover(scan=scan)
 
-    @app.post('/discover')
+    @app.post('/api/discover')
+    @app.post('/discover', include_in_schema=False)
     async def discover_server(request: Request):
         await allowed(request, 'discover')
         data = await request.json()
         return await browser.discover(host=data['host'], protocol=data['type'], credentials=data.get('credentials'))
 
-    @app.post('/sessions')
+    @app.post('/api/sessions')
+    @app.post('/sessions', include_in_schema=False)
     async def connect(request: Request):
         # A connection alone grants no read permission; operations are checked separately.
         if authorize:
@@ -195,7 +230,8 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         owners[session.id] = request.state.principal
         return {'id': session.id, 'descriptor': session.descriptor(), 'idle_seconds': policy.idle_seconds}
 
-    @app.get('/sessions/{id}/list')
+    @app.get('/api/sessions/{id}/list')
+    @app.get('/sessions/{id}/list', include_in_schema=False)
     async def listing(request: Request, id: str, path: str = '/', ndjson: bool = False):
         session = get(request, id)
         await allowed(request, 'list', session.descriptor(path))
@@ -207,13 +243,15 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
                 yield json.dumps(item) + '\n'
         return StreamingResponse(lines(), media_type='application/x-ndjson', headers={'X-Listing-Truncated': str(data['truncated']).lower()})
 
-    @app.get('/sessions/{id}/stat')
+    @app.get('/api/sessions/{id}/stat')
+    @app.get('/sessions/{id}/stat', include_in_schema=False)
     async def info(request: Request, id: str, path: str):
         session = get(request, id)
         await allowed(request, 'stat', session.descriptor(path))
         return await session.stat(path)
 
-    @app.get('/sessions/{id}/file')
+    @app.get('/api/sessions/{id}/file')
+    @app.get('/sessions/{id}/file', include_in_schema=False)
     async def file(request: Request, id: str, path: str):
         session = get(request, id)
         await allowed(request, 'read', session.descriptor(path))
@@ -235,12 +273,14 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
                     yield chunk
             finally:
                 await stream.aclose()
-        headers = {'Accept-Ranges': 'bytes', 'Content-Length': str(length), 'Content-Disposition': 'attachment'}
+        from urllib.parse import quote
+        headers = {'Accept-Ranges': 'bytes', 'Content-Length': str(length), 'Content-Disposition': "attachment; filename*=UTF-8''" + quote(path.rsplit('/', 1)[-1], safe='')}
         if status == 206:
             headers['Content-Range'] = f'bytes {offset}-{offset + length - 1}/{size}'
         return StreamingResponse(chunks(), status_code=status, media_type='application/octet-stream', headers=headers)
 
-    @app.get('/sessions/{id}/descriptor')
+    @app.get('/api/sessions/{id}/descriptor')
+    @app.get('/sessions/{id}/descriptor', include_in_schema=False)
     async def descriptor(request: Request, id: str, path: str = '/'):
         session = get(request, id)
         await allowed(request, 'stat', session.descriptor(path))
@@ -249,7 +289,8 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
             raise HTTPException(422, 'Choose a directory')
         return session.descriptor(path)
 
-    @app.delete('/sessions/{id}')
+    @app.delete('/api/sessions/{id}')
+    @app.delete('/sessions/{id}', include_in_schema=False)
     async def close(request: Request, id: str):
         session = get(request, id)
         await session.close()
@@ -260,14 +301,8 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
 
 
 def main():
-    import argparse
-    import uvicorn
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--config', required=True, help='Private JSON service configuration')
-    args = parser.parse_args()
-    config = json.loads(Path(args.config).read_text())
-    app = create_app(Policy(**config['policy']), token=config.get('token'))
-    uvicorn.run(app, host=config.get('bind', '127.0.0.1'), port=config.get('port', 8765), access_log=False)
+    from .cli import main as serve
+    serve()
 
 
 if __name__ == '__main__':
