@@ -134,6 +134,10 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         response.headers['X-Content-Type-Options'] = 'nosniff'
         return response
 
+    @app.get('/api/login')
+    async def login_status(request: Request):
+        return {'hostname': socket.gethostname()}
+
     @app.post('/api/login')
     async def login(request: Request):
         # Exchange the service token for a short-lived HttpOnly browser cookie.

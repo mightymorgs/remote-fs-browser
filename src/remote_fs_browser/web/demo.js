@@ -39,3 +39,10 @@ document.querySelector('#copy').onclick = async () => {
   if (navigator.clipboard) await navigator.clipboard.writeText(result.value)
   else document.execCommand('copy')
 }
+
+// Resume the browser cookie after refreshing or switching modes.
+client.request('/login').then(async result => {
+  document.querySelector('h1').textContent = `Storage visible to ${result.hostname}`
+  document.querySelector('#login-status').textContent = 'Connected.'
+  await picker.discover()
+}).catch(() => {})
