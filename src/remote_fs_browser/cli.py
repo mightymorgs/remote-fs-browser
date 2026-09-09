@@ -145,6 +145,9 @@ def main(argv=None):
     lines.append(f'{"Networks":16} {", ".join(policy.network_ranges) or "none (SMB/NFS disabled)"}')
     lines.append(f'{"Access":16} read-only: {", ".join(policy.operations)}')
     lines.append(f'{"Remembered":16} {saved_note or f"{len(saved.records)} saved location(s) in {saved.path}"}')
+    from .discovery import share_enumeration_available
+    if not share_enumeration_available():
+        lines.append(f'{"SMB shares":16} enumeration unavailable (impacket not installed); shares can still be entered by name')
     lines.append('')
     if remote:
         lines.append('WARNING: reachable from the network; anyone with the token can read every root above.')

@@ -57,7 +57,7 @@ remotefs serve --root /srv/media --root /mnt/backup --allow-network 192.168.1.0/
 remotefs serve --no-defaults --config /etc/remotefs/config.json   # expose only what the config names
 ```
 
-Homebrew users can keep it running with `brew services start remotefs`. NFS needs libnfs 6 or newer (`brew install libnfs`, or the platform installers below); local and SMB browsing work without it.
+Homebrew users can keep it running with `brew services start remotefs`. NFS needs libnfs 6 or newer (`brew install libnfs`, or the platform installers below); local and SMB browsing work without it. On Windows, listing the shares a server offers needs the optional `remote-fs-browser[smb-enum]` extra, which Windows Defender quarantines during install unless the Python environment is excluded; without it, type the share name and browsing works as usual.
 
 ## Remembered locations
 

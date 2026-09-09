@@ -8,6 +8,7 @@
 # into dist/remotefs/ after this spec runs, and cli.py sets LIBNFS_LIBRARY to
 # that bundled libnfs.dll (next to sys.executable) when sys.frozen is set.
 
+import importlib.util
 import os
 
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
@@ -20,9 +21,10 @@ hiddenimports = (
     collect_submodules("smbprotocol")
     + collect_submodules("smbclient")
     + collect_submodules("spnego")
-    # impacket's DCE/RPC layer (SRVSVC share enumeration) is loaded by name.
-    + ["impacket", "impacket.smbconnection", "impacket.nmb", "impacket.ntlm"]
-    + collect_submodules("impacket.dcerpc.v5")
+    # impacket (SRVSVC share enumeration) is an opt-in extra on Windows because
+    # Defender quarantines its example scripts; bundle it only when present.
+    + (["impacket", "impacket.smbconnection", "impacket.nmb", "impacket.ntlm"] + collect_submodules("impacket.dcerpc.v5")
+       if importlib.util.find_spec("impacket") else [])
     # uvicorn selects its loop and protocol implementations from strings.
     + collect_submodules("uvicorn")
     + collect_submodules("remote_fs_browser")

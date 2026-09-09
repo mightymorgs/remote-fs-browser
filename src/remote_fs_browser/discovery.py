@@ -64,7 +64,14 @@ def discover(policy: Policy, scan=False, root_kinds=None):
     return result
 
 
+def share_enumeration_available():
+    import importlib.util
+    return importlib.util.find_spec('impacket') is not None
+
+
 def smb_shares(host, credentials):
+    if not share_enumeration_available():
+        raise RuntimeError('SMB share enumeration needs the impacket package (pip install "remote-fs-browser[smb-enum]"); enter the share name instead')
     from impacket.smbconnection import SMBConnection
     from impacket.smb3structs import SMB2_DIALECT_21
     # Explicit SMB2 dialect prevents falling back to SMB1 browser services.
