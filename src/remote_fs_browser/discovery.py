@@ -37,10 +37,12 @@ def discover(policy: Policy, scan=False, root_kinds=None):
             result['notes'].append('Skipped a range larger than 256 addresses; configure narrower discovery ranges.')
             continue
         hosts.update(str(host) for host in network.hosts())
-    if len(hosts) > 256:
-        raise ValueError('Discovery is limited to 256 candidate addresses per request')
     if policy.servers:
         hosts &= {policy.host(host) for host in policy.servers}
+    hosts = sorted(hosts, key=ipaddress.ip_address)
+    if len(hosts) > 256:
+        result['notes'].append(f'Scanned the first 256 of {len(hosts)} candidate addresses; narrow the permitted ranges to scan the rest.')
+        hosts = hosts[:256]
 
     def probe(host):
         protocols = []
@@ -53,7 +55,7 @@ def discover(policy: Policy, scan=False, root_kinds=None):
         return {'host': host, 'protocols': protocols} if protocols else None
 
     with ThreadPoolExecutor(max_workers=32) as executor:
-        result['hosts'] = [row for row in executor.map(probe, sorted(hosts)) if row]
+        result['hosts'] = [row for row in executor.map(probe, hosts) if row]
     result['groups'] = grouped(policy, result['roots'], result['hosts'], True)
     return result
 

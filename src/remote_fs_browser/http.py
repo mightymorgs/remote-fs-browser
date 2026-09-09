@@ -13,6 +13,8 @@ from typing import Callable
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from . import Browser, Policy
+from .policy import normalize
+from .sessions import clean_descriptor
 
 
 def byte_range(header, size):
@@ -68,9 +70,11 @@ class BodyLimit:
 
 
 def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
-               authorize: Callable | None = None, credential_resolver=None, root_kinds=None):
+               authorize: Callable | None = None, credential_resolver=None, root_kinds=None, saved_locations=None):
     if not authenticate and (not token or len(token) < 32):
         raise ValueError('Configure an authentication hook or a token of at least 32 characters')
+    if saved_locations is not None and credential_resolver is None:
+        credential_resolver = saved_locations.resolve
     browser = Browser(policy, root_kinds=root_kinds)
     owners, rates = {}, defaultdict(deque)
     logins = {}
@@ -195,6 +199,36 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
     async def failure(request, error):
         status = 403 if isinstance(error, PermissionError) else 410 if isinstance(error, KeyError) else 504 if isinstance(error, TimeoutError) else 422
         return JSONResponse({'detail': 'Session expired; reconnect' if status == 410 else 'Request failed; check permissions, path, connection and dependencies'}, status_code=status)
+
+    @app.get('/api/saved')
+    @app.get('/saved', include_in_schema=False)
+    async def saved_list(request: Request):
+        await allowed(request, 'discover')
+        if saved_locations is None:
+            return {'locations': [], 'available': False}
+        return {'locations': saved_locations.list(request.state.principal), 'available': True}
+
+    @app.post('/api/saved')
+    @app.post('/saved', include_in_schema=False)
+    async def saved_add(request: Request):
+        await allowed(request, 'discover')
+        if saved_locations is None:
+            raise HTTPException(404, 'This service does not remember locations')
+        data = await request.json()
+        descriptor = clean_descriptor(data['descriptor'])
+        if descriptor['type'] == 'local':
+            raise HTTPException(422, 'Local folders are already listed under This Computer')
+        descriptor['path'] = normalize(data['descriptor'].get('path', '/'))
+        reference = saved_locations.add(request.state.principal, descriptor, data.get('credentials'), data.get('label'))
+        return {'id': reference}
+
+    @app.delete('/api/saved/{reference}')
+    @app.delete('/saved/{reference}', include_in_schema=False)
+    async def saved_remove(request: Request, reference: str):
+        await allowed(request, 'discover')
+        if saved_locations is None or not saved_locations.remove(request.state.principal, reference):
+            raise HTTPException(404, 'Saved location not found')
+        return {'removed': True}
 
     @app.get('/api/discover')
     @app.get('/discover', include_in_schema=False)

@@ -8,6 +8,8 @@ A worker owns one backend connection and at most four file streams. Operations t
 
 Do not put passwords in descriptors, URLs, CLI arguments, logs or source control. Credential resolvers must check that the requesting principal owns each reference. Hook implementations must not log secrets. Config files contain the service token and need restrictive permissions.
 
+The standalone `remotefs serve` command can remember SMB and NFS locations, including SMB credentials, when the person ticks "Remember this location". They are written to `saved.json` beside the service config, mode 600, encrypted with AES-GCM under a key derived from the service token with scrypt. Signing in with the same token brings them back; a different token cannot open the file and the service refuses to overwrite it. Use "Forget" in the picker or delete `saved.json` to remove them. The SDK and `create_app` persist nothing unless an application passes a store or resolver; a temporary token (config without a token) never persists locations.
+
 System installers run the service as root/SYSTEM so NFS can use reserved source ports and local roots are visible. Narrow the policy carefully. Prefer an unprivileged service account when your NAS permissions allow it; filesystem permissions can then further limit access. Windows desktop drive mappings may not be visible to SYSTEM; connect to the SMB share directly instead.
 
 If you identify a vulnerability, use GitHub's private vulnerability reporting for this repository. Do not post credentials, real filesystem data, or exploitable access details in public issues.

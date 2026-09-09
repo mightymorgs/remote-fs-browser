@@ -36,15 +36,9 @@ def config_home():
     return Path(base) / 'remotefs'
 
 
-def write_private(path, text):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, 'w') as handle:
-        handle.write(text)
-
-
 def load_or_create(path, explicit):
     """Read the configuration; create the default one with a fresh token on first run."""
+    from .store import write_private
     path = Path(path)
     if path.exists():
         if os.name != 'nt' and path.stat().st_mode & 0o077:
@@ -115,9 +109,18 @@ def main(argv=None):
         return
 
     from .http import create_app
+    from .store import SavedLocations, StoreLocked
     import uvicorn
     policy, kinds = build_policy(args, config)
-    app = create_app(policy, token=token, root_kinds=kinds)
+    saved, saved_note = None, ''
+    if not ephemeral:
+        try:
+            saved = SavedLocations(path.with_name('saved.json'), token)
+        except StoreLocked:
+            saved_note = f'{path.with_name("saved.json")} was saved under a different token; remembering is off until it is removed'
+    else:
+        saved_note = 'temporary token; locations are not remembered'
+    app = create_app(policy, token=token, root_kinds=kinds, saved_locations=saved)
     bind = args.bind or config.get('bind', '127.0.0.1')
     port = args.port if args.port is not None else config.get('port', 8080)
     if not 1 <= port <= 65535:
@@ -141,6 +144,7 @@ def main(argv=None):
     lines.append(f'{"Roots":16} {", ".join(roots) or "none"}')
     lines.append(f'{"Networks":16} {", ".join(policy.network_ranges) or "none (SMB/NFS disabled)"}')
     lines.append(f'{"Access":16} read-only: {", ".join(policy.operations)}')
+    lines.append(f'{"Remembered":16} {saved_note or f"{len(saved.records)} saved location(s) in {saved.path}"}')
     lines.append('')
     if remote:
         lines.append('WARNING: reachable from the network; anyone with the token can read every root above.')

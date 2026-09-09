@@ -196,6 +196,22 @@ class FilesystemSession:
         await self.close()
 
 
+def clean_descriptor(descriptor):
+    """Only the fields that identify a location; never credentials or unknown keys."""
+    kind = descriptor.get('type')
+    fields = {'local': ('root',), 'smb': ('host', 'share'), 'nfs': ('host', 'export', 'version')}
+    if kind not in fields:
+        raise ValueError('Choose local, smb or nfs')
+    clean = {'type': kind, **{k: descriptor[k] for k in fields[kind] if k in descriptor}}
+    if kind == 'smb' and (not clean.get('share') or any(c in clean['share'] for c in '/\\\x00')):
+        raise ValueError('Use a share name without subfolders')
+    if kind == 'nfs' and (not clean.get('export', '').startswith('/') or int(clean.get('version', 4)) not in (3, 4)):
+        raise ValueError('Use an absolute NFS export and version 3 or 4')
+    if kind != 'local' and not clean.get('host'):
+        raise ValueError('A server hostname or address is required')
+    return clean
+
+
 class Browser:
     def __init__(self, policy: Policy, credential_resolver=None, root_kinds=None):
         self.policy, self.credential_resolver = policy, credential_resolver
@@ -231,15 +247,7 @@ class Browser:
         await self.expire()
         if len(self.sessions) + self.pending >= self.policy.max_sessions:
             raise ValueError('Session limit reached')
-        kind = descriptor.get('type')
-        fields = {'local': ('root',), 'smb': ('host', 'share'), 'nfs': ('host', 'export', 'version')}
-        if kind not in fields:
-            raise ValueError('Choose local, smb or nfs')
-        clean = {'type': kind, **{k: descriptor[k] for k in fields[kind] if k in descriptor}}
-        if kind == 'smb' and (not clean.get('share') or any(c in clean['share'] for c in '/\\\x00')):
-            raise ValueError('Use a share name without subfolders')
-        if kind == 'nfs' and (not clean.get('export', '').startswith('/') or int(clean.get('version', 4)) not in (3, 4)):
-            raise ValueError('Use an absolute NFS export and version 3 or 4')
+        clean = clean_descriptor(descriptor)
         config = dict(clean)
         ref = descriptor.get('credential_id')
         if ref:

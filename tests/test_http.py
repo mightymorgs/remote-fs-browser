@@ -47,6 +47,36 @@ def test_discover_groups(tmp_path):
         assert '192.0.2.0/24' in data['groups'][1]['hint'] and data['groups'][2]['items'] == []
 
 
+def test_saved_locations_api(tmp_path, monkeypatch):
+    from remote_fs_browser.store import SavedLocations
+    seen = []
+    def fake_smb(self, config):
+        seen.append(dict(config))
+        raise OSError('no server in tests')
+    monkeypatch.setattr('remote_fs_browser.backends.SMBFilesystem.__init__', fake_smb)
+    store = SavedLocations(tmp_path / 'saved.json', TOKEN)
+    app = create_app(Policy(network_ranges=['192.0.2.0/24']), authenticate=lambda request: request.headers.get('x-user'), saved_locations=store)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        alice = {'x-user': 'alice'}
+        descriptor = {'type': 'smb', 'host': '192.0.2.5', 'share': 'Projects', 'path': '/Campaigns'}
+        created = client.post('/api/saved', headers=alice, json={'descriptor': descriptor, 'credentials': {'username': 'media', 'password': 'hunter2'}})
+        assert created.status_code == 200, created.text
+        reference = created.json()['id']
+        listed = client.get('/api/saved', headers=alice).json()
+        assert listed['available'] and listed['locations'][0]['descriptor'] == descriptor and listed['locations'][0]['has_credentials']
+        assert 'hunter2' not in client.get('/api/saved', headers=alice).text
+        assert client.get('/api/saved', headers={'x-user': 'bob'}).json()['locations'] == []
+        assert client.post('/api/saved', headers=alice, json={'descriptor': {'type': 'local', 'root': str(tmp_path)}}).status_code == 422
+        assert client.delete(f'/api/saved/{reference}', headers={'x-user': 'bob'}).status_code == 404
+        assert client.post('/api/sessions', headers={'x-user': 'bob'}, json={'descriptor': {**descriptor, 'credential_id': reference}}).status_code == 403
+        assert not seen
+        monkeypatch.setattr('socket.getaddrinfo', lambda *a, **kw: [(2, 1, 6, '', ('192.0.2.5', 0))])
+        response = client.post('/api/sessions', headers=alice, json={'descriptor': {**descriptor, 'credential_id': reference}})
+        assert response.status_code == 422 and 'hunter2' not in response.text
+        assert client.delete(f'/api/saved/{reference}', headers=alice).status_code == 200
+        assert client.get('/api/saved', headers=alice).json()['locations'] == []
+
+
 def test_principal_isolation(tmp_path):
     app = create_app(Policy(local_roots=[str(tmp_path)]), authenticate=lambda request: request.headers.get('x-user'))
     with TestClient(app) as client:

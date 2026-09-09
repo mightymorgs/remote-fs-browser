@@ -14,6 +14,9 @@ export class RemoteFsClient {
   descriptor(id, path) { return this.request(`/sessions/${encodeURIComponent(id)}/descriptor?${new URLSearchParams({ path })}`) }
   file(id, path, range) { return fetch(`${this.baseUrl}/sessions/${encodeURIComponent(id)}/file?${new URLSearchParams({ path })}`, { headers: { ...this.headers(), ...(range ? { Range: range } : {}) } }) }
   close(id) { return this.request(`/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }) }
+  saved() { return this.request('/saved') }
+  save(descriptor, credentials, label) { return this.request('/saved', { method: 'POST', body: { descriptor, credentials, label } }) }
+  forget(id) { return this.request(`/saved/${encodeURIComponent(id)}`, { method: 'DELETE' }) }
 }
 
 export class RemoteFsBrowser extends HTMLElement {
@@ -51,6 +54,9 @@ export class RemoteFsBrowser extends HTMLElement {
     this.location = this.input('Root, share or export')
     this.username = this.input('Username (SMB)')
     this.password = this.input('Password (SMB)', 'password')
+    this.remember = this.input('Remember this location', 'checkbox'); this.remember.checked = true
+    this.type.onchange = () => { this.remember.parentElement.hidden = this.type.value === 'local' }
+    this.type.onchange()
     this.form.append(this.button('Discover', () => this.discover()), this.button('Connect', () => this.connect()))
     this.status = this.element('div', '', { className: 'status' }); this.status.setAttribute('role','status')
     this.locations = this.element('nav'); this.locations.setAttribute('aria-label','Discovered locations')
@@ -80,7 +86,7 @@ export class RemoteFsBrowser extends HTMLElement {
       this.locations.replaceChildren()
       if (this.type.value === 'local' || !this.host.value) {
         const result = await this.client.discover(scan ?? this.type.value !== 'local')
-        if (result.groups) this.tree(result.groups)
+        if (result.groups) await this.tree(result.groups)
         else {
           for (const root of result.roots) this.locations.append(this.button(root.root, () => { this.type.value = 'local'; this.location.value = root.root }))
           for (const host of result.hosts) this.locations.append(this.button(`${host.host} (${host.protocols.join(', ')})`, () => { this.host.value = host.host; this.type.value = host.protocols[0] }))
@@ -96,7 +102,10 @@ export class RemoteFsBrowser extends HTMLElement {
       }
     })
   }
-  tree(groups) {
+  async tree(groups) {
+    this.savedBlock = this.element('details'); this.savedBlock.open = true
+    this.locations.append(this.savedBlock)
+    await this.renderSaved()
     for (const group of groups) {
       if (!group.items.length && !group.hint) continue
       const details = this.element('details'); details.open = true
@@ -105,6 +114,31 @@ export class RemoteFsBrowser extends HTMLElement {
       if (!group.items.length && group.hint) details.append(this.element('p', group.hint, { className: 'meta' }))
       this.locations.append(details)
     }
+  }
+  async renderSaved() {
+    const block = this.savedBlock
+    if (!block) return
+    const result = await this.client.saved().catch(() => ({ locations: [] }))
+    block.replaceChildren(this.element('summary', 'Saved'))
+    block.hidden = !result.locations.length
+    for (const record of result.locations) {
+      const row = this.element('div', '', { className: 'entry' })
+      row.append(this.button(record.label, () => this.open(record)), this.button('Forget', () => this.action(async () => { await this.client.forget(record.id); await this.renderSaved() })))
+      block.append(row)
+    }
+  }
+  async open(record) {
+    await this.action(async () => {
+      await this.close()
+      const d = record.descriptor
+      this.type.value = d.type; this.type.onchange(); this.host.value = d.host || ''; this.location.value = d.share || d.export || d.root || ''
+      if (d.version) this.version.value = String(d.version)
+      this.descriptor = { ...d, credential_id: record.id }; this.credentials = {}
+      const generation = this.generation
+      const result = await this.client.connect(this.descriptor, {})
+      if (generation !== this.generation) { await this.client.close(result.id); return }
+      this.session = result.id; await this.show(d.path || '/')
+    })
   }
   pick(item) {
     this.type.value = item.type
@@ -121,6 +155,10 @@ export class RemoteFsBrowser extends HTMLElement {
       const result = await this.client.connect(this.descriptor, this.credentials)
       if (generation !== this.generation) { await this.client.close(result.id); return }
       this.session = result.id; await this.show('/')
+      if (this.remember.checked && this.type.value !== 'local' && !this.storeCredentials) {
+        const saved = await this.client.save(this.descriptor, this.credentials).catch(() => null)
+        if (saved) { this.descriptor.credential_id = saved.id; await this.renderSaved() }
+      }
     })
   }
   async show(path) {
@@ -154,6 +192,10 @@ export class RemoteFsBrowser extends HTMLElement {
     await this.action(async () => {
       const descriptor = await this.client.descriptor(this.session,this.path)
       if (descriptor.type === 'smb' && this.storeCredentials) descriptor.credential_id = await this.storeCredentials(this.credentials)
+      else if (descriptor.type !== 'local' && this.remember.checked) {
+        const saved = await this.client.save(descriptor, this.credentials).catch(() => null)
+        if (saved) { descriptor.credential_id = saved.id; await this.renderSaved() }
+      }
       await this.close(); this.credentials = undefined; this.password.value = ''
       this.dispatchEvent(new CustomEvent('path-selected',{ detail:descriptor,bubbles:true,composed:true }))
     })
