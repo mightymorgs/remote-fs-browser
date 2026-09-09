@@ -24,7 +24,7 @@ cat > /Library/LaunchDaemons/org.remote-fs-browser.plist <<EOF
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>Label</key><string>org.remote-fs-browser</string>
-<key>ProgramArguments</key><array><string>$PREFIX/venv/bin/remote-fs-browser</string><string>--config</string><string>$PREFIX/config.json</string></array>
+<key>ProgramArguments</key><array><string>$PREFIX/venv/bin/remotefs</string><string>serve</string><string>--no-defaults</string><string>--config</string><string>$PREFIX/config.json</string></array>
 <key>EnvironmentVariables</key><dict><key>LIBNFS_LIBRARY</key><string>$BREW_PREFIX/lib/libnfs.dylib</string></dict>
 <key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>5</integer>
 </dict></plist>

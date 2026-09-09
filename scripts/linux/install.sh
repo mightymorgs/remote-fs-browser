@@ -31,7 +31,7 @@ Description=Remote filesystem browser
 After=network-online.target
 Wants=network-online.target
 [Service]
-ExecStart=$PREFIX/venv/bin/remote-fs-browser --config $PREFIX/config.json
+ExecStart=$PREFIX/venv/bin/remotefs serve --no-defaults --config $PREFIX/config.json
 Environment=LIBNFS_LIBRARY=$LIBRARY
 Restart=on-failure
 RestartSec=5

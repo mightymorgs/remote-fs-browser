@@ -36,7 +36,7 @@ Copy-Item $Dll.FullName "$Prefix/libnfs.dll" -Force
 Copy-Item $Config "$Prefix/config.json" -Force
 @"
 `$env:LIBNFS_LIBRARY = '$Prefix/libnfs.dll'
-& '$Prefix/venv/Scripts/remote-fs-browser.exe' --config '$Prefix/config.json'
+& '$Prefix/venv/Scripts/remotefs.exe' serve --no-defaults --config '$Prefix/config.json'
 exit `$LASTEXITCODE
 "@ | Set-Content "$Prefix/start.ps1"
 $Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$Prefix/start.ps1`""
