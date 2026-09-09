@@ -54,7 +54,7 @@ class LocalFilesystem:
             fn.argtypes = [wintypes.HANDLE, wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD]
             fn.restype = wintypes.DWORD
             buffer = c.create_unicode_buffer(32768)
-            count = fn(msvcrt.getosfhandle(fd), buffer, len(buffer), 0)
+            count = fn(msvcrt.get_osfhandle(fd), buffer, len(buffer), 0)
             if not count or count >= len(buffer):
                 raise PermissionError('Cannot validate file handle')
             final = buffer.value.removeprefix('\\\\?\\')
