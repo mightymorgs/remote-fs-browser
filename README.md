@@ -38,7 +38,7 @@ Open `http://127.0.0.1:8080/` and sign in with the token printed in the terminal
 With no configuration the service exposes, read-only, on loopback only:
 
 - **This Computer**: your home directory and mounted volumes (`/Volumes` on macOS, drive letters on Windows, mounts under `/mnt`, `/media`, `/run/media`, `/srv`, `/data` and `/home` on Linux).
-- **SMB and NFS**: servers in the private subnets of the host's physical interfaces (container, VM and tunnel interfaces are ignored), each narrowed to a /24. The picker scans them once after sign-in; you can always type a server name.
+- **SMB and NFS**: servers in the private subnets of the host's physical interfaces (container, VM and tunnel interfaces are ignored), each narrowed to a /24. Press **Scan network** to probe them, or add a server by name.
 
 To reach it from another computer, bind to an interface on purpose:
 
@@ -59,13 +59,13 @@ remotefs serve --no-defaults --config /etc/remotefs/config.json   # expose only 
 
 Homebrew users can keep it running with `brew services start remotefs`. NFS needs libnfs 6 or newer (`brew install libnfs`, or the platform installers below); local and SMB browsing work without it. On Windows, listing the shares a server offers needs the optional `remote-fs-browser[smb-enum]` extra, which Windows Defender quarantines during install unless the Python environment is excluded; without it, type the share name and browsing works as usual.
 
-## Remembered locations
+## Shortlist
 
-Tick **Remember this location** when connecting to an SMB share or NFS export and the picker keeps it. Signing in later with the same token shows it under **Saved**, and one click reconnects with the stored SMB credentials. Saved locations live in `saved.json` beside the config, readable only by you and encrypted under the service token; a different token cannot open them. **Forget** removes one, deleting the file removes them all. See [security boundaries](SECURITY.md).
+**Save folder to shortlist** pins the folder you are viewing, on a local root, an SMB share or an NFS export. Signing in later with the same token shows it under **Shortlist**, and one click reopens it; folders on the same SMB share reuse the credentials you gave when you first saved one. The shortlist lives in `saved.json` beside the config, readable only by you and encrypted under the service token; a different token cannot open it. **Forget** removes one entry, deleting the file removes them all. See [security boundaries](SECURITY.md).
 
 ## The browser
 
-The UI and API share one port and origin. Sign-in exchanges the token for an HttpOnly, SameSite browser cookie lasting eight hours; sign out revokes it. Downloads stream through the browser's download manager with HTTP Range support, and tokens never appear in download URLs.
+The UI and API share one port and origin. Sign-in is its own screen: it exchanges the token for an HttpOnly, SameSite browser cookie lasting eight hours, and **Sign out** revokes it. The picker shows the host's roots and mapped network locations in a sidebar, the folder listing beside it, and collapses to a sources sheet on phones. Downloads stream through the browser's download manager with HTTP Range support, and tokens never appear in download URLs.
 
 - `/?mode=browse` (default): navigate folders and download files.
 - `/?mode=select`: choose a directory and copy its credential-free descriptor, for use by other automation.
@@ -156,7 +156,7 @@ picker.addEventListener('path-selected', event => saveDescriptor(event.detail))
 // picker.storeCredentials = async credentials => mySecretStore.save(credentials)
 ```
 
-The picker renders the discovery tree (Saved, This Computer, SMB, NFS), manual locations, credential entry, nested folders, metadata, loading/errors, expiry reconnect, downloads in browse mode and final directory selection in select mode. When the service offers `/api/saved` and no `storeCredentials` hook is set, "Remember this location" stores the connection there. It closes its session on selection, disconnect or element removal. Keep the service on the same origin or configure a restrictive CORS policy when embedding across origins. The JS client's `file()` returns a Fetch `Response`; consume its `body` as a stream rather than calling `blob()` for large files.
+The element fills the box it is given. It renders the shortlist and the host's roots in a sidebar, network devices from an explicit scan, per-host share and export lists, credential entry, nested folders with formatted sizes and dates, in-place errors with retry, expiry reconnect, downloads in browse mode and a live descriptor preview with a Select button in select mode. The `signout` attribute adds a Sign out button that fires a `sign-out` event for the host page to act on. When the service offers `/api/saved` and no `storeCredentials` hook is set, "Save folder to shortlist" stores the current folder there. It closes its session on selection, disconnect or element removal. Keep the service on the same origin or configure a restrictive CORS policy when embedding across origins. The JS client's `file()` returns a Fetch `Response`; consume its `body` as a stream rather than calling `blob()` for large files.
 
 ## Discovery limits
 

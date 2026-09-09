@@ -30,17 +30,22 @@ def test_other_token_cannot_open_store(tmp_path):
         SavedLocations(path, 'another-token-' * 4)
 
 
-def test_same_location_updates_in_place_and_keeps_credentials(tmp_path):
+def test_folders_on_one_share_share_credentials(tmp_path):
     store = SavedLocations(tmp_path / 'saved.json', TOKEN)
     first = store.add('alice', SMB, {'username': 'u', 'password': 'p'})
-    second = store.add('alice', {**SMB, 'path': '/Other'}, {}, label='Renamed')
-    assert first == second and len(store.records) == 1
-    assert store.list('alice')[0]['descriptor']['path'] == '/Other' and store.list('alice')[0]['label'] == 'Renamed'
-    assert store.resolve('alice', first)['password'] == 'p'
+    same = store.add('alice', dict(SMB), {}, label='Renamed')
+    assert first == same and len(store.records) == 1 and store.list('alice')[0]['label'] == 'Renamed'
+    second = store.add('alice', {**SMB, 'path': '/Other'})
+    assert second != first and len(store.records) == 2
+    assert store.resolve('alice', second) == {'username': 'u', 'password': 'p'}
+    third = store.add('alice', {**SMB, 'path': '/Third'}, {'username': 'u', 'password': 'rotated'})
+    assert store.resolve('alice', first)['password'] == 'rotated' and store.resolve('alice', second)['password'] == 'rotated'
     nfs = store.add('alice', {'type': 'nfs', 'host': '192.0.2.5', 'export': '/exports/media', 'version': 4, 'path': '/'})
-    assert store.list('alice')[1]['label'] == '192.0.2.5/exports/media' and store.resolve('alice', nfs) == {}
+    assert store.list('alice')[3]['label'] == '192.0.2.5/exports/media' and store.resolve('alice', nfs) == {}
+    local = store.add('alice', {'type': 'local', 'root': '/srv/media', 'path': '/Photos'})
+    assert store.list('alice')[4]['label'] == '/srv/media' and store.resolve('alice', local) == {}
     assert store.remove('bob', first) is False and store.remove('alice', first) is True
-    assert [row['id'] for row in store.list('alice')] == [nfs]
+    assert [row['id'] for row in store.list('alice')] == [second, third, nfs, local]
 
 
 def test_limit(tmp_path):

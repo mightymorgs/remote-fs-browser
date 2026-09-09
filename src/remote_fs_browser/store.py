@@ -66,16 +66,20 @@ class SavedLocations:
         return [self.public(row) for row in self.records if row['principal'] == principal]
 
     def add(self, principal, descriptor, credentials=None, label=None):
-        """Remember a location; the same location for the same principal is updated in place."""
+        """Remember a folder. Folders on one share share credentials; the same folder is updated in place."""
         path = descriptor.get('path', '/')
         identity = {k: v for k, v in descriptor.items() if k not in ('path', 'credential_id')}
         credential = {k: v for k, v in (credentials or {}).items() if k in CREDENTIAL_KEYS and v}
-        for row in self.records:
-            if row['principal'] == principal and {k: v for k, v in row['descriptor'].items() if k != 'path'} == identity:
-                row['descriptor'] = {**identity, 'path': path}
+        siblings = [row for row in self.records if row['principal'] == principal
+                    and {k: v for k, v in row['descriptor'].items() if k != 'path'} == identity]
+        if credential:
+            for row in siblings:
+                row['credential'] = dict(credential)
+        else:
+            credential = next((dict(row['credential']) for row in siblings if row.get('credential')), {})
+        for row in siblings:
+            if row['descriptor'].get('path', '/') == path:
                 row['label'] = label or row['label']
-                if credential:
-                    row['credential'] = credential
                 self.save()
                 return row['id']
         if len(self.list(principal)) >= self.limit:
@@ -88,7 +92,9 @@ class SavedLocations:
 
     @staticmethod
     def default_label(descriptor):
-        location = str(descriptor.get('share') or descriptor.get('export') or descriptor.get('root', '')).lstrip('/')
+        if descriptor.get('type') == 'local':
+            return str(descriptor.get('root', ''))
+        location = str(descriptor.get('share') or descriptor.get('export') or '').lstrip('/')
         return f"{descriptor.get('host', '')}/{location}".strip('/')
 
     def remove(self, principal, reference):

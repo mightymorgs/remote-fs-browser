@@ -66,7 +66,8 @@ def test_saved_locations_api(tmp_path, monkeypatch):
         assert listed['available'] and listed['locations'][0]['descriptor'] == descriptor and listed['locations'][0]['has_credentials']
         assert 'hunter2' not in client.get('/api/saved', headers=alice).text
         assert client.get('/api/saved', headers={'x-user': 'bob'}).json()['locations'] == []
-        assert client.post('/api/saved', headers=alice, json={'descriptor': {'type': 'local', 'root': str(tmp_path)}}).status_code == 422
+        local = client.post('/api/saved', headers=alice, json={'descriptor': {'type': 'local', 'root': str(tmp_path), 'path': '/Photos'}})
+        assert local.status_code == 200 and len(client.get('/api/saved', headers=alice).json()['locations']) == 2
         assert client.delete(f'/api/saved/{reference}', headers={'x-user': 'bob'}).status_code == 404
         assert client.post('/api/sessions', headers={'x-user': 'bob'}, json={'descriptor': {**descriptor, 'credential_id': reference}}).status_code == 403
         assert not seen
@@ -74,7 +75,8 @@ def test_saved_locations_api(tmp_path, monkeypatch):
         response = client.post('/api/sessions', headers=alice, json={'descriptor': {**descriptor, 'credential_id': reference}})
         assert response.status_code == 422 and 'hunter2' not in response.text
         assert client.delete(f'/api/saved/{reference}', headers=alice).status_code == 200
-        assert client.get('/api/saved', headers=alice).json()['locations'] == []
+        remaining = client.get('/api/saved', headers=alice).json()['locations']
+        assert [row['descriptor']['type'] for row in remaining] == ['local']
 
 
 def test_principal_isolation(tmp_path):

@@ -216,8 +216,6 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
             raise HTTPException(404, 'This service does not remember locations')
         data = await request.json()
         descriptor = clean_descriptor(data['descriptor'])
-        if descriptor['type'] == 'local':
-            raise HTTPException(422, 'Local folders are already listed under This Computer')
         descriptor['path'] = normalize(data['descriptor'].get('path', '/'))
         reference = saved_locations.add(request.state.principal, descriptor, data.get('credentials'), data.get('label'))
         return {'id': reference}
