@@ -1,0 +1,9 @@
+---
+- name: Uninstall remote filesystem browser
+  hosts: filesystem_hosts
+  gather_facts: false
+  tasks:
+    - name: Stop and remove service (preserve configuration)
+      become: true
+      ansible.builtin.command:
+        argv: [bash, '{{ remote_fs_source }}/scripts/linux/uninstall.sh']

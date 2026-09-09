@@ -1,0 +1,8 @@
+---
+- name: Uninstall remote filesystem browser
+  hosts: filesystem_hosts
+  gather_facts: false
+  tasks:
+    - name: Stop and remove service (preserve configuration)
+      ansible.windows.win_powershell:
+        script: "& '{{ remote_fs_source }}/scripts/windows/uninstall.ps1'"

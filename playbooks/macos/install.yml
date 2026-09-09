@@ -1,0 +1,23 @@
+---
+- name: Install remote filesystem browser on macos
+  hosts: filesystem_hosts
+  gather_facts: false
+  tasks:
+    - name: Create source directory
+      become: true
+      ansible.builtin.file:
+        path: '{{ remote_fs_source }}'
+        state: directory
+        mode: '0755'
+    - name: Copy public source files
+      become: true
+      ansible.builtin.copy:
+        src: '../../{{ item }}'
+        dest: '{{ remote_fs_source }}/'
+      loop: [src, scripts, pyproject.toml, README.md, LICENSE]
+    - name: Run installer
+      become: true
+      ansible.builtin.command:
+        argv: [bash, '{{ remote_fs_source }}/scripts/macos/install.sh', '{{ remote_fs_config }}']
+      environment:
+        SUDO_USER: '{{ remote_fs_brew_user }}'

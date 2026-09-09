@@ -1,0 +1,8 @@
+{
+  "name": "@remote-fs-browser/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./browser.js",
+  "description": "Dependency-free remote storage picker custom element"
+}

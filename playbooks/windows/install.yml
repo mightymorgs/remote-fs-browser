@@ -1,0 +1,17 @@
+---
+- name: Install remote filesystem browser on Windows
+  hosts: filesystem_hosts
+  gather_facts: false
+  tasks:
+    - name: Create source directory
+      ansible.windows.win_file:
+        path: '{{ remote_fs_source }}'
+        state: directory
+    - name: Copy public source files
+      ansible.windows.win_copy:
+        src: '../../{{ item }}'
+        dest: '{{ remote_fs_source }}/'
+      loop: [src, scripts, pyproject.toml, README.md, LICENSE]
+    - name: Install service from checkout
+      ansible.windows.win_powershell:
+        script: "& '{{ remote_fs_source }}/scripts/windows/install.ps1' -Config '{{ remote_fs_config }}'"

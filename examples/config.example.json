@@ -1,0 +1,16 @@
+{
+  "bind": "127.0.0.1",
+  "port": 8765,
+  "token": "REPLACE_WITH_A_RANDOM_TOKEN_OF_AT_LEAST_32_CHARACTERS",
+  "policy": {
+    "local_roots": [],
+    "network_ranges": ["192.0.2.0/24"],
+    "servers": [],
+    "operations": ["discover", "list", "stat", "read"],
+    "idle_seconds": 300,
+    "operation_timeout": 10,
+    "max_sessions": 16,
+    "max_entries": 10000,
+    "requests_per_minute": 120
+  }
+}

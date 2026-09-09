@@ -1,0 +1,81 @@
+import asyncio
+import os
+from pathlib import Path
+import pytest
+from remote_fs_browser import Browser, Policy
+from remote_fs_browser.policy import normalize
+from remote_fs_browser.backends import LocalFilesystem
+
+
+@pytest.mark.parametrize('path', ['../x', '/a/../b', '/x\\y', '/x\x00y', '/x:stream', './x'])
+def test_bad_paths(path):
+    with pytest.raises(ValueError): normalize(path)
+
+
+def test_policy_denies_by_default(tmp_path):
+    policy = Policy()
+    with pytest.raises(PermissionError): policy.local_root(tmp_path)
+    with pytest.raises(PermissionError): policy.host('127.0.0.1')
+
+
+async def test_local_sdk_and_cleanup(tmp_path):
+    (tmp_path / 'folder with spaces').mkdir()
+    (tmp_path / 'file.bin').write_bytes(b'0123456789')
+    async with Browser(Policy(local_roots=[str(tmp_path)])) as browser:
+        session = await browser.connect({'type': 'local', 'root': str(tmp_path), 'password': 'never-save'})
+        assert len((await session.list('/'))['entries']) == 2
+        assert (await session.stat('/file.bin'))['size'] == 10
+        assert b''.join([c async for c in session.stream('/file.bin', 3, 4)]) == b'3456'
+        assert 'password' not in session.descriptor()
+        await session.close()
+        assert not session.worker.process.is_alive()
+
+
+async def test_idle_cleanup(tmp_path):
+    browser = Browser(Policy(local_roots=[str(tmp_path)], idle_seconds=0.1))
+    session = await browser.connect({'type': 'local', 'root': str(tmp_path)})
+    await asyncio.sleep(0.3)
+    await browser.expire()
+    assert not browser.sessions
+    assert not session.worker.process.is_alive()
+    await browser.close()
+
+
+def test_symlink_escape(tmp_path):
+    root = tmp_path / 'root'; root.mkdir()
+    outside = tmp_path / 'outside'; outside.mkdir()
+    (outside / 'secret').write_text('not readable')
+    try:
+        (root / 'link').symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip('Creating symlinks requires Windows developer mode')
+    fs = LocalFilesystem({'root': str(root)})
+    try:
+        assert fs.list('/', 100) == []
+        with pytest.raises((OSError, ValueError)):
+            fs.open('/link/secret')
+    finally:
+        fs.close()
+
+
+async def test_truncation_and_operation_policy(tmp_path):
+    for n in range(4): (tmp_path / str(n)).mkdir()
+    async with Browser(Policy(local_roots=[str(tmp_path)], max_entries=2, operations=['list'])) as browser:
+        async with await browser.connect({'type': 'local', 'root': str(tmp_path)}) as session:
+            result = await session.list('/')
+            assert result['truncated'] and len(result['entries']) == 2
+            with pytest.raises(PermissionError): await session.stat('/')
+
+
+async def test_stream_chunks_and_early_close(tmp_path):
+    from remote_fs_browser.sessions import CHUNK
+    (tmp_path / 'large.bin').write_bytes(b'x' * (CHUNK * 3 + 17))
+    async with Browser(Policy(local_roots=[str(tmp_path)])) as browser:
+        async with await browser.connect({'type':'local','root':str(tmp_path)}) as session:
+            chunks = [chunk async for chunk in session.stream('/large.bin')]
+            assert sum(map(len,chunks)) == CHUNK*3+17
+            assert max(map(len,chunks)) <= CHUNK
+            for _ in range(6):
+                stream = session.stream('/large.bin')
+                assert len(await anext(stream)) == CHUNK
+                await stream.aclose()  # Does not exhaust the worker's four-handle limit.
