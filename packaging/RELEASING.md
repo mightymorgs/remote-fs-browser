@@ -4,6 +4,12 @@ Ordered checklist for cutting a release. Steps 1-3 are one-time setup; the
 rest repeat per version. Commands assume the repo root as the working
 directory and `v0.2.0` as the version being released.
 
+## 0. Already verified locally
+
+- `packaging/homebrew/remotefs.rb` carries resource blocks for 0.2.0 resolved against PyPI; only the sdist `sha256` is left to fill.
+- The winget manifests pass `winget validate` on Windows 11. When copying them from macOS, use `COPYFILE_DISABLE=1 tar ...` or delete the `._*` AppleDouble files first; winget tries to parse every file in the directory.
+- The PyInstaller spec produces a working `remotefs.exe` on Windows 11 (about 39 MB unpacked).
+
 ## 1. One-time: PyPI and TestPyPI trusted publishers
 
 `release.yml` publishes with OIDC, so no API token is stored anywhere.
