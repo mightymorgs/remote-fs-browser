@@ -1,0 +1,53 @@
+name: Build libnfs
+description: >-
+  Clone a pinned libnfs commit and build it as a shared library (cmake on
+  Linux/macOS, MinGW gcc on Windows). Exports the library path as the
+  `library` output and appends LIBNFS_LIBRARY to $GITHUB_ENV.
+inputs:
+  ref:
+    description: libnfs git ref (commit, tag or branch) to build
+    required: false
+    default: c69a48c8116fd50287875decd50474685937a4af
+outputs:
+  library:
+    description: Absolute path to the built libnfs.so / libnfs.dylib / libnfs.dll
+    value: ${{ steps.unix.outputs.library || steps.windows.outputs.library }}
+runs:
+  using: composite
+  steps:
+    - name: Fetch pinned libnfs source
+      shell: bash
+      run: |
+        git clone https://github.com/sahlberg/libnfs.git "$RUNNER_TEMP/libnfs"
+        git -C "$RUNNER_TEMP/libnfs" checkout "${{ inputs.ref }}"
+    - name: Build native Unix library
+      id: unix
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        cmake -S "$RUNNER_TEMP/libnfs" -B "$RUNNER_TEMP/libnfs/build" -DBUILD_SHARED_LIBS=ON -DENABLE_TLS=OFF -DENABLE_UTILS=OFF
+        cmake --build "$RUNNER_TEMP/libnfs/build" --parallel 2
+        LIBRARY=$(find "$RUNNER_TEMP/libnfs/build" \( -name 'libnfs.so' -o -name 'libnfs.dylib' \) -print -quit)
+        test -n "$LIBRARY"
+        echo "library=$LIBRARY" >> "$GITHUB_OUTPUT"
+        echo "LIBNFS_LIBRARY=$LIBRARY" >> "$GITHUB_ENV"
+    - name: Build native Windows library
+      id: windows
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        choco install mingw -y --no-progress
+        $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + $env:Path
+        $Gcc = (Get-Command gcc).Source
+        # Upstream applies -Wall to RC files too; windres only accepts it for C.
+        $Checks = "$env:RUNNER_TEMP/libnfs/cmake/ConfigureChecks.cmake"
+        $Text = [IO.File]::ReadAllText($Checks).Replace('add_definitions(-Wall)', 'add_compile_options("$<$<COMPILE_LANGUAGE:C>:-Wall>")')
+        [IO.File]::WriteAllText($Checks, $Text)
+        cmake -S "$env:RUNNER_TEMP/libnfs" -B "$env:RUNNER_TEMP/libnfs/build" -G 'MinGW Makefiles' "-DCMAKE_C_COMPILER=$Gcc" -DBUILD_SHARED_LIBS=ON -DENABLE_TLS=OFF -DENABLE_UTILS=OFF -DCMAKE_SHARED_LINKER_FLAGS=-static-libgcc
+        if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
+        cmake --build "$env:RUNNER_TEMP/libnfs/build" --parallel 2
+        if ($LASTEXITCODE -ne 0) { throw 'Native build failed' }
+        $Dll = Get-ChildItem "$env:RUNNER_TEMP/libnfs/build" -Recurse -Filter '*nfs*.dll' | Select-Object -First 1
+        if (!$Dll) { throw 'No libnfs DLL produced' }
+        "library=$($Dll.FullName)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+        "LIBNFS_LIBRARY=$($Dll.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8

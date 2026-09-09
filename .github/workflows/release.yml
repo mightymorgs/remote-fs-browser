@@ -1,0 +1,109 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install build
+          python -m build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/*
+          if-no-files-found: error
+
+  windows-portable:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Build pinned libnfs.dll
+        id: libnfs
+        uses: ./.github/actions/build-libnfs
+      - name: Install package and PyInstaller
+        run: python -m pip install . pyinstaller
+      - name: Freeze one-folder build
+        run: pyinstaller --noconfirm packaging/remotefs.spec
+      - name: Bundle libnfs.dll next to remotefs.exe
+        shell: pwsh
+        run: |
+          # cli.py points LIBNFS_LIBRARY at this file when running frozen.
+          Copy-Item "${{ steps.libnfs.outputs.library }}" dist/remotefs/libnfs.dll
+          if (!(Test-Path dist/remotefs/remotefs.exe)) { throw 'PyInstaller did not produce remotefs.exe' }
+      - name: Smoke test frozen binary
+        shell: pwsh
+        run: |
+          & dist/remotefs/remotefs.exe --version
+          if ($LASTEXITCODE -ne 0) { throw 'remotefs.exe --version failed' }
+      - name: Derive version from tag
+        id: version
+        shell: bash
+        run: |
+          # v0.2.0 -> 0.2.0; a branch name (workflow_dispatch) passes through unchanged.
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Zip portable folder
+        shell: pwsh
+        run: |
+          # Archive root is remotefs/, so the winget manifest's RelativeFilePath is remotefs/remotefs.exe.
+          Compress-Archive -Path dist/remotefs -DestinationPath "remotefs-${{ steps.version.outputs.version }}-windows-x64.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x64
+          path: remotefs-${{ steps.version.outputs.version }}-windows-x64.zip
+          if-no-files-found: error
+
+  publish:
+    needs: [build, windows-portable]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-x64
+          path: windows
+      - name: Publish release candidate to TestPyPI
+        if: contains(github.ref_name, 'rc')
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: dist
+      - name: Publish to PyPI
+        if: ${{ !contains(github.ref_name, 'rc') }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, 'rc') }}
+          files: |
+            dist/*.tar.gz
+            dist/*.whl
+            windows/*.zip

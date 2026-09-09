@@ -17,39 +17,29 @@ jobs:
           python-version: '3.12'
       - name: Install Python dependencies
         run: python -m pip install -e ".[test]"
-      - name: Fetch pinned libnfs source
-        shell: bash
-        run: |
-          git clone https://github.com/sahlberg/libnfs.git "$RUNNER_TEMP/libnfs"
-          git -C "$RUNNER_TEMP/libnfs" checkout c69a48c8116fd50287875decd50474685937a4af
-      - name: Build native Unix library
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          cmake -S "$RUNNER_TEMP/libnfs" -B "$RUNNER_TEMP/libnfs/build" -DBUILD_SHARED_LIBS=ON -DENABLE_TLS=OFF -DENABLE_UTILS=OFF
-          cmake --build "$RUNNER_TEMP/libnfs/build" --parallel 2
-          LIBRARY=$(find "$RUNNER_TEMP/libnfs/build" \( -name 'libnfs.so' -o -name 'libnfs.dylib' \) -print -quit)
-          test -n "$LIBRARY"
-          echo "LIBNFS_LIBRARY=$LIBRARY" >> "$GITHUB_ENV"
-      - name: Build native Windows library
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          choco install mingw -y --no-progress
-          $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + $env:Path
-          $Gcc = (Get-Command gcc).Source
-          # Upstream applies -Wall to RC files too; windres only accepts it for C.
-          $Checks = "$env:RUNNER_TEMP/libnfs/cmake/ConfigureChecks.cmake"
-          $Text = [IO.File]::ReadAllText($Checks).Replace('add_definitions(-Wall)', 'add_compile_options("$<$<COMPILE_LANGUAGE:C>:-Wall>")')
-          [IO.File]::WriteAllText($Checks, $Text)
-          cmake -S "$env:RUNNER_TEMP/libnfs" -B "$env:RUNNER_TEMP/libnfs/build" -G 'MinGW Makefiles' "-DCMAKE_C_COMPILER=$Gcc" -DBUILD_SHARED_LIBS=ON -DENABLE_TLS=OFF -DENABLE_UTILS=OFF -DCMAKE_SHARED_LINKER_FLAGS=-static-libgcc
-          if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }
-          cmake --build "$env:RUNNER_TEMP/libnfs/build" --parallel 2
-          if ($LASTEXITCODE -ne 0) { throw 'Native build failed' }
-          $Dll = Get-ChildItem "$env:RUNNER_TEMP/libnfs/build" -Recurse -Filter '*nfs*.dll' | Select-Object -First 1
-          if (!$Dll) { throw 'No libnfs DLL produced' }
-          "LIBNFS_LIBRARY=$($Dll.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Build pinned libnfs
+        uses: ./.github/actions/build-libnfs
       - name: SDK, HTTP and native ABI tests
         run: python -m pytest -q
       - name: Build distribution
         run: python -m build
+
+  brew-libnfs:
+    # Proves the Homebrew-packaged libnfs (what the formula depends on) loads
+    # through the same ctypes ABI as the pinned source build above.
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Python dependencies
+        run: python -m pip install -e ".[test]"
+      - name: Install Homebrew libnfs
+        run: brew install libnfs
+      - name: Native ABI tests against Homebrew libnfs
+        run: |
+          export LIBNFS_LIBRARY="$(brew --prefix)/lib/libnfs.dylib"
+          test -f "$LIBNFS_LIBRARY"
+          python -m pytest -q tests/test_native.py
