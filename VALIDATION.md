@@ -8,7 +8,7 @@ During development on macOS Apple Silicon, the standalone SDK was also exercised
 
 Known limits:
 
-- Host discovery is opt-in TCP probing of explicitly permitted ranges, capped at 256 addresses. It is not a network inventory service.
+- Host discovery is opt-in TCP probing of explicitly permitted ranges of at most 256 addresses each, with at most 1024 candidates probed per request. It is not a network inventory service.
 - SMB share enumeration uses SMB2 SRVS RPC with bounded pagination; traversal uses SMB2/3. Some servers disallow enumeration while allowing a manually named share.
 - NFS export discovery uses mountd; NFSv4-only servers may require a manual export path. libnfs AUTH_SYS identity follows the service account. Kerberos setup is outside this release.
 - NDJSON is emitted after a bounded native listing completes. Very large/slow directories may hit the configured entry or operation limit; truncation is reported.

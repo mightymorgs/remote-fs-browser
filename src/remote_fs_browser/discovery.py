@@ -6,6 +6,9 @@ from pathlib import PurePath
 import socket
 from .policy import Policy
 
+# Candidate addresses probed per scan request: four /24 ranges, about eight seconds worst case on 64 threads.
+SCAN_BUDGET = 1024
+
 
 def grouped(policy: Policy, roots, hosts, scanned):
     """The picker's tree: This Computer, then SMB and NFS servers seen from this host."""
@@ -40,9 +43,9 @@ def discover(policy: Policy, scan=False, root_kinds=None):
     if policy.servers:
         hosts &= {policy.host(host) for host in policy.servers}
     hosts = sorted(hosts, key=ipaddress.ip_address)
-    if len(hosts) > 256:
-        result['notes'].append(f'Scanned the first 256 of {len(hosts)} candidate addresses; narrow the permitted ranges to scan the rest.')
-        hosts = hosts[:256]
+    if len(hosts) > SCAN_BUDGET:
+        result['notes'].append(f'Scanned the first {SCAN_BUDGET} of {len(hosts)} candidate addresses; narrow the permitted ranges to scan the rest.')
+        hosts = hosts[:SCAN_BUDGET]
 
     def probe(host):
         protocols = []
@@ -54,7 +57,7 @@ def discover(policy: Policy, scan=False, root_kinds=None):
                 pass
         return {'host': host, 'protocols': protocols} if protocols else None
 
-    with ThreadPoolExecutor(max_workers=32) as executor:
+    with ThreadPoolExecutor(max_workers=64) as executor:
         result['hosts'] = [row for row in executor.map(probe, hosts) if row]
     result['groups'] = grouped(policy, result['roots'], result['hosts'], True)
     return result

@@ -9,6 +9,9 @@ REAL_FILESYSTEMS = {'ext2', 'ext3', 'ext4', 'xfs', 'btrfs', 'zfs', 'f2fs', 'jfs'
                     'fuseblk', 'cifs', 'smb3', 'nfs', 'nfs4', 'hfsplus', 'apfs'}
 LINUX_PREFIXES = ('/mnt/', '/media/', '/run/media/', '/srv/', '/data/', '/home/')
 RFC1918 = [ipaddress.ip_network(n) for n in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16')]
+# Container, VM, tunnel and link-layer helper interfaces: their subnets are not the LAN.
+VIRTUAL_INTERFACES = ('docker', 'br-', 'veth', 'virbr', 'vmnet', 'vboxnet', 'utun', 'tun', 'tap', 'feth', 'bridge',
+                      'llw', 'awdl', 'anpi', 'lo', 'zt', 'tailscale', 'wg', 'lxc', 'lxd', 'cni', 'flannel', 'cali', 'kube')
 
 
 def home_root():
@@ -45,13 +48,19 @@ def mounted_volumes(platform=None, partitions=None, volumes='/Volumes'):
 
 
 def local_subnets(max_prefix=24, addresses=None):
-    """RFC1918 IPv4 networks on this host's interfaces, narrowed to at most a /24 each."""
+    """RFC1918 IPv4 networks on this host's physical interfaces, narrowed to at most a /24 each.
+
+    `addresses` rows are (interface, address, netmask); a two-item (address, netmask) row is accepted too.
+    """
     if addresses is None:
         import psutil
-        addresses = [(item.address, item.netmask) for group in psutil.net_if_addrs().values() for item in group
+        addresses = [(name, item.address, item.netmask) for name, group in psutil.net_if_addrs().items() for item in group
                      if item.family == socket.AF_INET and item.netmask]
     networks = set()
-    for address, netmask in addresses:
+    for row in addresses:
+        name, address, netmask = row if len(row) == 3 else ('', *row)
+        if name.lower().startswith(VIRTUAL_INTERFACES):
+            continue
         try:
             ip = ipaddress.ip_address(address)
             network = ipaddress.ip_network(f'{address}/{netmask}', strict=False)

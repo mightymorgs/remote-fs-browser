@@ -123,7 +123,7 @@ def test_scan_is_capped_with_a_note(monkeypatch):
     from remote_fs_browser import discovery
     probed = []
     monkeypatch.setattr(discovery.socket, 'create_connection', lambda *a, **kw: probed.append(a[0]) or (_ for _ in ()).throw(OSError()))
-    policy = Policy(network_ranges=['192.0.2.0/24', '198.51.100.0/24'])
+    policy = Policy(network_ranges=['192.0.2.0/24', '198.51.100.0/24', '10.0.1.0/24', '10.0.2.0/24', '10.0.3.0/24'])
     result = discovery.discover(policy, scan=True)
-    assert len({host for host, port in probed}) == 256 and result['hosts'] == []
-    assert any('first 256 of 508' in note for note in result['notes'])
+    assert len({host for host, port in probed}) == 1024 and result['hosts'] == []
+    assert any('first 1024 of 1270' in note for note in result['notes'])
