@@ -99,14 +99,19 @@ export class RemoteFsBrowser extends HTMLElement {
     })
   }
   async show(path) {
+    const generation = this.generation
     let result
     try { result = await this.client.list(this.session, path) }
     catch (error) {
+      if (generation !== this.generation || !this.isConnected) return
       if (![404,410].includes(error.status)) throw error
       this.status.textContent = 'Reconnecting…'
-      this.session = (await this.client.connect(this.descriptor, this.credentials)).id
+      const opened = await this.client.connect(this.descriptor, this.credentials)
+      if (generation !== this.generation || !this.isConnected) { await this.client.close(opened.id); return }
+      this.session = opened.id
       result = await this.client.list(this.session, path)
     }
+    if (generation !== this.generation || !this.isConnected) { await this.close(); return }
     this.path = path; this.truncated = result.truncated; this.selected.textContent = path
     this.entries.replaceChildren(); this.nav.replaceChildren()
     this.nav.append(this.button('↑ Parent', () => this.action(() => this.show(path.replace(/\/[^/]+\/?$/, '') || '/'))), this.button('Refresh', () => this.action(() => this.show(path))))
