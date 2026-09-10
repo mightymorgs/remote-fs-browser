@@ -66,14 +66,14 @@ See [WinGet install options](https://learn.microsoft.com/en-us/windows/package-m
 
 ### Python (Windows, macOS or Linux)
 
-Requires Python 3.11+ and pipx. Install the published release wheel:
+Requires Python 3.11+ and pipx. Install from [PyPI](https://pypi.org/project/remote-fs-browser/):
 
 ```sh
-pipx install https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.0/remote_fs_browser-0.2.0-py3-none-any.whl
+pipx install remote-fs-browser
 remotefs serve
 ```
 
-PyPI publication is pending publisher setup. You can also install directly from a checkout of this repository:
+You can also install directly from a checkout of this repository:
 
 ```sh
 pipx install .
