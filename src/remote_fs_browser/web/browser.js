@@ -592,7 +592,7 @@ export class RemoteFsBrowser extends HTMLElement {
   rememberHost(device) {
     this.mapped = this.mapped || []
     if (!this.mapped.some(item => item.type === device.type && item.host === device.host)) {
-      this.mapped = [...this.mapped, { type: device.type, host: device.host, label: device.host }]
+      this.mapped = [...this.mapped, { type: device.type, host: device.host, label: device.label || device.host }]
     }
     this.renderRail()
   }

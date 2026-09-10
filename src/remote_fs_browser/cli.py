@@ -93,7 +93,13 @@ def main(argv=None):
     parser.add_argument('--allow-network', action='append', help='Allowed SMB/NFS CIDR; repeat as needed (default: this host\'s private subnets)')
     parser.add_argument('--no-defaults', action='store_true', help='Do not auto-detect roots or networks; expose only what config and flags name')
     parser.add_argument('--print-token', action='store_true', help='Print the service token and exit')
+    parser.add_argument('--resolve-host', help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+
+    if args.resolve_host:
+        import socket
+        print(json.dumps(socket.gethostbyaddr(args.resolve_host)[0]))
+        return
 
     library = bundled_library()
     if library:

@@ -26,12 +26,61 @@ NFS
 
 ## Quick start
 
-Python 3.11+ on Windows, macOS or Linux.
+Choose an installation method below, then run `remotefs serve`.
+
+### Homebrew (macOS)
+
+The Homebrew package is pending publication: the formula in this repository still needs its release checksum and publication to the tap. Once published, install with [Homebrew](https://brew.sh/):
 
 ```sh
-pipx install remote-fs-browser      # or: brew install mightymorgs/tap/remotefs, winget install mightymorgs.remotefs
+brew tap mightymorgs/tap
+brew install mightymorgs/tap/remotefs
 remotefs serve
 ```
+
+The formula installs Python and libnfs as dependencies. To run it in the background instead of keeping a terminal open:
+
+```sh
+brew services start remotefs
+remotefs --print-token
+```
+
+Use `brew services stop remotefs` to stop it. To update, run `brew update` followed by `brew upgrade mightymorgs/tap/remotefs`. See the [Homebrew tap documentation](https://docs.brew.sh/Taps) for how third-party packages are installed.
+
+### WinGet (Windows x64)
+
+The WinGet package is pending publication: its manifest still needs the release ZIP checksum and acceptance into the WinGet community repository. Once published, run in PowerShell with [WinGet installed](https://learn.microsoft.com/en-us/windows/package-manager/winget/):
+
+```powershell
+winget install --id mightymorgs.remotefs --exact --source winget
+remotefs serve
+```
+
+The package uses a portable Windows executable, so a separate Python installation is not required. If `remotefs` is not found after installation, open a new terminal. To update:
+
+```powershell
+winget upgrade --id mightymorgs.remotefs --exact --source winget
+```
+
+See [WinGet install options](https://learn.microsoft.com/en-us/windows/package-manager/winget/install) for the command syntax. Maintainers can find the publication steps for both packages in [Releasing remotefs](packaging/RELEASING.md).
+
+### Python (Windows, macOS or Linux)
+
+Requires Python 3.11+ and pipx. For a published PyPI release:
+
+```sh
+pipx install remote-fs-browser
+remotefs serve
+```
+
+Before the packages are published, install directly from a checkout of this repository:
+
+```sh
+pipx install .
+remotefs serve
+```
+
+### Open the browser
 
 Open `http://127.0.0.1:8080/` and sign in with the token printed in the terminal. The first run creates `~/.config/remotefs/config.json` (`%APPDATA%\remotefs\config.json` on Windows) with a random token, readable only by you, and every later run reuses it. `remotefs --print-token` shows it again.
 
@@ -57,7 +106,7 @@ remotefs serve --root /srv/media --root /mnt/backup --allow-network 192.168.1.0/
 remotefs serve --no-defaults --config /etc/remotefs/config.json   # expose only what the config names
 ```
 
-Homebrew users can keep it running with `brew services start remotefs`. NFS needs libnfs 6 or newer (`brew install libnfs`, or the platform installers below); local and SMB browsing work without it. On Windows, listing the shares a server offers needs the optional `remote-fs-browser[smb-enum]` extra, which Windows Defender quarantines during install unless the Python environment is excluded; without it, type the share name and browsing works as usual.
+NFS needs libnfs 6 or newer (included as a Homebrew dependency; for Python installs, use `brew install libnfs` or the platform installers below). Local and SMB browsing work without it. On Windows, listing the shares a server offers needs the optional `remote-fs-browser[smb-enum]` extra, which Windows Defender quarantines during install unless the Python environment is excluded; without it, type the share name and browsing works as usual.
 
 ## Shortlist
 
@@ -159,6 +208,8 @@ picker.addEventListener('path-selected', event => saveDescriptor(event.detail))
 The element fills the box it is given. It renders the shortlist and the host's roots in a sidebar, network devices from an explicit scan, per-host share and export lists, credential entry, nested folders with formatted sizes and dates, in-place errors with retry, expiry reconnect, downloads in browse mode and a live descriptor preview with a Select button in select mode. The `signout` attribute adds a Sign out button that fires a `sign-out` event for the host page to act on. When the service offers `/api/saved` and no `storeCredentials` hook is set, "Save folder to shortlist" stores the current folder there. It closes its session on selection, disconnect or element removal. Keep the service on the same origin or configure a restrictive CORS policy when embedding across origins. The JS client's `file()` returns a Fetch `Response`; consume its `body` as a stream rather than calling `blob()` for large files.
 
 ## Discovery limits
+
+Scan results show a DNS hostname when reverse lookup succeeds, falling back to a NetBIOS device name and then the IP address. Named devices retain their labels in the Network sidebar; connections still use the scanned IP address. Name lookup is bounded so unavailable DNS does not hold up the scan indefinitely.
 
 Discovery probes TCP 445/2049 only in explicitly permitted ranges of at most 256 addresses each, and scans at most 1024 candidates per request, reporting when more were permitted. This is portable and requires no SMB1 browser service. Manual hostnames work when discovery cannot cross subnets or VPNs. SMB authentication uses NTLM (including domain-qualified usernames). SMB enumeration uses Impacket's SRVS RPC over SMB2; traversal and streaming use smbprotocol's SMB2/3 session. NFS export enumeration uses mountd and may return no exports on NFSv4-only servers; enter the export manually in that case. NFS uses AUTH_SYS UID/GID behaviour from libnfs and the service account; NFS Kerberos is not configured.
 

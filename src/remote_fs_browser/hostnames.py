@@ -50,8 +50,10 @@ def resolve_host(host):
     # libc resolver timeouts are not controlled by socket.settimeout. A short-lived
     # subprocess gives DNS a hard deadline without leaving blocked resolver threads.
     try:
+        command = ([sys.executable, '--resolve-host', host] if getattr(sys, 'frozen', False) else
+                   [sys.executable, '-c', 'import socket,json,sys; print(json.dumps(socket.gethostbyaddr(sys.argv[1])[0]))', host])
         result = subprocess.run(
-            [sys.executable, '-c', 'import socket,json,sys; print(json.dumps(socket.gethostbyaddr(sys.argv[1])[0]))', host],
+            command,
             capture_output=True, text=True, timeout=1.25, check=True,
         )
         label = json.loads(result.stdout).rstrip('.')

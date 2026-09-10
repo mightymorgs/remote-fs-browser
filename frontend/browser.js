@@ -527,7 +527,7 @@ export class RemoteFsBrowser extends HTMLElement {
       : (result.hosts || [])
     return hosts.flatMap(host => {
       const protocols = host.protocols?.length ? host.protocols : [host.type]
-      return protocols.filter(Boolean).map(protocol => ({ type: protocol, host: host.host, label: host.host }))
+      return protocols.filter(Boolean).map(protocol => ({ type: protocol, host: host.host, label: host.label || host.name || host.host }))
     })
   }
   /** The scan is a view of its own: devices to map, with the scan's own bounds noted there. */
@@ -539,7 +539,7 @@ export class RemoteFsBrowser extends HTMLElement {
     this.devices.replaceChildren()
     for (const device of this.deviceList || []) {
       const node = this.button('', () => this.mapDevice(device), 'device')
-      node.append(this.el('span', null, 'dot'), this.el('span', device.host, 'name'), this.el('span', device.type.toUpperCase(), 'tag'))
+      node.append(this.el('span', null, 'dot'), this.el('span', device.label === device.host ? device.host : `${device.label} (${device.host})`, 'name'), this.el('span', device.type.toUpperCase(), 'tag'))
       this.devices.append(node)
     }
     if (!(this.deviceList || []).length) {
@@ -592,7 +592,7 @@ export class RemoteFsBrowser extends HTMLElement {
   rememberHost(device) {
     this.mapped = this.mapped || []
     if (!this.mapped.some(item => item.type === device.type && item.host === device.host)) {
-      this.mapped = [...this.mapped, { type: device.type, host: device.host, label: device.host }]
+      this.mapped = [...this.mapped, { type: device.type, host: device.host, label: device.label || device.host }]
     }
     this.renderRail()
   }
