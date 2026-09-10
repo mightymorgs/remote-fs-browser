@@ -54,7 +54,7 @@ def test_packages_modified_source_and_full_notices(checkout):
     with tarfile.open(archive) as contents:
         names = contents.getnames()
         assert set(names) == {prefix + name for name in (*bundler.LICENSE_FILES, 'cmake/ConfigureChecks.cmake')}
-        assert contents.extractfile(prefix + 'cmake/ConfigureChecks.cmake').read().decode() == modified
+        assert contents.extractfile(prefix + 'cmake/ConfigureChecks.cmake').read() == (source / 'cmake' / 'ConfigureChecks.cmake').read_bytes()
     notices = bundle / 'licenses' / 'libnfs'
     for name in bundler.LICENSE_FILES:
         assert (notices / name).read_bytes() == (source / name).read_bytes()
