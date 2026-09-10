@@ -93,8 +93,12 @@ def main(argv=None):
     if not getattr(sys, 'frozen', False) and sys.path and sys.path[0] and Path(sys.argv[0]).name in ('remotefs', 'remotefs.exe', 'remote-fs-browser', 'remote-fs-browser.exe'):
         if Path(sys.path[0]).resolve() == Path(sys.argv[0]).resolve().parent:
             sys.path.pop(0)
+    from .client_cli import COMMANDS, main as client_main
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments and arguments[0] in COMMANDS:
+        return client_main(arguments)
     from . import __version__
-    parser = argparse.ArgumentParser(prog='remotefs', description='Serve a remote filesystem manager and API on one port.')
+    parser = argparse.ArgumentParser(prog='remotefs', description='Serve a remote filesystem manager and API on one port.', epilog='Client commands: ' + ', '.join(COMMANDS) + '. Run remotefs COMMAND --help for usage.')
     parser.add_argument('command', nargs='?', choices=['serve', 'account'], default='serve')
     parser.add_argument('--version', action='version', version=f'remotefs {__version__}')
     parser.add_argument('--config', help='Private JSON configuration; defaults to the per-user config, created on first run')

@@ -310,3 +310,83 @@ python -m build
 See [VALIDATION.md](VALIDATION.md) for completed checks and outstanding limitations. Release mechanics are documented in [packaging/RELEASING.md](packaging/RELEASING.md).
 
 The application is MIT licensed. Dependencies retain their own licences: [smbprotocol](https://github.com/jborean93/smbprotocol), [Impacket](https://github.com/fortra/impacket), [libnfs](https://github.com/sahlberg/libnfs) and the other bundled components. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Windows portable packages include dependency licence texts and matching modified libnfs source, its build recipe and DLL replacement instructions.
+
+### Terminal file manager
+
+The CLI can use the same running service as the web UI. Commands share its roots,
+network policy, saved locations, encrypted credentials and download jobs. `serve`
+and `account` still work as before; client commands do not start another server.
+
+```bash
+export REMOTEFS_URL=http://127.0.0.1:8080
+remotefs login --username morgs        # prompts for the server password
+remotefs discover                    # roots and server-side network ranges
+remotefs scan                        # first page of the server's default ranges
+remotefs scan --ranges '192.168.1.0/24,10.10.0.0/24,10.20.0.5' --all
+remotefs shares nas.example --type smb --username morgs
+remotefs connect --type smb --host nas.example --share Media --username morgs
+```
+
+`connect` returns a session `id`. Use it in subsequent commands; paths are relative
+to that connection's root. Sessions expire after the server's configured idle
+timeout, or immediately with `disconnect`.
+
+```bash
+remotefs ls SESSION_ID /
+remotefs mkdir SESSION_ID /Movies
+remotefs select SESSION_ID /Movies    # directory descriptor for an installer
+remotefs stat SESSION_ID /Movies/example.mkv
+remotefs get SESSION_ID /Movies/example.mkv ./example.mkv
+remotefs put SESSION_ID /Movies/example.mkv ./example.mkv
+remotefs rename SESSION_ID /Movies/old.mkv /Movies/new.mkv
+remotefs copy SESSION_ID /Movies/new.mkv /Movies/copy.mkv
+remotefs remove SESSION_ID /Movies/copy.mkv
+remotefs disconnect SESSION_ID
+```
+
+`connect --type local --root /path/on/server` browses a permitted server directory.
+For NFS, use `--type nfs --host nas.example --export /media --nfs-version 4`.
+`copy --target-session OTHER_ID` copies between connections. Directory deletion
+requires `--recursive`; replacing uploaded or downloaded files requires
+`--overwrite`. Downloads stream to a temporary file before replacing their
+output; `get ... -` streams to stdout.
+
+```bash
+remotefs saved add --type smb --host nas.example --share Media --username morgs --label Media
+remotefs saved list
+remotefs connect --saved-id LOCATION_ID
+remotefs saved remove --id LOCATION_ID
+remotefs credentials add --host nas.example --username morgs
+remotefs credentials list
+remotefs shares nas.example --credential-id CREDENTIAL_ID
+remotefs credentials remove --id CREDENTIAL_ID
+```
+
+Saved locations and host credentials are stored by the server, and are immediately
+available in its web UI. Passwords are prompted without echo; `--password-stdin`
+is available for automation. Do not put passwords in command arguments. Client
+login cookies are kept in the per-user `remotefs/client.json` file (mode 0600 on
+Unix), keyed by server origin. Use `--auth-file` to isolate clients. `logout`
+invalidates that login and closes the account's active browsing sessions, including
+sessions opened in the web UI. Authentication expires after the server's login
+lifetime; sign in again when it returns HTTP 401. Use HTTPS or an encrypted tunnel
+for remote access, as with the web UI.
+
+```bash
+remotefs downloads list
+remotefs downloads estimate --session SESSION_ID --paths /Movies /Music
+remotefs downloads create --session SESSION_ID --paths /Movies --store Downloads
+remotefs downloads pause --id JOB_ID
+remotefs downloads resume --id JOB_ID
+remotefs downloads part --id JOB_ID --index 0 --file ./media.zip
+remotefs downloads purge --id JOB_ID
+remotefs downloads forget --id JOB_ID
+```
+
+All command results are JSON, except streamed file bytes. `scan --all` emits one
+JSON line per page; without it, use the returned `next_offset` with `--offset`.
+Custom ranges remain subject to the server's allowed networks. Every client
+command accepts `--url`, `--auth-file`, and `--timeout`; put options after the
+command. Use `remotefs COMMAND --help` for details. GUI layout, sorting and visual
+selection are presentation features; the CLI exposes their underlying directory
+listings and descriptors for shell tools.
