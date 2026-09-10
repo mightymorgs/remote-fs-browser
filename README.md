@@ -4,7 +4,7 @@
 
 Run remotefs on a workstation, server or homelab node to access the storage that machine can reach. Its home directory, mounted volumes and permitted network servers appear in one interface. The viewing computer needs only access to the service’s HTTP port; SMB and NFS connections run from the service host.
 
-**Development status — publication is on hold.** This README describes the implementation on `codex/filesystem-manager`, including password login, write operations and staged downloads. Those changes are not yet published. Homebrew, PyPI and the versioned Windows ZIP below provide earlier releases; their interface and authentication differ. The [cross-host dogfood report](docs/validation/2026-09-11-dogfood.md) records the completed browser workflows and network download checks. See [validation](VALIDATION.md) for scope and limitations.
+Version 0.2.1 introduces password login, file write operations and staged multipart downloads. The [cross-host dogfood report](docs/validation/2026-09-11-dogfood.md) records the completed browser workflows and network download checks. See [validation](VALIDATION.md) for scope and limitations.
 
 ## What is included
 
@@ -16,7 +16,7 @@ Run remotefs on a workstation, server or homelab node to access the storage that
 
 ## Quick start
 
-The package commands below install published releases. To try the unreleased manager described here, install from this branch’s checkout with `pipx install .` (or `pip install -e .` in a virtual environment).
+To install from a source checkout, use `pipx install .` (or `pip install -e .` in a virtual environment).
 
 ### Homebrew (macOS)
 
@@ -304,6 +304,6 @@ node --test frontend/*.test.js
 python -m build
 ```
 
-See [VALIDATION.md](VALIDATION.md) for completed checks and outstanding limitations. Publication remains on hold for this development branch; the presence of an implemented feature or a passing unit test does not mean it has shipped. Release mechanics are documented in [packaging/RELEASING.md](packaging/RELEASING.md).
+See [VALIDATION.md](VALIDATION.md) for completed checks and outstanding limitations. Release mechanics are documented in [packaging/RELEASING.md](packaging/RELEASING.md).
 
 The application is MIT licensed. Dependencies retain their own licences: [smbprotocol](https://github.com/jborean93/smbprotocol), [Impacket](https://github.com/fortra/impacket), [libnfs](https://github.com/sahlberg/libnfs) and the other bundled components. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Windows portable packages include dependency licence texts and matching modified libnfs source, its build recipe and DLL replacement instructions.
