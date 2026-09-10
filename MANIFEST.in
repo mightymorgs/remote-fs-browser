@@ -1,0 +1,5 @@
+include THIRD_PARTY_NOTICES.md
+include packaging/bundle_licenses.py
+include packaging/bundle_libnfs.py
+include packaging/bundle_toolchain.py
+include .github/actions/build-libnfs/action.yml

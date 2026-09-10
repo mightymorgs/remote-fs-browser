@@ -12,6 +12,12 @@ outputs:
   library:
     description: Absolute path to the built libnfs.so / libnfs.dylib / libnfs.dll
     value: ${{ steps.unix.outputs.library || steps.windows.outputs.library }}
+  toolchain:
+    description: Root of the MinGW toolchain actually selected for the Windows build
+    value: ${{ steps.windows.outputs.toolchain }}
+  compiler:
+    description: GCC executable actually selected for the Windows build
+    value: ${{ steps.windows.outputs.compiler }}
 runs:
   using: composite
   steps:
@@ -39,9 +45,13 @@ runs:
         choco install mingw -y --no-progress
         $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + $env:Path
         $Gcc = (Get-Command gcc).Source
+        $Toolchain = Split-Path (Split-Path $Gcc -Parent) -Parent
+        "toolchain=$Toolchain" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+        "compiler=$Gcc" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
         # Upstream applies -Wall to RC files too; windres only accepts it for C.
         $Checks = "$env:RUNNER_TEMP/libnfs/cmake/ConfigureChecks.cmake"
         $Text = [IO.File]::ReadAllText($Checks).Replace('add_definitions(-Wall)', 'add_compile_options("$<$<COMPILE_LANGUAGE:C>:-Wall>")')
+        $Text = "# Modified by remote-fs-browser contributors on 2026-09-10: apply -Wall only to C compilation so MinGW windres can build resources.`n" + $Text
         [IO.File]::WriteAllText($Checks, $Text)
         cmake -S "$env:RUNNER_TEMP/libnfs" -B "$env:RUNNER_TEMP/libnfs/build" -G 'MinGW Makefiles' "-DCMAKE_C_COMPILER=$Gcc" -DBUILD_SHARED_LIBS=ON -DENABLE_TLS=OFF -DENABLE_UTILS=OFF -DCMAKE_SHARED_LINKER_FLAGS=-static-libgcc
         if ($LASTEXITCODE -ne 0) { throw 'CMake configure failed' }

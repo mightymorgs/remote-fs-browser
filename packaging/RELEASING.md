@@ -4,7 +4,22 @@ Ordered checklist for cutting a release. Steps 1-3 are one-time setup; the
 rest repeat per version. Commands assume the repo root as the working
 directory and `v0.2.0` as the version being released.
 
-## 0. Already verified locally
+## 0. Required release contents
+
+Windows releases include `THIRD_PARTY_NOTICES.md`, a licence inventory and full
+licence texts under `licenses/`, and the matching modified libnfs source under
+`sources/`. The build must fail if a required licence or source component is
+missing. The libnfs source bundle records the pinned revision, actual local
+changes and DLL/source hashes, together with the build recipe and DLL replacement
+instructions. The MinGW notices come from the compiler selected for the build.
+
+Before publishing, inspect the ZIP and verify the libnfs DLL/source hashes against
+`licenses/libnfs/PROVENANCE.json`, that the source includes the dated CMake
+modification notice, and that `licenses/smbprotocol/`, Python runtime licensing
+and the MinGW runtime exception are present. Keep published versioned assets
+immutable: use a new version for packaging corrections and update registry hashes.
+
+## Previous validation
 
 - `packaging/homebrew/remotefs.rb` carries resource blocks and the GitHub release sdist checksum for 0.2.0.
 - The winget manifests pass `winget validate` on Windows 11. When copying them from macOS, use `COPYFILE_DISABLE=1 tar ...` or delete the `._*` AppleDouble files first; winget tries to parse every file in the directory.
@@ -12,7 +27,7 @@ directory and `v0.2.0` as the version being released.
 
 ## 1. One-time: PyPI and TestPyPI trusted publishers
 
-`release.yml` publishes with OIDC, so no API token is stored anywhere.
+`release.yml` publishes with OIDC; it does not require a PyPI API token in GitHub.
 
 1. On https://pypi.org/manage/account/publishing/ add a **pending publisher**:
    - PyPI project name: `remote-fs-browser`

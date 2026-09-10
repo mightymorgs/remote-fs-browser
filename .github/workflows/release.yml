@@ -47,6 +47,20 @@ jobs:
           # cli.py points LIBNFS_LIBRARY at this file when running frozen.
           Copy-Item "${{ steps.libnfs.outputs.library }}" dist/remotefs/libnfs.dll
           if (!(Test-Path dist/remotefs/remotefs.exe)) { throw 'PyInstaller did not produce remotefs.exe' }
+      - name: Bundle third-party licences and matching libnfs source
+        shell: pwsh
+        run: |
+          $LicenseArgs = @('--output', 'dist/remotefs/licenses')
+          $HasImpacket = python -c "import importlib.util; print(bool(importlib.util.find_spec('impacket')))"
+          if ($HasImpacket -eq 'True') { $LicenseArgs += @('--include', 'impacket') }
+          python packaging/bundle_licenses.py @LicenseArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Dependency licence collection failed' }
+          python packaging/bundle_libnfs.py --source "$env:RUNNER_TEMP/libnfs" --bundle dist/remotefs --build-recipe .github/actions/build-libnfs/action.yml
+          if ($LASTEXITCODE -ne 0) { throw 'libnfs source collection failed' }
+          python packaging/bundle_toolchain.py --toolchain "${{ steps.libnfs.outputs.toolchain }}" --compiler "${{ steps.libnfs.outputs.compiler }}" --output dist/remotefs/licenses/mingw
+          if ($LASTEXITCODE -ne 0) { throw 'MinGW runtime licence collection failed' }
+          Copy-Item LICENSE dist/remotefs/LICENSE
+          Copy-Item THIRD_PARTY_NOTICES.md dist/remotefs/THIRD_PARTY_NOTICES.md
       - name: Smoke test frozen binary
         shell: pwsh
         run: |
@@ -56,8 +70,12 @@ jobs:
         id: version
         shell: bash
         run: |
-          # v0.2.0 -> 0.2.0; a branch name (workflow_dispatch) passes through unchanged.
-          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION=$(python -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
       - name: Zip portable folder
         shell: pwsh
         run: |
