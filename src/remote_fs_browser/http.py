@@ -13,7 +13,7 @@ import time
 from typing import Callable
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-from . import Browser, Policy
+from . import Browser, Policy, __version__
 from .policy import normalize
 from .sessions import clean_descriptor
 
@@ -41,6 +41,12 @@ def byte_range(header, size):
     return start, end - start + 1, 206
 
 
+def route_path(scope):
+    """Return the route path within this app, including when ASGI-mounted."""
+    path, root = scope['path'], scope.get('root_path', '').rstrip('/')
+    return path[len(root):] if root and (path == root or path.startswith(root + '/')) else path
+
+
 class BodyLimit:
     def __init__(self, app, limit=16384):
         self.app, self.limit = app, limit
@@ -48,7 +54,7 @@ class BodyLimit:
     async def __call__(self, scope, receive, send):
         if scope['type'] != 'http':
             return await self.app(scope, receive, send)
-        if scope['method'] == 'PUT' and re.fullmatch(r'/api/sessions/[^/]+/file', scope['path']):
+        if scope['method'] == 'PUT' and re.fullmatch(r'/(?:api/)?sessions/[^/]+/file', route_path(scope)):
             # Upload route counts bytes incrementally after authentication.
             return await self.app(scope, receive, send)
         # Buffer only the small control request, never file response contents.
@@ -105,7 +111,7 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
                 await task
             await jobs.close()
             await browser.close()
-    app = FastAPI(title='Remote filesystem browser', version='0.1.0', lifespan=lifespan)
+    app = FastAPI(title='Remote filesystem browser', version=__version__, lifespan=lifespan)
     app.add_middleware(BodyLimit)
     app.state.jobs = jobs
     app.state.browser = browser
@@ -113,15 +119,15 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
 
     @app.middleware('http')
     async def access(request, call_next):
-        if account and request.url.path == '/api/login' and request.method == 'POST':
+        if account and route_path(request.scope) == '/api/login' and request.method == 'POST':
             return await call_next(request)
-        if request.url.path in ('/', '/browser.js', '/demo.js', '/manager', '/manager.js', '/support.js', '/react.js', '/react-dom.js'):
+        if route_path(request.scope) in ('/', '/browser.js', '/demo.js', '/manager', '/manager.js', '/support.js', '/react.js', '/react-dom.js'):
             return await call_next(request)
         principal = None
         cookie = request.cookies.get('remote_fs_session')
         grant = logins.get(cookie)
         if grant and grant[1] > time.monotonic():
-            if request.method not in ('GET', 'HEAD') and request.headers.get('origin') != str(request.base_url).rstrip('/'):
+            if request.method not in ('GET', 'HEAD') and request.headers.get('origin') != f'{request.url.scheme}://{request.url.netloc}':
                 return JSONResponse({'detail': 'Same-origin request required'}, status_code=403)
             principal = grant[0]
         if not principal and authenticate:
@@ -161,7 +167,7 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         if account:
             from .auth import verify_async
             origin = request.headers.get('origin')
-            if origin and origin != str(request.base_url).rstrip('/'):
+            if origin and origin != f'{request.url.scheme}://{request.url.netloc}':
                 raise HTTPException(403, 'Same-origin request required')
             peer = request.client.host if request.client else 'unknown'
             for name, attempts in list(login_attempts.items()):
@@ -188,7 +194,7 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         logins[key] = (request.state.principal, now + 28800)
         response = JSONResponse({'hostname': socket.gethostname()}, headers={'Cache-Control': 'no-store'})
         response.set_cookie('remote_fs_session', key, httponly=True, samesite='strict',
-                            secure=request.url.scheme == 'https', max_age=28800, path='/api')
+                            secure=request.url.scheme == 'https', max_age=28800, path=request.scope.get('root_path', '').rstrip('/') + '/api')
         return response
 
     @app.delete('/api/login')
@@ -201,7 +207,7 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
                     await session.close()
                 owners.pop(sid, None)
         response = JSONResponse({'closed': True})
-        response.delete_cookie('remote_fs_session', path='/api')
+        response.delete_cookie('remote_fs_session', path=request.scope.get('root_path', '').rstrip('/') + '/api')
         return response
 
     @app.get('/')
@@ -283,12 +289,14 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         return {'removed': True}
 
     @app.get('/api/credentials')
+    @app.get('/credentials', include_in_schema=False)
     async def host_credentials(request: Request):
         await allowed(request, 'discover')
         return {'credentials': saved_locations.hosts(request.state.principal) if saved_locations else [],
                 'available': saved_locations is not None}
 
     @app.post('/api/credentials')
+    @app.post('/credentials', include_in_schema=False)
     async def save_host_credentials(request: Request):
         await allowed(request, 'discover')
         if saved_locations is None:
@@ -298,6 +306,7 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         return {'id': saved_locations.add_host(request.state.principal, data['host'], data['credentials'])}
 
     @app.delete('/api/credentials/{reference}')
+    @app.delete('/credentials/{reference}', include_in_schema=False)
     async def forget_host_credentials(request: Request, reference: str):
         await allowed(request, 'discover')
         if saved_locations is None or saved_locations.get(request.state.principal, reference).get('kind') != 'host':
@@ -306,11 +315,13 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         return {'removed': True}
 
     @app.get('/api/downloads')
+    @app.get('/downloads', include_in_schema=False)
     async def downloads(request: Request):
         await allowed(request, 'read')
         return {'jobs': jobs.list(request.state.principal), 'stores': jobs.capacity()}
 
     @app.post('/api/downloads/estimate')
+    @app.post('/downloads/estimate', include_in_schema=False)
     async def estimate_archive(request: Request):
         data = await request.json()
         session = get(request, data['session'])
@@ -320,6 +331,7 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         return {'total': total, 'needed': needed, 'entries': len(rows), 'stores': jobs.capacity()}
 
     @app.post('/api/downloads')
+    @app.post('/downloads', include_in_schema=False)
     async def create_archive(request: Request):
         data = await request.json()
         session = get(request, data['session'])
@@ -329,6 +341,7 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
                                  data['store'], data.get('part_size', 0), check)
 
     @app.post('/api/downloads/{id}')
+    @app.post('/downloads/{id}', include_in_schema=False)
     async def control_archive(request: Request, id: str):
         await allowed(request, 'read')
         data = await request.json()
@@ -337,11 +350,13 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         return jobs.control(request.state.principal, id, data.get('action'))
 
     @app.delete('/api/downloads/{id}')
+    @app.delete('/downloads/{id}', include_in_schema=False)
     async def purge_archive(request: Request, id: str):
         await allowed(request, 'read')
         return await jobs.purge(request.state.principal, id)
 
     @app.get('/api/downloads/{id}/parts/{index}')
+    @app.get('/downloads/{id}/parts/{index}', include_in_schema=False)
     async def archive_part(request: Request, id: str, index: int):
         await allowed(request, 'read')
         job = jobs.get(request.state.principal, id)
@@ -420,6 +435,7 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
                 'rename_directories': True}
 
     @app.post('/api/sessions/{id}/mkdir')
+    @app.post('/sessions/{id}/mkdir', include_in_schema=False)
     async def mkdir(request: Request, id: str):
         data = await request.json()
         path = data.get('path', '')
@@ -428,6 +444,7 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         return await session.mkdir(path)
 
     @app.put('/api/sessions/{id}/file')
+    @app.put('/sessions/{id}/file', include_in_schema=False)
     async def upload(request: Request, id: str, path: str, overwrite: bool = False):
         session = get(request, id)
         await allowed(request, 'write', session.descriptor(path))
@@ -446,6 +463,7 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         return await session.write(path, chunks(), overwrite)
 
     @app.post('/api/sessions/{id}/rename')
+    @app.post('/sessions/{id}/rename', include_in_schema=False)
     async def rename(request: Request, id: str):
         data = await request.json()
         session = get(request, id)
@@ -456,6 +474,7 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         return await session.rename(data['source'], data['destination'], check)
 
     @app.post('/api/sessions/{id}/copy')
+    @app.post('/sessions/{id}/copy', include_in_schema=False)
     async def copy(request: Request, id: str):
         data = await request.json()
         session = get(request, id)
@@ -466,6 +485,7 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         return await session.copy(data['source'], data['destination'], target, check)
 
     @app.delete('/api/sessions/{id}/entry')
+    @app.delete('/sessions/{id}/entry', include_in_schema=False)
     async def remove(request: Request, id: str, path: str, recursive: bool = False):
         session = get(request, id)
         await allowed(request, 'delete', session.descriptor(path))

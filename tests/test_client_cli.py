@@ -187,3 +187,50 @@ def test_truncated_download_preserves_existing_file(tmp_path):
         download(client, 'sessions/example/file', str(target), True)
     assert target.read_text() == 'keep me'
     assert not list(tmp_path.glob('.remotefs-*'))
+
+
+def test_javascript_client_against_live_api(server):
+    import shutil
+    if not shutil.which('node'):
+        pytest.skip('Node.js is required for the JavaScript API integration check')
+    run, root, tmp = server
+    script = tmp / 'client-check.mjs'
+    module = (Path(__file__).resolve().parents[1] / 'frontend/browser.js').as_uri()
+    script.write_text('''
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+globalThis.HTMLElement = class {};
+globalThis.customElements = { get: () => true };
+const { RemoteFsClient } = await import(process.argv[2]);
+const [url, cookie] = Object.entries(JSON.parse(readFileSync(process.argv[3], 'utf8')))[0];
+const c = new RemoteFsClient(url + '/api', () => ({ Cookie: 'remote_fs_session=' + cookie, Origin: url }));
+const sid = (await c.connect({ type: 'local', root: process.argv[4] })).id;
+try {
+  await c.mkdir(sid, '/js-folder');
+  await c.copy(sid, '/hello.txt', '/js-folder/copy.txt');
+  await c.rename(sid, '/js-folder/copy.txt', '/js-folder/renamed.txt');
+  assert.equal(await (await c.file(sid, '/js-folder/renamed.txt')).text(), 'hello from HTTP\\n');
+  const credential = await c.saveHostCredentials('127.0.0.1', { username: 'test', password: 'not-a-real-password' });
+  assert.equal((await c.hostCredentials()).credentials[0].id, credential.id);
+  await c.forgetHostCredentials(credential.id);
+  assert.equal((await c.estimateDownload(sid, ['/js-folder'])).entries, 2);
+  const job = await c.createDownload(sid, ['/js-folder'], 'Downloads');
+  let current;
+  for (let i = 0; i < 100; i++) {
+    current = (await c.downloads()).jobs.find(row => row.id === job.id);
+    if (current.stage !== 'packing') break;
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  assert.equal(current.stage, 'ready');
+  const part = await c.downloadPart(job.id, 0, 'bytes=0-1');
+  assert.equal(part.status, 206);
+  assert.equal(await part.text(), 'PK');
+  await c.purgeDownload(job.id);
+  await c.controlDownload(job.id, 'forget');
+  assert.equal((await c.downloads()).jobs.length, 0);
+  await c.remove(sid, '/js-folder', true);
+} finally { await c.close(sid); }
+''')
+    result = subprocess.run(['node', str(script), module, str(tmp / 'client.json'), str(root)], capture_output=True, text=True, timeout=30)
+    assert result.returncode == 0, result.stderr
+    assert not (root / 'js-folder').exists()

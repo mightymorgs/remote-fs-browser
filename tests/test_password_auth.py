@@ -86,3 +86,35 @@ async def test_cancelled_password_check_keeps_memory_slot(monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         await task
     assert not slots.locked()
+
+
+def test_mounted_password_login_upload_and_cookie_scope(tmp_path, account):
+    from fastapi import FastAPI
+    from remote_fs_browser.policy import READ_OPERATIONS, WRITE_OPERATIONS
+    root = tmp_path / 'files'
+    root.mkdir()
+    api = create_app(Policy(local_roots=[str(root)], operations=READ_OPERATIONS + WRITE_OPERATIONS), account=account)
+    parent = FastAPI()
+    parent.mount('/storage', api)
+    with TestClient(parent) as client:
+        login = '/storage/api/login'
+        assert client.post(login, headers={'Origin': 'https://other.example'}, json={'username': 'tester', 'password': PASSWORD}).status_code == 403
+        response = client.post(login, headers={'Origin': 'http://testserver'}, json={'username': 'tester', 'password': PASSWORD})
+        assert response.status_code == 200, response.text
+        assert 'Path=/storage/api' in response.headers['set-cookie']
+        assert client.get(login).status_code == 200
+        client.headers['Origin'] = 'http://testserver'
+        opened = client.post('/storage/api/sessions', json={'descriptor': {'type': 'local', 'root': str(root)}})
+        assert opened.status_code == 200, opened.text
+        sid = opened.json()['id']
+        # Mounted raw uploads must bypass the small control-body limit.
+        data = b'x' * 32768
+        path = f'/storage/api/sessions/{sid}/file?path=/large.bin'
+        assert client.put(path, content=data).status_code == 200
+        assert client.get(path).content == data
+        assert client.put(path, content=b'no', headers={'Origin': 'https://other.example'}).status_code == 403
+        response = client.delete(login)
+        assert response.status_code == 200
+        assert 'Path=/storage/api' in response.headers['set-cookie']
+        assert not api.state.browser.sessions
+        assert client.get(login).status_code == 401

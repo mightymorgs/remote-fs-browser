@@ -112,3 +112,26 @@ def test_same_origin_browser_login_and_download(tmp_path):
         assert response.status_code == 206 and response.content == b'2345'
         assert client.delete('/api/login', headers={'Origin':'http://testserver'}).status_code == 200
         assert client.get(url).status_code == 401
+
+
+def test_mounted_legacy_write_routes(tmp_path):
+    from fastapi import FastAPI
+    from remote_fs_browser.policy import READ_OPERATIONS, WRITE_OPERATIONS
+    root = tmp_path / 'files'
+    root.mkdir()
+    api = create_app(Policy(local_roots=[str(root)], operations=READ_OPERATIONS + WRITE_OPERATIONS), token=TOKEN)
+    parent = FastAPI()
+    parent.mount('/storage', api)
+    with TestClient(parent) as client:
+        client.headers['Authorization'] = 'Bearer ' + TOKEN
+        sid = client.post('/storage/sessions', json={'descriptor': {'type': 'local', 'root': str(root)}}).json()['id']
+        prefix = f'/storage/sessions/{sid}'
+        assert client.post(prefix + '/mkdir', json={'path': '/folder'}).status_code == 200
+        data = b'x' * 32768
+        assert client.put(prefix + '/file?path=/folder/a', content=data).status_code == 200
+        assert client.post(prefix + '/copy', json={'source': '/folder/a', 'destination': '/folder/b'}).status_code == 200
+        assert client.post(prefix + '/rename', json={'source': '/folder/b', 'destination': '/folder/c'}).status_code == 200
+        assert client.get(prefix + '/file?path=/folder/c').content == data
+        assert client.delete(prefix + '/entry?path=/folder&recursive=true').status_code == 200
+        assert list(root.iterdir()) == []
+        assert client.delete(prefix).status_code == 200

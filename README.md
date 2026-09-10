@@ -194,124 +194,9 @@ These install into a private prefix, build the pinned libnfs (macOS uses Homebre
 
 For Ansible, use `playbooks/<platform>/install.yml` with the `filesystem_hosts` group, `remote_fs_source` (destination checkout directory) and `remote_fs_config` (private config path already on the host). macOS also needs `remote_fs_brew_user`; Windows needs `ansible.windows`. The playbooks copy only public source files. Matching uninstall scripts and playbooks stop and remove the service; `--purge` on Unix or `-Purge` on Windows also removes the private installation directory. Never store credentials or real host configurations in Git.
 
-## Python SDK
+## Terminal file manager
 
-```python
-import asyncio
-from remote_fs_browser import Browser, Policy
-
-async def example():
-    policy = Policy(local_roots=['/srv/media'])
-    async with Browser(policy) as browser:
-        async with await browser.connect({'type': 'local', 'root': '/srv/media'}) as fs:
-            print(await fs.list('/'))
-            print(await fs.stat('/example.mp4'))
-            async for chunk in fs.stream('/example.mp4', offset=1024, length=4096):
-                print(len(chunk))
-            selected = fs.descriptor('/Projects')
-
-# Worker processes require the normal multiprocessing main guard on every OS.
-if __name__ == '__main__':
-    asyncio.run(example())
-```
-
-`list`, `stat`, `stream`, `descriptor` and `close` have identical interfaces for all backends. Paths inside a session always use `/`, including on Windows. A local connection's `root` remains a native host path such as `C:/Media`. Entries contain `name`, normalized `path`, `type`, `size`, and UTC `modified` time. Listings report `truncated` when the entry limit was hit and `skipped` for names that cannot be addressed safely (for example a colon or backslash in a filename); nothing aborts the listing.
-
-Connect to SMB with `{'type':'smb','host':'nas.example','share':'Projects'}` and a separate `credentials={'username':..., 'password':...}` argument. NFS uses `{'type':'nfs','host':'nas.example','export':'/exports/media','version':4}`. Set the permitted network ranges first.
-
-Each connected location owns a worker process that keeps its protocol connection through subsequent navigation and file reads. Discovery runs in a separate bounded worker. `close()` terminates it; abandoned workers exit after the configured idle period (300 seconds by default). Each filesystem operation has a hard deadline (10 seconds by default), so a stuck native call cannot block another session. The reference HTTP service also reaps expired session records.
-
-For mutations, add the required operations to `Policy.operations`: `write`, `mkdir`, `rename`, `copy` and `delete`. The SDK defaults to read-only even though the standalone CLI defaults to read/write. `FilesystemSession.write(path, async_byte_chunks, overwrite=False)`, `mkdir(path)`, `rename(source, destination)`, `copy(source, destination, target=other_session)` and `remove(path, recursive=False)` use the same session-relative paths. Copy also requires source `read` and destination `write`; copying directories requires destination `mkdir`.
-
-## HTTP API
-
-The standalone service uses one configured username/password account. Sign-in issues an eight-hour HttpOnly, SameSite=Strict cookie scoped to `/api`; it is Secure when served over HTTPS. Mutations using a browser cookie require a matching Origin header. Login attempts and authenticated requests are rate-limited. Sign-out revokes the current login and closes filesystem sessions belonging to that principal; service restart ends all browser logins.
-
-Page assets are public; data endpoints require authentication. An embedded service may supply authentication hooks or a bearer token instead. Routes below use `/api`; older discovery, saved-location and read/session routes also retain their unprefixed aliases. New mutation, credential and archive routes require `/api`.
-
-| Method / route | Purpose or body |
-|---|---|
-| `GET /api/login` | Check authentication and return service hostname |
-| `POST /api/login`, `DELETE /api/login` | Sign in with `{username, password}`; sign out |
-| `GET /api/discover?scan=false` | Allowed roots, groups and scan ranges; `scan=true` probes one page |
-| `POST /api/discover` | Scan `{ranges, offset}` or enumerate `{type, host, credentials?, credential_id?}` |
-| `GET/POST /api/saved`, `DELETE /api/saved/{id}` | List/save/forget folder descriptors and optional credentials |
-| `GET/POST /api/credentials`, `DELETE /api/credentials/{id}` | List metadata, save `{host, credentials}`, or forget host credentials |
-| `POST /api/sessions` | Connect with `{descriptor, credentials?}`; returns session ID, configured operations and upload limit |
-| `DELETE /api/sessions/{id}` | Close session immediately |
-| `GET /api/sessions/{id}/list?path=/` | Entries, `truncated` and `skipped`; add `ndjson=true` for NDJSON |
-| `GET /api/sessions/{id}/stat?path=/file` | Normalized metadata |
-| `GET /api/sessions/{id}/descriptor?path=/folder` | Validated durable directory descriptor |
-| `GET /api/sessions/{id}/file?path=/file` | Stream file; supports a single `Range: bytes=...` header |
-| `PUT /api/sessions/{id}/file?path=/file&overwrite=false` | Raw binary upload |
-| `POST /api/sessions/{id}/mkdir` | `{path}` |
-| `POST /api/sessions/{id}/rename` | `{source, destination}` |
-| `POST /api/sessions/{id}/copy` | `{source, destination, target_session?}` |
-| `DELETE /api/sessions/{id}/entry?path=/folder&recursive=true` | Remove file or directory tree |
-| `GET /api/downloads` | Owned archive jobs and configured store capacity |
-| `POST /api/downloads/estimate` | `{session, paths}`; returns entry/byte estimate and stores |
-| `POST /api/downloads` | `{session, paths, store, part_size?}`; zero means a single ZIP |
-| `POST /api/downloads/{id}` | `{action: "pause"}`, `"resume"` or `"forget"` (after purge) |
-| `GET /api/downloads/{id}/parts/{index}` | Ready staged part, zero-based index; supports Range |
-| `DELETE /api/downloads/{id}` | Purge staged files and return freed bytes |
-
-File reads use bounded 256 KiB chunks. Explicit, open-ended and suffix ranges are supported; invalid or multiple ranges return 416. Downloads are attachments with `nosniff`, and credentials never appear in their URLs. A disconnected file transfer releases its active handle; the browsing session remains until expiry or explicit close.
-
-Directory listings are bounded, not lazily paged: NDJSON emits the bounded result with `X-Listing-Truncated` and `X-Listing-Skipped` headers. The default `max_entries` is 10,000, also used to bound recursive operations and archive walks; maximum depth is 64. Truncated or skipped recursive listings are rejected. Control request bodies are limited to 16 KiB; raw uploads are counted separately against `max_write_bytes`. The defaults allow 16 filesystem sessions across the service and 120 authenticated requests per minute per principal.
-
-## Credentials and descriptors
-
-Descriptors never contain credentials. A descriptor can hold `credential_id`; `remotefs serve` resolves it from the remembered locations of the signed-in principal, and an embedding application can supply its own resolver instead.
-
-```json
-{"type":"smb","host":"nas.example","share":"Projects","path":"/Campaigns","credential_id":"media-reader"}
-```
-
-The SDK accepts `Browser(policy, credential_resolver=lambda reference: ...)`. The reference service accepts `create_app(policy, token=..., credential_resolver=lambda principal, reference: ...)` or `saved_locations=SavedLocations(path, storage_key)`; a resolver must check that the principal owns the reference before returning credentials. The SDK does not persist credentials. `create_app` persists saved locations or archive jobs only when the corresponding store is configured. A local descriptor contains `type`, native `root`, and a session-relative `path`; NFS retains `host`, `export`, `version` and `path`.
-
-To customize authentication, pass `authenticate(request) -> principal` and optionally `authorize(principal, operation, descriptor) -> bool` to `create_app`. Hooks can be async. The default bearer token represents one principal; use per-user hooks for separate users. Sessions and saved locations cannot be read by a different principal. The CLI disables HTTP access logging; keep credentials and request bodies out of any logging added by the embedding application.
-
-## Frontend
-
-Use `frontend/browser.js` directly or the packaged `/browser.js` asset. It defines `<remote-fs-browser>` and exports `RemoteFsClient`. The embeddable component needs no React, Vue or build system. The standalone manager is a separate supplied UI and is not the custom element.
-
-```javascript
-import { RemoteFsClient } from './browser.js'
-const picker = document.querySelector('remote-fs-browser')
-picker.client = new RemoteFsClient('/storage-api', () => ({ Authorization: `Bearer ${token}` }))
-picker.addEventListener('path-selected', event => saveDescriptor(event.detail))
-// Optional: the embedding app saves credentials itself and returns an opaque reference.
-// picker.storeCredentials = async credentials => mySecretStore.save(credentials)
-```
-
-The element fills the box it is given. It renders the shortlist and the host's roots in a sidebar, network devices from an explicit scan, per-host share and export lists, credential entry, nested folders with formatted sizes and dates, in-place errors with retry, expiry reconnect, downloads in browse mode and a live descriptor preview with a Select button in select mode. The `signout` attribute adds a Sign out button that fires a `sign-out` event for the host page to act on. When the service offers `/api/saved` and no `storeCredentials` hook is set, "Save folder to shortlist" stores the current folder there. It closes its session on selection, disconnect or element removal. Keep the service on the same origin or configure a restrictive CORS policy when embedding across origins. The JS client's `file()` returns a Fetch `Response`; consume its `body` as a stream rather than calling `blob()` for large files.
-
-## Operation and protocol limits
-
-Uploads are staged beside the destination and committed after the full body arrives; ordinary cancellation cleans the temporary file and keeps the original. The default upload limit is 10 GiB (`max_write_bytes`). A killed process or lost server connection can leave a `.remotefs-*.part` file; remove stale files after checking no upload is active. Atomic replacement inherits the staging file's permissions/ACLs (local replacement preserves permission bits), so this is not an ACL-preserving backup tool.
-
-Folder copies, recursive deletes and NFS folder moves run in steps. An error can leave partial results: refresh both locations before retrying. NFS folder moves create destinations exclusively and move files with server-side links before removing empty source folders. They are not atomic. Servers must support hard links for non-overwriting NFS file publication/moves. Symlinks, reparse points and special files are excluded; a recursive operation with hidden or truncated entries is rejected.
-
-Filesystem ownership, POSIX permissions and server ACLs remain authoritative. The app does not expose arbitrary shell commands, ownership changes, ACL editing, symlink creation or mount administration.
-
-SMB authentication uses NTLM (including domain-qualified usernames). The SMB backend does not accept IPv6 literals; use IPv4 or a hostname resolving to an allowed IPv4 address. SMB enumeration uses Impacket's SRVS RPC over SMB2; traversal and streaming use smbprotocol's SMB2/3 session. NFS export enumeration uses mountd and may return no exports on NFSv4-only servers; enter the export manually in that case. NFS uses AUTH_SYS UID/GID behaviour from libnfs and the service account; NFS Kerberos is not configured.
-
-This project is a filesystem manager with an embeddable path picker. It does not provision mounts, manage backups, sync files, or abstract cloud object storage. It is a reference service and embedding SDK, not a hardened multi-tenant filesystem sandbox: see [security boundaries](SECURITY.md) and [validation](VALIDATION.md) before exposing it beyond a trusted network.
-
-## Development and licensing
-
-```sh
-pip install -e '.[test]'
-pytest
-node --test frontend/*.test.js
-python -m build
-```
-
-See [VALIDATION.md](VALIDATION.md) for completed checks and outstanding limitations. Release mechanics are documented in [packaging/RELEASING.md](packaging/RELEASING.md).
-
-The application is MIT licensed. Dependencies retain their own licences: [smbprotocol](https://github.com/jborean93/smbprotocol), [Impacket](https://github.com/fortra/impacket), [libnfs](https://github.com/sahlberg/libnfs) and the other bundled components. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Windows portable packages include dependency licence texts and matching modified libnfs source, its build recipe and DLL replacement instructions.
-
-### Terminal file manager
+Client commands are available from the current source checkout; the published 0.2.1 CLI has only `serve` and `account`. Install the checkout with `pipx install .` to use them before the next release.
 
 The CLI can use the same running service as the web UI. Commands share its roots,
 network policy, saved locations, encrypted credentials and download jobs. `serve`
@@ -390,3 +275,169 @@ command accepts `--url`, `--auth-file`, and `--timeout`; put options after the
 command. Use `remotefs COMMAND --help` for details. GUI layout, sorting and visual
 selection are presentation features; the CLI exposes their underlying directory
 listings and descriptors for shell tools.
+
+## Python SDK
+
+```python
+import asyncio
+from remote_fs_browser import Browser, Policy
+
+async def example():
+    policy = Policy(local_roots=['/srv/media'])
+    async with Browser(policy) as browser:
+        async with await browser.connect({'type': 'local', 'root': '/srv/media'}) as fs:
+            print(await fs.list('/'))
+            print(await fs.stat('/example.mp4'))
+            async for chunk in fs.stream('/example.mp4', offset=1024, length=4096):
+                print(len(chunk))
+            selected = fs.descriptor('/Projects')
+
+# Worker processes require the normal multiprocessing main guard on every OS.
+if __name__ == '__main__':
+    asyncio.run(example())
+```
+
+`list`, `stat`, `stream`, `descriptor` and `close` have identical interfaces for all backends. Paths inside a session always use `/`, including on Windows. A local connection's `root` remains a native host path such as `C:/Media`. Entries contain `name`, normalized `path`, `type`, `size`, and UTC `modified` time. Listings report `truncated` when the entry limit was hit and `skipped` for names that cannot be addressed safely (for example a colon or backslash in a filename); nothing aborts the listing.
+
+Connect to SMB with `{'type':'smb','host':'nas.example','share':'Projects'}` and a separate `credentials={'username':..., 'password':...}` argument. NFS uses `{'type':'nfs','host':'nas.example','export':'/exports/media','version':4}`. Set the permitted network ranges first.
+
+Each connected location owns a worker process that keeps its protocol connection through subsequent navigation and file reads. Discovery runs in a separate bounded worker. `close()` terminates it; abandoned workers exit after the configured idle period (300 seconds by default). Each filesystem operation has a hard deadline (10 seconds by default), so a stuck native call cannot block another session. The reference HTTP service also reaps expired session records.
+
+For mutations, add the required operations to `Policy.operations`: `write`, `mkdir`, `rename`, `copy` and `delete`. The SDK defaults to read-only even though the standalone CLI defaults to read/write. `FilesystemSession.write(path, async_byte_chunks, overwrite=False)`, `mkdir(path)`, `rename(source, destination)`, `copy(source, destination, target=other_session)` and `remove(path, recursive=False)` use the same session-relative paths. Copy also requires source `read` and destination `write`; copying directories requires destination `mkdir`.
+
+## HTTP API
+
+The standalone service uses one configured username/password account. Sign-in issues an eight-hour HttpOnly, SameSite=Strict cookie scoped to `/api`; it is Secure when served over HTTPS. Mutations using a browser cookie require a matching Origin header. Login attempts and authenticated requests are rate-limited. Sign-out revokes the current login and closes filesystem sessions belonging to that principal; service restart ends all browser logins.
+
+Page assets are public; data endpoints require authentication. An embedded service may supply authentication hooks or a bearer token instead. Routes below use `/api`. The current source checkout also exposes unprefixed compatibility aliases for discovery, sessions, saved locations, mutations, credentials and archives. Login stays under `/api/login`; use the canonical prefix for cookie authentication.
+
+| Method / route | Purpose or body |
+|---|---|
+| `GET /api/login` | Check authentication and return service hostname |
+| `POST /api/login`, `DELETE /api/login` | Sign in with `{username, password}`; sign out |
+| `GET /api/discover?scan=false` | Allowed roots, groups and scan ranges; `scan=true` probes one page |
+| `POST /api/discover` | Scan `{ranges, offset}` or enumerate `{type, host, credentials?, credential_id?}` |
+| `GET/POST /api/saved`, `DELETE /api/saved/{id}` | List/save/forget folder descriptors and optional credentials |
+| `GET/POST /api/credentials`, `DELETE /api/credentials/{id}` | List metadata, save `{host, credentials}`, or forget host credentials |
+| `POST /api/sessions` | Connect with `{descriptor, credentials?}`; returns session ID, configured operations and upload limit |
+| `DELETE /api/sessions/{id}` | Close session immediately |
+| `GET /api/sessions/{id}/list?path=/` | Entries, `truncated` and `skipped`; add `ndjson=true` for NDJSON |
+| `GET /api/sessions/{id}/stat?path=/file` | Normalized metadata |
+| `GET /api/sessions/{id}/descriptor?path=/folder` | Validated durable directory descriptor |
+| `GET /api/sessions/{id}/file?path=/file` | Stream file; supports a single `Range: bytes=...` header |
+| `PUT /api/sessions/{id}/file?path=/file&overwrite=false` | Raw binary upload |
+| `POST /api/sessions/{id}/mkdir` | `{path}` |
+| `POST /api/sessions/{id}/rename` | `{source, destination}` |
+| `POST /api/sessions/{id}/copy` | `{source, destination, target_session?}` |
+| `DELETE /api/sessions/{id}/entry?path=/folder&recursive=true` | Remove file or directory tree |
+| `GET /api/downloads` | Owned archive jobs and configured store capacity |
+| `POST /api/downloads/estimate` | `{session, paths}`; returns entry/byte estimate and stores |
+| `POST /api/downloads` | `{session, paths, store, part_size?}`; zero means a single ZIP |
+| `POST /api/downloads/{id}` | `{action: "pause"}`, `"resume"` or `"forget"` (after purge) |
+| `GET /api/downloads/{id}/parts/{index}` | Ready staged part, zero-based index; supports Range |
+| `DELETE /api/downloads/{id}` | Purge staged files and return freed bytes |
+
+File reads use bounded 256 KiB chunks. Explicit, open-ended and suffix ranges are supported; invalid or multiple ranges return 416. Downloads are attachments with `nosniff`, and credentials never appear in their URLs. A disconnected file transfer releases its active handle; the browsing session remains until expiry or explicit close.
+
+Directory listings are bounded, not lazily paged: NDJSON emits the bounded result with `X-Listing-Truncated` and `X-Listing-Skipped` headers. The default `max_entries` is 10,000, also used to bound recursive operations and archive walks; maximum depth is 64. Truncated or skipped recursive listings are rejected. Control request bodies are limited to 16 KiB; raw uploads are counted separately against `max_write_bytes`. The defaults allow 16 filesystem sessions across the service and 120 authenticated requests per minute per principal.
+
+## Credentials and descriptors
+
+Descriptors never contain credentials. A descriptor can hold `credential_id`; `remotefs serve` resolves it from the remembered locations of the signed-in principal, and an embedding application can supply its own resolver instead.
+
+```json
+{"type":"smb","host":"nas.example","share":"Projects","path":"/Campaigns","credential_id":"media-reader"}
+```
+
+The SDK accepts `Browser(policy, credential_resolver=lambda reference: ...)`. The reference service accepts `create_app(policy, token=..., credential_resolver=lambda principal, reference: ...)` or `saved_locations=SavedLocations(path, storage_key)`; a resolver must check that the principal owns the reference before returning credentials. The SDK does not persist credentials. `create_app` persists saved locations or archive jobs only when the corresponding store is configured. A local descriptor contains `type`, native `root`, and a session-relative `path`; NFS retains `host`, `export`, `version` and `path`.
+
+To customize authentication, pass `authenticate(request) -> principal` and optionally `authorize(principal, operation, descriptor) -> bool` to `create_app`. Hooks can be async. The default bearer token represents one principal; use per-user hooks for separate users. Sessions and saved locations cannot be read by a different principal. The CLI disables HTTP access logging; keep credentials and request bodies out of any logging added by the embedding application.
+
+## Frontend
+
+Use `frontend/browser.js` directly or the packaged `/browser.js` asset. It defines `<remote-fs-browser>` and exports `RemoteFsClient`. The embeddable component needs no React, Vue or build system. The standalone manager is a separate supplied UI and is not the custom element.
+
+```javascript
+import { RemoteFsClient } from './browser.js'
+const picker = document.querySelector('remote-fs-browser')
+picker.client = new RemoteFsClient('/storage-api/api', () => ({ Authorization: `Bearer ${token}` }))
+picker.addEventListener('path-selected', event => saveDescriptor(event.detail))
+// Optional: the embedding app saves credentials itself and returns an opaque reference.
+// picker.storeCredentials = async credentials => mySecretStore.save(credentials)
+```
+
+When mounting the reference API inside another FastAPI application, include its lifespan in the host's lifespan so session expiry and worker/job cleanup run:
+
+```python
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from remote_fs_browser.http import create_app
+
+storage = create_app(policy, authenticate=authenticate_user)
+
+@asynccontextmanager
+async def lifespan(app):
+    async with storage.router.lifespan_context(storage):
+        yield
+
+app = FastAPI(lifespan=lifespan)
+app.mount('/storage-api', storage)
+```
+
+Here `policy` and `authenticate_user` are supplied by the embedding application as described above.
+
+For an API mounted with `app.mount('/storage-api', create_app(...))`, use `/storage-api/api` as the client base. The standalone service uses `/api`. Existing bearer-authenticated integrations using the legacy unprefixed routes continue to work, including file mutations, host credentials and staged downloads. Cookie login uses the canonical `/api` routes and is scoped to the mount path.
+
+The current source checkout adds the client helpers below alongside the terminal client; published 0.2.1 does not yet include all of these helpers.
+
+| Area | JavaScript methods |
+| --- | --- |
+| Login | `login(username, password)`, `loginStatus()`, `logout()` |
+| Discovery | `discover()`, `scan(ranges, offset)`, `shares(type, host, credentials?, credentialId?)` |
+| Sessions | `connect(descriptor, credentials?)`, `close(id)` |
+| Files | `list`, `stat`, `descriptor`, `file`, `upload`, `mkdir`, `rename`, `copy`, `remove` |
+| Saved locations | `saved()`, `save(descriptor, credentials, label)`, `forget(id)` |
+| Host credentials | `hostCredentials()`, `saveHostCredentials(host, credentials)`, `forgetHostCredentials(id)` |
+| Archives | `downloads()`, `estimateDownload(session, paths)`, `createDownload(session, paths, store, partSize)` |
+| Archive controls | `controlDownload(id, 'pause' | 'resume' | 'forget')`, `purgeDownload(id)`, `downloadPart(id, index, range?)` |
+
+```javascript
+const client = new RemoteFsClient('/api')
+await client.login(username, password) // HttpOnly session cookie; no JS password storage
+const { id } = await client.connect({ type: 'local', root: '/srv/files' })
+await client.mkdir(id, '/inbox')
+const estimate = await client.estimateDownload(id, ['/inbox'])
+// Choose an available staging store returned by the service before creating a job.
+await client.close(id)
+```
+
+`file()` and `downloadPart()` return a Fetch `Response`; check `response.ok` and stream the body for large downloads. Both accept a final `{ signal }` option. `upload()` accepts `{ overwrite, signal, progress }`. `copy(id, source, destination, targetSession?)` supports copying between owned sessions. `controlDownload(..., 'forget')` removes an already-purged job record; `purgeDownload()` removes staged bytes.
+
+Fetch and upload requests use same-origin credentials by default. A third constructor argument `{ credentials: 'include' }` enables credentialed cross-origin requests where the host's CORS/authentication policy permits them; it does not bypass same-origin mutation checks or SameSite cookies. Custom authentication headers remain supported. The embedding app owns its login screen, archive controls and credential-management UI; the custom element keeps its existing picker/browse interface and events.
+
+The element fills the box it is given. It renders the shortlist and the host's roots in a sidebar, network devices from an explicit scan, per-host share and export lists, credential entry, nested folders with formatted sizes and dates, in-place errors with retry, expiry reconnect, downloads in browse mode and a live descriptor preview with a Select button in select mode. The `signout` attribute adds a Sign out button that fires a `sign-out` event for the host page to act on. When the service offers `/api/saved` and no `storeCredentials` hook is set, "Save folder to shortlist" stores the current folder there. It closes its session on selection, disconnect or element removal. Keep the service on the same origin or configure a restrictive CORS policy when embedding across origins. The JS client's `file()` returns a Fetch `Response`; consume its `body` as a stream rather than calling `blob()` for large files.
+
+## Operation and protocol limits
+
+Uploads are staged beside the destination and committed after the full body arrives; ordinary cancellation cleans the temporary file and keeps the original. The default upload limit is 10 GiB (`max_write_bytes`). A killed process or lost server connection can leave a `.remotefs-*.part` file; remove stale files after checking no upload is active. Atomic replacement inherits the staging file's permissions/ACLs (local replacement preserves permission bits), so this is not an ACL-preserving backup tool.
+
+Folder copies, recursive deletes and NFS folder moves run in steps. An error can leave partial results: refresh both locations before retrying. NFS folder moves create destinations exclusively and move files with server-side links before removing empty source folders. They are not atomic. Servers must support hard links for non-overwriting NFS file publication/moves. Symlinks, reparse points and special files are excluded; a recursive operation with hidden or truncated entries is rejected.
+
+Filesystem ownership, POSIX permissions and server ACLs remain authoritative. The app does not expose arbitrary shell commands, ownership changes, ACL editing, symlink creation or mount administration.
+
+SMB authentication uses NTLM (including domain-qualified usernames). The SMB backend does not accept IPv6 literals; use IPv4 or a hostname resolving to an allowed IPv4 address. SMB enumeration uses Impacket's SRVS RPC over SMB2; traversal and streaming use smbprotocol's SMB2/3 session. NFS export enumeration uses mountd and may return no exports on NFSv4-only servers; enter the export manually in that case. NFS uses AUTH_SYS UID/GID behaviour from libnfs and the service account; NFS Kerberos is not configured.
+
+This project is a filesystem manager with an embeddable path picker. It does not provision mounts, manage backups, sync files, or abstract cloud object storage. It is a reference service and embedding SDK, not a hardened multi-tenant filesystem sandbox: see [security boundaries](SECURITY.md) and [validation](VALIDATION.md) before exposing it beyond a trusted network.
+
+## Development and licensing
+
+```sh
+pip install -e '.[test]'
+pytest
+node --test frontend/*.test.js
+python -m build
+```
+
+See [VALIDATION.md](VALIDATION.md) for completed checks and outstanding limitations. Release mechanics are documented in [packaging/RELEASING.md](packaging/RELEASING.md).
+
+The application is MIT licensed. Dependencies retain their own licences: [smbprotocol](https://github.com/jborean93/smbprotocol), [Impacket](https://github.com/fortra/impacket), [libnfs](https://github.com/sahlberg/libnfs) and the other bundled components. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Windows portable packages include dependency licence texts and matching modified libnfs source, its build recipe and DLL replacement instructions.
