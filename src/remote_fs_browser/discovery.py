@@ -5,6 +5,7 @@ import ipaddress
 from pathlib import PurePath
 import socket
 from .policy import Policy
+from .hostnames import resolve_host
 
 # Candidate addresses probed per scan request: four /24 ranges, about half a minute worst case on 64 threads.
 SCAN_BUDGET = 1024
@@ -20,7 +21,7 @@ def grouped(policy: Policy, roots, hosts, scanned):
                 if policy.network_ranges else 'No networks are permitted for SMB/NFS on this service.')
     groups = [{'id': 'local', 'label': 'This Computer', 'items': local}]
     for protocol, label in (('smb', 'SMB'), ('nfs', 'NFS')):
-        items = [{'type': protocol, 'host': row['host'], 'label': row['host']} for row in hosts if protocol in row['protocols']]
+        items = [{'type': protocol, 'host': row['host'], 'label': row.get('name') or row['host']} for row in hosts if protocol in row['protocols']]
         groups.append({'id': protocol, 'label': label, 'items': items, 'hint': hint})
     return groups
 
@@ -56,7 +57,10 @@ def discover(policy: Policy, scan=False, root_kinds=None):
                     protocols.append(name)
             except OSError:
                 pass
-        return {'host': host, 'protocols': protocols} if protocols else None
+        if not protocols:
+            return None
+        name = resolve_host(host)
+        return {'host': host, 'protocols': protocols, **({'name': name} if name else {})}
 
     with ThreadPoolExecutor(max_workers=64) as executor:
         result['hosts'] = [row for row in executor.map(probe, hosts) if row]
