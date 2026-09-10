@@ -1011,7 +1011,7 @@ export class RemoteFsBrowser extends HTMLElement {
         if (!response.ok && !(response.status === 416 && item.size === 0)) throw new Error('Could not read this file.')
         const total = Number(response.headers.get('content-range')?.split('/')[1] || response.headers.get('content-length') || 0)
         if (total > 1024 * 1024) throw new Error('The file is now too large for the text editor. Download it instead.')
-        const bytes = item.size === 0 ? new Uint8Array() : new Uint8Array(await response.arrayBuffer())
+        const bytes = response.status === 416 ? new Uint8Array() : new Uint8Array(await response.arrayBuffer())
         if (bytes.includes(0)) throw new Error('This looks like a binary file. Download it to edit it.')
         let text
         try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes) } catch { throw new Error('The editor supports UTF-8 text. Download this file to edit its encoding.') }
