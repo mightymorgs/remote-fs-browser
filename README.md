@@ -16,6 +16,8 @@ Version 0.2.1 introduces password login, file write operations and staged multip
 
 ## Quick start
 
+Follow the [step-by-step quickstart](QUICKSTART.md) for first login, NAS connections, file operations and multipart downloads.
+
 To install from a source checkout, use `pipx install .` (or `pip install -e .` in a virtual environment).
 
 ### Homebrew (macOS)
@@ -31,6 +33,7 @@ remotefs serve
 The formula installs Python and libnfs as dependencies. To run a published release in the background:
 
 ```sh
+remotefs account --username YOUR_NAME  # set up the account before starting the service
 brew services start remotefs
 ```
 
