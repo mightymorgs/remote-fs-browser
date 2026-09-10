@@ -156,12 +156,40 @@ class SMBMutations:
         return self.client.open_file(self.destination(path), mode='xb', connection_cache=self.cache)
 
     def commit_write(self, source, destination, overwrite):
-        fn = self.client.replace if overwrite else self.client.rename
-        fn(self._path(source), self.destination(destination), connection_cache=self.cache)
+        source, destination = self._path(source), self.destination(destination)
+        # Adapted from smbprotocol's MIT-licensed _rename_information
+        # (copyright Jordan Borean; see licenses/smbprotocol/LICENSE).
+        # smbclient.rename/replace open the destination with FILE_EXECUTE to resolve
+        # DFS, which Samba can reject for ordinary non-executable data files.
+        # Resolve it with metadata access, retaining the same atomic rename.
+        from smbclient._io import SMBRawIO, SMBFileTransaction, set_info
+        from smbprotocol.file_info import FileRenameInformation
+        from smbprotocol.open import CreateOptions, FilePipePrinterAccessMask as Access
+        import ntpath
+        options = dict(mode='r', share_access='rwd', connection_cache=self.cache,
+                       create_options=CreateOptions.FILE_OPEN_REPARSE_POINT)
+        target = SMBRawIO(destination, desired_access=Access.FILE_READ_ATTRIBUTES, **options)
+        try:
+            SMBFileTransaction(target).commit()
+        except OSError as error:
+            if error.errno != errno.ENOENT:
+                raise
+        with SMBRawIO(source, desired_access=Access.DELETE, **options) as handle:
+            source_tree, target_tree = handle.fd.tree_connect, target.fd.tree_connect
+            if (handle.fd.connection.server_guid != target.fd.connection.server_guid
+                    or ntpath.normpath(source_tree.share_name).casefold() != ntpath.normpath(target_tree.share_name).casefold()):
+                raise ValueError('Replacement must stay on the same share')
+            path = target.fd.file_name
+            if target_tree.is_dfs_share and path.startswith(target_tree.share_name[2:]):
+                path = path[len(target_tree.share_name) - 1:]
+            info = FileRenameInformation()
+            info['replace_if_exists'], info['file_name'] = overwrite, path
+            with SMBFileTransaction(handle) as transaction:
+                set_info(transaction, info)
 
     def rename(self, source, destination):
         split(source)
-        self.client.rename(self._path(source), self.destination(destination), connection_cache=self.cache)
+        self.commit_write(source, destination, False)
         return {'path': normalize(destination)}
 
     def remove(self, path):

@@ -88,6 +88,11 @@ def bundled_library():
 
 
 def main(argv=None):
+    # Console-script directories can contain Impacket's smbclient.py, which
+    # shadows smbprotocol's smbclient package in this process and its workers.
+    if not getattr(sys, 'frozen', False) and sys.path and sys.path[0] and Path(sys.argv[0]).name in ('remotefs', 'remotefs.exe', 'remote-fs-browser', 'remote-fs-browser.exe'):
+        if Path(sys.path[0]).resolve() == Path(sys.argv[0]).resolve().parent:
+            sys.path.pop(0)
     from . import __version__
     parser = argparse.ArgumentParser(prog='remotefs', description='Serve a remote filesystem manager and API on one port.')
     parser.add_argument('command', nargs='?', choices=['serve', 'account'], default='serve')

@@ -122,3 +122,34 @@ def test_read_only_flag_disables_writes(home, launches, detected):
 def test_module_entry_point_help():
     result = subprocess.run([sys.executable, '-m', 'remote_fs_browser', 'serve', '--help'], capture_output=True, text=True)
     assert result.returncode == 0 and '--no-defaults' in result.stdout
+
+
+@pytest.mark.parametrize('name', ['remotefs', 'remote-fs-browser'])
+def test_console_launcher_does_not_import_adjacent_smbclient_script(tmp_path, name):
+    launcher = tmp_path / name
+    (tmp_path / 'smbclient.py').write_text("raise RuntimeError('Imported the Impacket-style console script')\n")
+    launcher.write_text('''
+import multiprocessing
+from remote_fs_browser.cli import main
+
+def check_library(queue):
+    import smbclient
+    queue.put(callable(smbclient.register_session))
+
+if __name__ == '__main__':
+    try:
+        main(['--version'])
+    except SystemExit as error:
+        assert error.code == 0
+    import smbclient
+    assert callable(smbclient.register_session)
+    context = multiprocessing.get_context('spawn')
+    queue = context.Queue()
+    process = context.Process(target=check_library, args=(queue,))
+    process.start()
+    assert queue.get(timeout=10) is True
+    process.join(10)
+    assert process.exitcode == 0
+''')
+    result = subprocess.run([sys.executable, str(launcher)], capture_output=True, text=True, timeout=25)
+    assert result.returncode == 0, result.stdout + result.stderr

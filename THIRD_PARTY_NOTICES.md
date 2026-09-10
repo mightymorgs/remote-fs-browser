@@ -20,6 +20,9 @@ The principal storage libraries are:
 
 - **smbprotocol**, used for SMB browsing: MIT, copyright Jordan Borean and Red Hat.
   Its copyright and permission notice are included in `licenses/smbprotocol/`.
+  The SMB rename helper in `mutations.py` adapts its rename transaction to use
+  metadata access instead of execute permission when resolving the destination.
+  That notice is also included in the Python source and wheel distributions.
 - **libnfs**, used for NFS: the library is LGPL-2.1-or-later; its protocol
   definitions and generated protocol code have BSD terms. Full upstream
   licensing material is included in `licenses/libnfs/` and the source archive.
