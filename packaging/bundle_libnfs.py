@@ -110,9 +110,9 @@ this change; do not apply the patch again.
 
 ## Rebuild on Windows
 
-Install CMake and a 64-bit MinGW GCC toolchain (the release uses Chocolatey's
-`mingw` package). `build-libnfs-action.yml` is the exact CI build recipe copied
-from the release. From the portable distribution directory, run in PowerShell:
+Install CMake and a 64-bit MinGW GCC toolchain. The actual release compiler
+version and target are recorded in `../mingw/toolchain-notices.json`.
+`build-libnfs-action.yml` is the exact CI build recipe copied from the release. From the portable distribution directory, run in PowerShell:
 
 ```powershell
 tar -xzf sources/{archive.name}
