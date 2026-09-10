@@ -1,0 +1,732 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remote FS Browser</title>
+<script src="/react.js"></script>
+<script src="/react-dom.js"></script>
+<script src="/manager.js"></script>
+<script src="/support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+  body{margin:0;background:#e9eaee}
+  *,*::before,*::after{box-sizing:border-box}
+  a{color:#3f6fd1;text-decoration:none}
+  a:hover{color:#2b57ae}
+  @keyframes rfb-pulse{0%,100%{opacity:.35}50%{opacity:.8}}
+</style>
+</helmet>
+<helmet><style>
+.manager-pane{container-type:inline-size}.manager-selection{flex-wrap:wrap}
+@media(max-width:699px){.manager-shell{grid-template-columns:56px minmax(0,1fr)!important}.manager-rail{position:relative;z-index:16;background:#f4f5f7!important}}
+@container (max-width:600px){
+.manager-toolbar{height:auto!important;min-height:94px;padding:8px!important;gap:4px!important;flex-wrap:wrap;flex-shrink:0}
+.manager-toolbar nav{min-width:0!important;flex:1 1 0!important}
+.manager-toolbar input[type=search]{order:2;flex:1 0 100%!important;max-width:none!important;width:100%;min-width:0!important}
+.manager-file-row{gap:6px!important;padding-left:8px!important;padding-right:8px!important}
+.manager-part-row{grid-template-columns:minmax(0,1fr) 80px!important;gap:6px!important}
+}
+.manager-dialog{width:min(540px,calc(100vw - 32px));border:1px solid #cfd3da;border-radius:14px;padding:24px;background:#fbfbfc;color:#1c2024;font:14px/1.5 system-ui;box-shadow:0 26px 64px #14181e44}
+.manager-dialog::backdrop{background:#14181e44}.manager-dialog h2{font-size:18px;margin:0 0 16px}.manager-dialog p{white-space:pre-wrap;overflow-wrap:anywhere}.manager-dialog input,.manager-dialog textarea{width:100%;padding:10px;border:1px solid #c8ccd3;border-radius:8px;font:14px monospace}.dialog-buttons{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}.dialog-buttons button{padding:8px 14px;border:1px solid #c8ccd3;border-radius:8px;background:white;cursor:pointer}.dialog-buttons .primary{background:#3f6fd1;color:white}.manager-dialog.editor{width:min(900px,calc(100vw - 32px))}.editor textarea{height:55vh;resize:vertical}
+</style></helmet>
+<sc-if value="{{ uploadStatus }}"><div role="status" style="position:fixed;bottom:50px;left:20px;z-index:100;background:#eef2fb;padding:12px;border:1px solid #b6c6e8;border-radius:8px">{{ uploadStatus }} <button onClick="{{ cancelUpload }}">Cancel upload</button></div></sc-if>
+
+<div class="manager-shell" style="height:100vh;min-height:0;display:grid;grid-template-columns:{{ railWidth }} minmax(0,1fr);font:15px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif;color:#1c2024;background:linear-gradient(140deg,#e7ecf5 0%,#f4f2ef 46%,#e4edf1 100%);overflow:hidden">
+  <sc-if value="{{ mobileRailOpen }}"><button type="button" aria-label="Dismiss sidebar" onClick="{{ toggleRail }}" style="position:fixed;inset:0;z-index:15;border:0;background:#14181e44;cursor:pointer"></button></sc-if>
+
+  <aside class="manager-rail" style="width:{{ railWidth }};background:rgba(244,245,247,.62);backdrop-filter:blur(24px) saturate(1.6);border-right:1px solid rgba(226,229,234,.8);display:flex;flex-direction:column;min-height:0;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:9px;height:53px;padding:0 10px 0 14px;border-bottom:1px solid rgba(226,229,234,.8);min-width:0">
+      <span style="width:18px;height:15px;border-radius:3px;background:#3f6fd1;flex:none"></span>
+      <sc-if value="{{ expanded }}" hint-placeholder-val="{{ true }}">
+        <span style="flex:1;min-width:0;font:500 12px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#4d545c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">remote-fs-browser</span>
+        <sc-if value="{{ mobileRailOpen }}"><button type="button" aria-label="Close sidebar" onClick="{{ toggleRail }}" style="border:0;background:transparent;padding:8px;cursor:pointer;font-size:18px">×</button></sc-if>
+      </sc-if>
+    </div>
+
+    <div style="flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:14px;padding:12px 0">
+      <sc-if value="{{ expanded }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;flex-direction:column;gap:1px">
+          <p style="margin:0;padding:0 16px 6px;font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#6a727c">Shortlist</p>
+          <sc-if value="{{ hasPins }}" hint-placeholder-val="{{ true }}">
+            <sc-for list="{{ shortlist }}" as="pin" hint-placeholder-count="2">
+              <button type="button" onClick="{{ pin.open }}" onContextMenu="{{ pin.menu }}" title="{{ pin.where }}" style="display:flex;align-items:flex-start;gap:10px;margin:0 8px;padding:7px 8px;border:0;border-radius:8px;background:transparent;text-align:left;min-height:38px;cursor:pointer" style-hover="background:#e9ecf1">
+                <span style="width:13px;height:11px;border-radius:2px;background:#6a727c;flex:none;margin-top:4px"></span>
+                <span style="display:flex;flex-direction:column;flex:1;min-width:0;gap:1px">
+                  <span style="font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ pin.label }}</span>
+                  <span style="font:11px/1.4 ui-monospace,Menlo,Consolas,monospace;color:#6a727c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ pin.where }}</span>
+                </span>
+                <span onClick="{{ pin.forget }}" role="button" title="Forget" style="display:grid;place-items:center;width:22px;height:22px;flex:none;border-radius:6px;color:#8a919b;font-size:13px;line-height:1" style-hover="background:#dfe3ea;color:#1c2024">×</span>
+              </button>
+            </sc-for>
+          </sc-if>
+          <sc-if value="{{ noPins }}">
+            <p style="margin:0 16px;font-size:12px;color:#6a727c;text-wrap:pretty">Nothing pinned. Right-click a folder or share and choose Shortlist.</p>
+          </sc-if>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:1px">
+          <p style="margin:0;padding:0 16px 6px;font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#6a727c">This machine</p>
+          <sc-for list="{{ localRoots }}" as="root" hint-placeholder-count="2">
+            <button type="button" onClick="{{ root.open }}" style="display:flex;align-items:center;gap:10px;margin:0 8px;padding:8px;border:0;border-radius:8px;background:{{ root.bg }};text-align:left;min-height:36px;cursor:pointer" style-hover="background:#e9ecf1">
+              <span style="width:13px;height:11px;border-radius:2px;background:{{ root.dot }};flex:none"></span>
+              <span style="flex:1;min-width:0;font:14px ui-monospace,Menlo,Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ root.label }}</span>
+            </button>
+          </sc-for>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:1px">
+          <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:0 12px 6px 16px">
+            <p style="margin:0;font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#6a727c">Network</p>
+            <button type="button" onClick="{{ openScan }}" style="border:0;background:transparent;padding:0;font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.04em;color:#3f6fd1;cursor:pointer" style-hover="color:#2b57ae">Scan</button>
+          </div>
+          <sc-for list="{{ hosts }}" as="host" hint-placeholder-count="2">
+            <div style="display:flex;flex-direction:column;gap:1px">
+              <button type="button" onClick="{{ host.open }}" onContextMenu="{{ host.menu }}" style="display:flex;align-items:center;gap:10px;margin:0 8px;padding:8px;border:0;border-radius:8px;background:{{ host.bg }};text-align:left;min-height:36px;cursor:pointer" style-hover="background:#e9ecf1">
+                <span style="width:13px;height:11px;border-radius:2px;background:{{ host.dot }};flex:none"></span>
+                <span style="flex:1;min-width:0;display:flex;flex-direction:column">
+                  <span style="font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ host.label }}</span>
+                  <span style="display:flex;align-items:center;gap:6px;min-width:0">
+                    <span style="font:11px ui-monospace,Menlo,Consolas,monospace;color:#6a727c">{{ host.ip }}</span>
+                    <span title="{{ host.credsTitle }}" style="font:10px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.05em;text-transform:uppercase;color:#22417d">{{ host.credsMark }}</span>
+                  </span>
+                </span>
+                <span style="font:11px ui-monospace,Menlo,Consolas,monospace;color:#6a727c;flex:none">{{ host.protocol }}</span>
+                <span onClick="{{ host.unmount }}" title="{{ host.unmountTitle }}" role="button" style="display:grid;place-items:center;width:22px;height:22px;flex:none;border-radius:6px;color:#8a919b;font-size:12px;line-height:1" style-hover="background:#dfe3ea;color:#1c2024">⏏</span>
+              </button>
+              <sc-for list="{{ host.shares }}" as="share" hint-placeholder-count="2">
+                <button type="button" onClick="{{ share.open }}" onContextMenu="{{ share.menu }}" style="display:flex;align-items:center;gap:9px;margin:0 8px 0 28px;padding:7px 8px;border:0;border-radius:8px;background:{{ share.bg }};text-align:left;min-height:34px;cursor:pointer" style-hover="background:#e9ecf1">
+                  <span style="width:10px;height:9px;border-radius:2px;background:{{ share.dot }};flex:none"></span>
+                  <span style="flex:1;min-width:0;font-size:13.5px;color:#4d545c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ share.name }}</span>
+                </button>
+              </sc-for>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ collapsed }}">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:6px;padding-top:2px">
+          <sc-for list="{{ railIcons }}" as="icon" hint-placeholder-count="4">
+            <button type="button" onClick="{{ icon.open }}" title="{{ icon.title }}" style="width:36px;height:36px;display:grid;place-items:center;border:0;border-radius:9px;background:{{ icon.bg }};cursor:pointer" style-hover="background:#e9ecf1">
+              <span style="width:15px;height:13px;border-radius:2.5px;background:{{ icon.dot }}"></span>
+            </button>
+          </sc-for>
+        </div>
+      </sc-if>
+    </div>
+
+    <div style="border-top:1px solid rgba(226,229,234,.8);padding:10px;display:flex;flex-direction:column;gap:7px">
+      <sc-if value="{{ expanded }}" hint-placeholder-val="{{ true }}">
+        <button type="button" onClick="{{ openScan }}" style="width:100%;text-align:left;font-size:14px;padding:8px 12px;border:1px solid #d5d9df;border-radius:8px;background:rgba(255,255,255,.75);cursor:pointer;color:#1c2024" style-hover="background:#fff">Scan network</button>
+        <button type="button" onClick="{{ toggleAdd }}" style="width:100%;text-align:left;font-size:14px;padding:8px 12px;border:1px solid #d5d9df;border-radius:8px;background:rgba(255,255,255,.75);cursor:pointer;color:#1c2024" style-hover="background:#fff">+ Add a location</button>
+      </sc-if>
+    </div>
+  </aside>
+
+  <div class="manager-pane" style="display:flex;flex-direction:column;min-width:0;min-height:0;position:relative">
+
+    <div class="manager-toolbar" style="display:flex;align-items:center;gap:8px;height:53px;padding:0 14px;border-bottom:1px solid rgba(230,232,236,.85);background:rgba(251,251,252,.7);backdrop-filter:blur(24px) saturate(1.6)">
+      <button type="button" onClick="{{ toggleRail }}" title="Toggle sidebar" style="width:34px;height:34px;flex:none;display:grid;place-items:center;padding:0;border:1px solid #d5d9df;border-radius:8px;background:rgba(255,255,255,.75);cursor:pointer" style-hover="background:#fff">
+        <span style="width:14px;height:12px;border:1.5px solid #4d545c;border-radius:2px;border-left-width:5px"></span>
+      </button>
+      <button type="button" onClick="{{ goUp }}" title="Parent folder" style="width:34px;height:34px;flex:none;padding:0;font-size:15px;color:#4d545c;border:1px solid #d5d9df;border-radius:8px;background:rgba(255,255,255,.75);cursor:pointer" style-hover="background:#fff">‹</button>
+
+      <nav style="flex:2 1 220px;min-width:180px;display:flex;align-items:center;gap:5px;font:14px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow:hidden;white-space:nowrap">
+        <sc-for list="{{ crumbs }}" as="crumb" hint-placeholder-count="4">
+          <span style="display:flex;align-items:center;gap:5px;min-width:0;flex:{{ crumb.flex }}">
+            <sc-if value="{{ crumb.sep }}" hint-placeholder-val="{{ true }}"><span style="color:#c0c5cc;flex:none">/</span></sc-if>
+            <button type="button" onClick="{{ crumb.go }}" style="border:0;background:transparent;padding:0;font:inherit;color:{{ crumb.color }};font-weight:{{ crumb.weight }};cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" style-hover="color:#3f6fd1">{{ crumb.text }}</button>
+          </span>
+        </sc-for>
+      </nav>
+
+      <input type="search" ref="{{ filterRef }}" value="{{ filter }}" onChange="{{ setFilter }}" placeholder="Filter this folder" style="flex:1 1 120px;min-width:88px;max-width:190px;padding:7px 11px;font:13.5px system-ui,sans-serif;color:#1c2024;border:1px solid #c8ccd3;border-radius:8px;background:rgba(255,255,255,.85)">
+      <sc-if value="{{ roomy }}" hint-placeholder-val="{{ true }}">
+        <button type="button" onClick="{{ newFolder }}" style="flex:none;font-size:13.5px;padding:8px 12px;border:1px solid #d5d9df;border-radius:8px;background:rgba(255,255,255,.75);cursor:pointer;color:#1c2024" style-hover="background:#fff">New folder</button>
+  
+      </sc-if>
+      <button type="button" onClick="{{ trayToggle }}" title="Downloads — zips being packed and parts to fetch" style="flex:none;display:flex;align-items:center;gap:7px;min-height:34px;font-size:13.5px;padding:{{ dlPad }};border:1px solid {{ dlLine }};border-radius:8px;background:{{ dlBg }};cursor:pointer;color:{{ dlInk }}" style-hover="background:#e3ebfb">
+        <span style="width:13px;height:11px;border-radius:2px;background:{{ dlInk }};flex:none"></span>
+        <sc-if value="{{ roomy }}" hint-placeholder-val="{{ true }}">Downloads</sc-if>
+        <sc-if value="{{ hasTransfers }}">
+          <span style="display:grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#3f6fd1;color:#fff;font:600 11px ui-monospace,Menlo,Consolas,monospace">{{ trayCount }}</span>
+        </sc-if>
+      </button>
+      <button type="button" onClick="{{ refresh }}" title="Refresh" style="width:34px;height:34px;flex:none;padding:0;font-size:15px;color:#4d545c;border:1px solid #d5d9df;border-radius:8px;background:rgba(255,255,255,.75);cursor:pointer" style-hover="background:#fff">↻</button>
+      <sc-if value="{{ roomy }}" hint-placeholder-val="{{ true }}">
+        <button type="button" onClick="{{ askSignout }}" style="flex:none;font-size:13.5px;padding:8px 12px;border:1px solid #d5d9df;border-radius:8px;background:rgba(255,255,255,.75);cursor:pointer;color:#4d545c" style-hover="background:#fff">Sign out</button>
+      </sc-if>
+      <sc-if value="{{ tight }}">
+        <button type="button" onClick="{{ overflowMenu }}" title="More actions" style="width:34px;height:34px;flex:none;padding:0;font-size:15px;line-height:1;color:#4d545c;border:1px solid #d5d9df;border-radius:8px;background:rgba(255,255,255,.75);cursor:pointer" style-hover="background:#fff">⋯</button>
+      </sc-if>
+    </div>
+
+    <sc-if value="{{ anySelected }}">
+      <div class="manager-selection" style="display:flex;align-items:center;gap:8px;padding:9px 16px;border-bottom:1px solid #cfdcf6;background:#eaf0fc">
+        <span style="font-size:13.5px;font-weight:500;color:#22417d">{{ selectionLabel }}</span>
+        <span style="font:12.5px ui-monospace,Menlo,Consolas,monospace;color:#4a6aa8">{{ selectionBytes }}</span>
+        <span style="flex:1"></span>
+        <sc-for list="{{ selectionActions }}" as="act" hint-placeholder-count="5">
+          <button type="button" onClick="{{ act.run }}" disabled="{{ act.disabled }}" style="font-size:13.5px;padding:7px 12px;border:1px solid {{ act.line }};border-radius:8px;background:{{ act.bg }};color:{{ act.ink }};opacity:{{ act.opacity }};cursor:pointer" style-hover="background:#fff">{{ act.label }}</button>
+        </sc-for>
+        <button type="button" onClick="{{ clearSelection }}" style="font-size:13.5px;padding:7px 10px;border:0;border-radius:8px;background:transparent;color:#4a6aa8;cursor:pointer" style-hover="background:rgba(255,255,255,.7)">Clear</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ browsing }}" hint-placeholder-val="{{ true }}">
+      <div style="flex:1;min-height:0;display:flex;flex-direction:column">
+        <div class="manager-file-row" style="display:grid;grid-template-columns:{{ listCols }};gap:12px;align-items:center;padding:8px 16px;border-bottom:1px solid rgba(230,232,236,.85);background:rgba(248,249,250,.72);font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#6a727c">
+          <span onClick="{{ toggleAll }}" role="checkbox" aria-checked="{{ allSelected }}" aria-label="Select all" title="Select every entry in this folder" style="display:grid;place-items:center;width:32px;height:26px;cursor:pointer">
+            <span style="display:grid;place-items:center;width:16px;height:16px;border:1px solid {{ allTickLine }};border-radius:4px;background:{{ allTickBg }};color:{{ allTickInk }};font-size:11px;line-height:1;font-weight:700">{{ allTickGlyph }}</span>
+          </span>
+          <button type="button" onClick="{{ sortName }}" style="border:0;background:transparent;padding:0;font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#6a727c;text-align:left;cursor:pointer" style-hover="color:#1c2024">Name {{ nameArrow }}</button>
+          <button type="button" onClick="{{ sortSize }}" style="border:0;background:transparent;padding:0;font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#6a727c;text-align:right;cursor:pointer" style-hover="color:#1c2024">Size {{ sizeArrow }}</button>
+          <sc-if value="{{ showKind }}" hint-placeholder-val="{{ true }}"><span>Kind</span></sc-if>
+          <sc-if value="{{ showDate }}" hint-placeholder-val="{{ true }}">
+            <button type="button" onClick="{{ sortDate }}" style="border:0;background:transparent;padding:0;font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#6a727c;text-align:left;cursor:pointer" style-hover="color:#1c2024">Modified {{ dateArrow }}</button>
+          </sc-if>
+          <span></span>
+        </div>
+
+        <div onContextMenu="{{ onBackgroundMenu }}" onClick="{{ onBackgroundClick }}" style="flex:1;min-height:0;overflow:auto;background:rgba(255,255,255,.7);backdrop-filter:blur(20px) saturate(1.4)">
+          <sc-for list="{{ rows }}" as="row" hint-placeholder-count="10">
+            <div onClick="{{ row.click }}" onDoubleClick="{{ row.open }}" onContextMenu="{{ row.menu }}" title="{{ row.title }}" class="manager-file-row" style="display:grid;grid-template-columns:{{ listCols }};gap:12px;align-items:center;padding:0 16px;min-height:40px;border-bottom:1px solid #f0f1f4;background:{{ row.bg }};cursor:default;user-select:none;opacity:{{ row.opacity }}" style-hover="background:{{ row.hoverBg }}">
+              <span onClick="{{ row.check }}" role="checkbox" aria-checked="{{ row.selected }}" aria-label="Select {{ row.name }}" style="display:grid;place-items:center;width:32px;height:32px;cursor:pointer">
+                <span style="display:grid;place-items:center;width:16px;height:16px;border:1px solid {{ row.tickLine }};border-radius:4px;background:{{ row.tickBg }};color:{{ row.tickInk }};font-size:11px;line-height:1;font-weight:700">✓</span>
+              </span>
+              <span style="display:flex;align-items:center;gap:10px;min-width:0">
+                <span style="width:15px;height:13px;border-radius:2.5px;background:{{ row.dot }};flex:none"></span>
+                <span style="font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ row.name }}</span>
+              </span>
+              <span style="font:13px ui-monospace,Menlo,Consolas,monospace;color:#6a727c;text-align:right">{{ row.size }}</span>
+              <sc-if value="{{ showKind }}" hint-placeholder-val="{{ true }}">
+                <span style="font-size:13px;color:#6a727c;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ row.kind }}</span>
+              </sc-if>
+              <sc-if value="{{ showDate }}" hint-placeholder-val="{{ true }}">
+                <span style="font:13px ui-monospace,Menlo,Consolas,monospace;color:#6a727c;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ row.modified }}</span>
+              </sc-if>
+              <span style="display:flex;align-items:center;justify-content:flex-end;gap:2px">
+                <sc-if value="{{ row.isDir }}">
+                  <span onClick="{{ row.pin }}" role="button" title="{{ row.pinTitle }}" style="display:grid;place-items:center;width:26px;height:26px;border-radius:7px;color:{{ row.pinInk }};font-size:14px;line-height:1;cursor:pointer" style-hover="background:#e9ecf1">{{ row.pinGlyph }}</span>
+                </sc-if>
+                <sc-if value="{{ row.isFile }}">
+                  <span onClick="{{ row.grab }}" role="button" title="{{ row.grabTitle }}" style="display:grid;place-items:center;width:26px;height:26px;border-radius:7px;color:#a8b0ba;font-size:13px;line-height:1;cursor:pointer" style-hover="background:#e9ecf1;color:#3f6fd1">↓</span>
+                </sc-if>
+                <span onClick="{{ row.menu }}" role="button" title="Actions" style="display:grid;place-items:center;width:26px;height:26px;border-radius:7px;color:#8a919b;font-size:15px;line-height:1;cursor:pointer" style-hover="background:#e9ecf1;color:#1c2024">⋯</span>
+              </span>
+            </div>
+          </sc-for>
+          <sc-if value="{{ empty }}">
+            <div style="display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:34px 20px">
+              <div style="width:26px;height:22px;border-radius:4px;border:1.5px dashed #c0c5cc"></div>
+              <strong style="font-size:15px;font-weight:500">{{ emptyTitle }}</strong>
+              <span style="font-size:13px;color:#6a727c">{{ emptyHint }}</span>
+            </div>
+          </sc-if>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:12px;padding:8px 16px;border-top:1px solid rgba(230,232,236,.85);background:rgba(251,251,252,.7);flex-wrap:wrap">
+          <span style="font-size:13px;color:#4d545c">{{ countLabel }}</span>
+          <sc-if value="{{ clipboardLabel }}">
+            <span style="font-size:12.5px;color:#22417d;background:#eaf0fc;border:1px solid #cfdcf6;padding:3px 10px;border-radius:999px">{{ clipboardLabel }}</span>
+          </sc-if>
+          <sc-if value="{{ readOnly }}">
+            <span style="font-size:12.5px;color:#8a5a12;background:#fdf3e0;border:1px solid #f0dcb4;padding:3px 10px;border-radius:999px">Read-only policy — write actions disabled</span>
+          </sc-if>
+          <span style="flex:1"></span>
+          <sc-if value="{{ roomy }}" hint-placeholder-val="{{ true }}">
+            <span style="font-size:12.5px;color:#6a727c">Tick to select · shift-tick for a range · <span onClick="{{ toggleKeys }}" role="button" style="color:#3f6fd1;cursor:pointer;text-decoration:underline">⌘/ shortcuts</span></span>
+          </sc-if>
+          <span style="font:12.5px ui-monospace,Menlo,Consolas,monospace;color:#6a727c">{{ sessionLabel }}</span>
+          <button type="button" onClick="{{ disconnect }}" style="font-size:13.5px;padding:7px 12px;border:1px solid #d5d9df;border-radius:8px;background:rgba(255,255,255,.75);cursor:pointer;color:#1c2024" style-hover="background:#fff">Disconnect</button>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ scanning }}">
+      <div style="position:fixed;left:50%;top:26px;transform:translateX(-50%);width:min(960px,calc(100vw - 40px));max-height:calc(100vh - 52px);z-index:44;display:flex;flex-direction:column;overflow:hidden;border:1px solid #cfd3da;border-radius:14px;background:#fbfbfc;box-shadow:0 26px 64px rgba(20,24,30,.3)">
+        <div style="display:flex;flex-direction:column;gap:14px;padding:20px 20px 16px;border-bottom:1px solid rgba(230,232,236,.85);background:rgba(248,249,250,.72)">
+          <div style="display:flex;align-items:flex-start;gap:20px;flex-wrap:wrap">
+            <div style="display:flex;flex-direction:column;gap:2px;min-width:150px;flex:1 1 180px">
+              <p style="margin:0;font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#6a727c">Network scan</p>
+              <strong style="font-size:17px;font-weight:600;text-wrap:balance">Devices this host can reach</strong>
+            </div>
+            <div style="display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap">
+              <label style="display:flex;flex-direction:column;gap:5px;flex:1 1 200px;min-width:170px;max-width:290px;font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#6a727c">Ranges to probe
+                <input type="text" value="{{ ranges }}" onChange="{{ setRanges }}" placeholder="192.168.1.0/24, 10.0.0.0/24" style="width:100%;padding:8px 11px;font:13.5px ui-monospace,Menlo,Consolas,monospace;color:#1c2024;border:1px solid #c8ccd3;border-radius:8px;background:rgba(255,255,255,.9)">
+              </label>
+              <span style="display:flex;align-items:center;gap:8px;flex:none">
+                <sc-if value="{{ scanBusy }}">
+                  <button type="button" onClick="{{ cancelScan }}" style="font-size:13.5px;padding:9px 14px;border:1px solid #d5d9df;border-radius:8px;background:rgba(255,255,255,.85);cursor:pointer;color:#1c2024" style-hover="background:#fff">Stop scan</button>
+                </sc-if>
+                <sc-if value="{{ scanIdle }}" hint-placeholder-val="{{ true }}">
+                  <button type="button" onClick="{{ startScan }}" style="font-size:13.5px;font-weight:500;padding:9px 14px;border:1px solid #2b57ae;border-radius:8px;background:#3f6fd1;color:#fff;cursor:pointer" style-hover="background:#3563c4">{{ scanButton }}</button>
+                </sc-if>
+                <button type="button" onClick="{{ closeScan }}" style="font-size:13.5px;padding:9px 14px;border:1px solid #d5d9df;border-radius:8px;background:rgba(255,255,255,.85);cursor:pointer;color:#4d545c" style-hover="background:#fff">Close</button>
+              </span>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:7px">
+            <div style="height:5px;border-radius:3px;background:#e2e5ea;overflow:hidden">
+              <div style="height:100%;width:{{ scanPercent }};background:#3f6fd1;border-radius:3px;transition:width .18s linear"></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;font:12.5px ui-monospace,Menlo,Consolas,monospace;color:#4d545c">
+              <span>{{ scanStatus }}</span>
+              <span style="color:#22417d">{{ scanFound }}</span>
+              <span style="flex:1"></span>
+              <span style="color:#6a727c">{{ scanBatch }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div style="flex:1;min-height:0;overflow:auto">
+          <div style="display:grid;grid-template-columns:{{ deviceCols }};gap:10px;align-items:center;padding:8px 20px;border-bottom:1px solid rgba(230,232,236,.85);background:rgba(248,249,250,.5);font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#6a727c">
+            <span>Name (DNS)</span><span>NetBIOS</span><span>IP address</span>
+            <sc-if value="{{ wideScan }}" hint-placeholder-val="{{ true }}"><span>Protocol</span></sc-if>
+            <sc-if value="{{ wideScan }}" hint-placeholder-val="{{ true }}"><span>Credentials</span></sc-if>
+            <span></span>
+          </div>
+          <sc-for list="{{ devices }}" as="device" hint-placeholder-count="5">
+            <div onContextMenu="{{ device.menu }}" style="display:grid;grid-template-columns:{{ deviceCols }};gap:10px;align-items:center;padding:0 20px;min-height:46px;border-bottom:1px solid #f0f1f4;background:transparent" style-hover="background:#f6f8fc">
+              <span style="display:flex;align-items:center;gap:10px;min-width:0">
+                <span style="width:15px;height:13px;border-radius:2.5px;background:{{ device.dot }};flex:none"></span>
+                <span style="display:flex;flex-direction:column;min-width:0;gap:2px">
+                  <span style="font:14px ui-monospace,Menlo,Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:{{ device.nameInk }}">{{ device.dns }}</span>
+                  <sc-if value="{{ narrowScan }}">
+                    <span style="display:flex;gap:8px;font:11px ui-monospace,Menlo,Consolas,monospace;color:#6a727c;white-space:nowrap">
+                      <span>{{ device.protocol }}</span>
+                      <span title="{{ device.credsTitle }}" style="color:{{ device.credsInk }}">{{ device.credsLabel }}</span>
+                    </span>
+                  </sc-if>
+                </span>
+              </span>
+              <span style="font:13px ui-monospace,Menlo,Consolas,monospace;color:{{ device.netbiosInk }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ device.netbios }}</span>
+              <span style="font:13px ui-monospace,Menlo,Consolas,monospace;color:#4d545c">{{ device.ip }}</span>
+              <sc-if value="{{ wideScan }}" hint-placeholder-val="{{ true }}">
+                <span style="font:11px ui-monospace,Menlo,Consolas,monospace;color:#6a727c;border:1px solid #d5d9df;border-radius:999px;padding:3px 9px;justify-self:start">{{ device.protocol }}</span>
+              </sc-if>
+              <sc-if value="{{ wideScan }}" hint-placeholder-val="{{ true }}">
+                <span title="{{ device.credsTitle }}" style="font:11px ui-monospace,Menlo,Consolas,monospace;color:{{ device.credsInk }};background:{{ device.credsBg }};border:1px solid {{ device.credsLine }};border-radius:999px;padding:3px 9px;justify-self:start;white-space:nowrap">{{ device.credsLabel }}</span>
+              </sc-if>
+              <button type="button" onClick="{{ device.map }}" style="justify-self:end;font-size:13px;padding:6px 12px;border:1px solid #d5d9df;border-radius:7px;background:rgba(255,255,255,.85);cursor:pointer;color:#1c2024" style-hover="background:#eef2fb;border-color:#b6c6e8">Map</button>
+            </div>
+          </sc-for>
+          <sc-if value="{{ scanBusy }}">
+            <div style="padding:14px 20px;display:flex;flex-direction:column;gap:9px">
+              <i style="height:13px;width:70%;border-radius:4px;background:#e6e8ec;animation:rfb-pulse 1.4s ease-in-out infinite"></i>
+              <i style="height:13px;width:52%;border-radius:4px;background:#e6e8ec;animation:rfb-pulse 1.4s ease-in-out .2s infinite"></i>
+            </div>
+          </sc-if>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:5px;padding:12px 20px;border-top:1px solid rgba(230,232,236,.85);background:rgba(251,251,252,.7)">
+          <p style="margin:0;font-size:12px;color:#6a727c;text-wrap:pretty">Discovery probes the selected ranges within the service policy, in batches of 256 addresses. Nothing is mounted on this host.</p>
+          <p style="margin:0;font-size:12px;color:#6a727c;text-wrap:pretty">A hostname or IP can always be entered by hand under “Add a location”.</p>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ addView }}">
+      <div style="position:fixed;left:50%;top:26px;transform:translateX(-50%);width:min(960px,calc(100vw - 40px));max-height:calc(100vh - 52px);z-index:44;display:flex;flex-direction:column;overflow:hidden;border:1px solid #cfd3da;border-radius:14px;background:#fbfbfc;box-shadow:0 26px 64px rgba(20,24,30,.3)">
+        <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;padding:20px 20px 16px;border-bottom:1px solid rgba(230,232,236,.85);background:rgba(248,249,250,.72)">
+          <div style="display:flex;flex-direction:column;gap:2px;min-width:180px;flex:1">
+            <p style="margin:0;font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#6a727c">Add a location</p>
+            <strong style="font-size:17px;font-weight:600;text-wrap:balance">Connect a root, share or export by hand</strong>
+          </div>
+          <button type="button" onClick="{{ closeAdd }}" style="flex:none;font-size:13.5px;padding:9px 14px;border:1px solid #d5d9df;border-radius:8px;background:rgba(255,255,255,.85);cursor:pointer;color:#4d545c" style-hover="background:#fff">Close</button>
+        </div>
+
+        <div style="flex:1;min-height:0;overflow-y:auto;padding:18px 20px;display:flex;flex-direction:column;gap:16px">
+          <div style="display:flex;flex-direction:column;gap:7px;max-width:560px">
+            <span style="font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#6a727c">Type</span>
+            <div style="display:flex;gap:7px;flex-wrap:wrap">
+              <sc-for list="{{ addTypes }}" as="option" hint-placeholder-count="3">
+                <button type="button" onClick="{{ option.pick }}" style="font-size:13px;padding:8px 13px;border:1px solid {{ option.line }};border-radius:8px;background:{{ option.bg }};color:{{ option.ink }};cursor:pointer">{{ option.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;max-width:560px">
+            <sc-if value="{{ addLocal }}">
+              <label style="display:grid;gap:6px;font-size:12px;color:#6a727c">Root folder on this host
+                <input type="text" placeholder="/srv/media" value="{{ addRoot }}" onChange="{{ setAddRoot }}" autoComplete="off" style="width:100%;padding:8px 11px;font:13.5px ui-monospace,Menlo,Consolas,monospace;color:#1c2024;border:1px solid #c8ccd3;border-radius:8px;background:rgba(255,255,255,.9)">
+              </label>
+            </sc-if>
+            <sc-if value="{{ addSmb }}" hint-placeholder-val="{{ true }}">
+              <label style="display:grid;gap:6px;font-size:12px;color:#6a727c">Server hostname / IP
+                <input type="text" placeholder="nas.example" value="{{ addHost }}" onChange="{{ setAddHost }}" autoComplete="off" style="width:100%;padding:8px 11px;font:13.5px ui-monospace,Menlo,Consolas,monospace;color:#1c2024;border:1px solid #c8ccd3;border-radius:8px;background:rgba(255,255,255,.9)">
+              </label>
+            </sc-if>
+            <sc-if value="{{ addSmb }}" hint-placeholder-val="{{ true }}">
+              <label style="display:grid;gap:6px;font-size:12px;color:#6a727c">Share name
+                <input type="text" placeholder="Projects" value="{{ addShare }}" onChange="{{ setAddShare }}" autoComplete="off" style="width:100%;padding:8px 11px;font:13.5px ui-monospace,Menlo,Consolas,monospace;color:#1c2024;border:1px solid #c8ccd3;border-radius:8px;background:rgba(255,255,255,.9)">
+              </label>
+            </sc-if>
+            <sc-if value="{{ addSmb }}" hint-placeholder-val="{{ true }}">
+              <label style="display:grid;gap:6px;font-size:12px;color:#6a727c">Username
+                <input type="text" placeholder="media-reader" value="{{ addUsername }}" onChange="{{ setAddUsername }}" autoComplete="off" style="width:100%;padding:8px 11px;font:13.5px system-ui,sans-serif;color:#1c2024;border:1px solid #c8ccd3;border-radius:8px;background:rgba(255,255,255,.9)">
+              </label>
+            </sc-if>
+            <sc-if value="{{ addSmb }}" hint-placeholder-val="{{ true }}">
+              <label style="display:grid;gap:6px;font-size:12px;color:#6a727c">Password
+                <input type="password" placeholder="" value="{{ addPassword }}" onChange="{{ setAddPassword }}" autoComplete="off" style="width:100%;padding:8px 11px;font:13.5px system-ui,sans-serif;color:#1c2024;border:1px solid #c8ccd3;border-radius:8px;background:rgba(255,255,255,.9)">
+              </label>
+            </sc-if>
+            <sc-if value="{{ addSmb }}" hint-placeholder-val="{{ true }}">
+              <label style="display:grid;gap:6px;font-size:12px;color:#6a727c">Domain (optional)
+                <input type="text" placeholder="WORKGROUP" value="{{ addDomain }}" onChange="{{ setAddDomain }}" autoComplete="off" style="width:100%;padding:8px 11px;font:13.5px system-ui,sans-serif;color:#1c2024;border:1px solid #c8ccd3;border-radius:8px;background:rgba(255,255,255,.9)">
+              </label>
+            </sc-if>
+            <sc-if value="{{ addNfs }}">
+              <label style="display:grid;gap:6px;font-size:12px;color:#6a727c">Server hostname / IP
+                <input type="text" placeholder="10.0.0.14" value="{{ addHost }}" onChange="{{ setAddHost }}" autoComplete="off" style="width:100%;padding:8px 11px;font:13.5px ui-monospace,Menlo,Consolas,monospace;color:#1c2024;border:1px solid #c8ccd3;border-radius:8px;background:rgba(255,255,255,.9)">
+              </label>
+            </sc-if>
+            <sc-if value="{{ addNfs }}">
+              <label style="display:grid;gap:6px;font-size:12px;color:#6a727c">Export path
+                <input type="text" placeholder="/exports/media" value="{{ addExport }}" onChange="{{ setAddExport }}" autoComplete="off" style="width:100%;padding:8px 11px;font:13.5px ui-monospace,Menlo,Consolas,monospace;color:#1c2024;border:1px solid #c8ccd3;border-radius:8px;background:rgba(255,255,255,.9)">
+              </label>
+            </sc-if>
+            <sc-if value="{{ addNfs }}">
+              <label style="display:grid;gap:6px;font-size:12px;color:#6a727c">NFS version
+                <select value="{{ addVersion }}" onChange="{{ setAddVersion }}" style="width:100%;padding:8px 11px;font:13.5px system-ui,sans-serif;color:#1c2024;border:1px solid #c8ccd3;border-radius:8px;background:rgba(255,255,255,.9)">
+                  <option value="4">NFSv4</option>
+                  <option value="3">NFSv3</option>
+                </select>
+              </label>
+            </sc-if>
+          </div>
+
+          <span style="max-width:560px;font-size:12.5px;color:#6a727c;text-wrap:pretty">{{ addNote }}</span>
+
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button type="button" onClick="{{ addConnect }}" style="font-size:13.5px;font-weight:500;padding:9px 14px;border:1px solid #2b57ae;border-radius:8px;background:#3f6fd1;color:#fff;cursor:pointer" style-hover="background:#3563c4">Connect</button>
+            <button type="button" onClick="{{ addDiscover }}" style="font-size:13.5px;padding:9px 14px;border:1px solid #d5d9df;border-radius:8px;background:#fff;cursor:pointer;color:#1c2024" style-hover="background:#f6f8fc">Discover what it offers</button>
+            <button type="button" onClick="{{ closeAdd }}" style="font-size:13.5px;padding:9px 14px;border:1px solid #d5d9df;border-radius:8px;background:#fff;cursor:pointer;color:#4d545c" style-hover="background:#f6f8fc">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ transfersView }}">
+      <div style="position:fixed;left:50%;top:26px;transform:translateX(-50%);width:min(960px,calc(100vw - 40px));max-height:calc(100vh - 52px);z-index:44;display:flex;flex-direction:column;overflow:hidden;border:1px solid #cfd3da;border-radius:14px;background:#fbfbfc;box-shadow:0 26px 64px rgba(20,24,30,.3)">
+        <div style="display:flex;flex-direction:column;gap:14px;padding:20px 20px 16px;border-bottom:1px solid rgba(230,232,236,.85);background:rgba(248,249,250,.72)">
+          <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
+            <div style="display:flex;flex-direction:column;gap:2px;min-width:180px;flex:1">
+              <p style="margin:0;font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#6a727c">Transfers</p>
+              <strong style="font-size:17px;font-weight:600;text-wrap:balance">{{ transfersTitle }}</strong>
+              <span style="font:12.5px ui-monospace,Menlo,Consolas,monospace;color:#4d545c">{{ packingCount }} · {{ readyCount }} · {{ stagedTotal }}</span>
+            </div>
+            <span style="display:flex;align-items:center;gap:8px;flex:none">
+              <button type="button" onClick="{{ clearFinished }}" style="font-size:13.5px;padding:9px 14px;border:1px solid #d5d9df;border-radius:8px;background:rgba(255,255,255,.85);cursor:pointer;color:#4d545c" style-hover="background:#fff">Clear purged</button>
+              <button type="button" onClick="{{ closeTransfers }}" style="font-size:13.5px;padding:9px 14px;border:1px solid #d5d9df;border-radius:8px;background:rgba(255,255,255,.85);cursor:pointer;color:#4d545c" style-hover="background:#fff">Close</button>
+            </span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px">
+            <sc-for list="{{ storeUse }}" as="store" hint-placeholder-count="4">
+              <div style="display:flex;flex-direction:column;gap:5px;padding:10px 12px;border:1px solid #e6e8ec;border-radius:9px;background:rgba(255,255,255,.7)">
+                <span style="font:12px ui-monospace,Menlo,Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ store.path }}</span>
+                <span style="display:flex;height:4px;border-radius:2px;background:#e6e8ec;overflow:hidden">
+                  <span style="width:{{ store.usedWidth }};background:#c0c5cc"></span>
+                  <span style="width:{{ store.stagedWidth }};background:#3f6fd1"></span>
+                </span>
+                <span style="display:flex;gap:8px;flex-wrap:wrap;font-size:11.5px;color:{{ store.freeInk }}">
+                  <span>{{ store.free }}</span>
+                  <span style="color:#22417d">{{ store.staged }}</span>
+                </span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <div style="flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:16px 20px">
+          <sc-for list="{{ transfers }}" as="job" hint-placeholder-count="2">
+            <div style="display:flex;flex-direction:column;gap:10px;padding:14px 16px;border:1px solid #e2e5ea;border-radius:12px;background:rgba(255,255,255,.9)">
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+                <span style="flex:1;min-width:160px;font:14px ui-monospace,Menlo,Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ job.name }}</span>
+                <span style="font:11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.06em;text-transform:uppercase;color:{{ job.stageInk }};background:{{ job.stageBg }};border-radius:999px;padding:4px 10px;flex:none">{{ job.stageLabel }}</span>
+              </div>
+
+              <sc-if value="{{ job.packShown }}">
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  <div style="height:5px;border-radius:3px;background:#e6e8ec;overflow:hidden">
+                    <div style="height:100%;width:{{ job.percent }};background:{{ job.bar }};border-radius:3px;transition:width .2s linear"></div>
+                  </div>
+                  <div style="display:flex;gap:10px;flex-wrap:wrap;font:12px ui-monospace,Menlo,Consolas,monospace;color:#6a727c">
+                    <span>{{ job.progress }}</span>
+                    <span>{{ job.rate }}</span>
+                  </div>
+                </div>
+              </sc-if>
+
+              <div style="display:flex;flex-direction:column;gap:3px;font:12px ui-monospace,Menlo,Consolas,monospace;color:#6a727c">
+                <span>{{ job.summary }}</span>
+                <span style="display:flex;gap:10px;flex-wrap:wrap">
+                  <span>{{ job.store }}</span>
+                  <span style="color:#22417d">{{ job.stagedNote }}</span>
+                </span>
+              </div>
+
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <sc-if value="{{ job.grabAllShown }}">
+                  <button type="button" onClick="{{ job.grabAll }}" style="font-size:13px;font-weight:500;padding:8px 13px;border:1px solid #2b57ae;border-radius:8px;background:#3f6fd1;color:#fff;cursor:pointer" style-hover="background:#3563c4">{{ job.grabAllLabel }}</button>
+                </sc-if>
+                <sc-if value="{{ job.pauseShown }}">
+                  <button type="button" onClick="{{ job.pause }}" style="font-size:13px;padding:8px 13px;border:1px solid #d5d9df;border-radius:8px;background:#fff;cursor:pointer;color:#1c2024" style-hover="background:#f6f8fc">{{ job.pauseLabel }}</button>
+                </sc-if>
+                <sc-if value="{{ job.listLabelShown }}" hint-placeholder-val="{{ true }}">
+                  <button type="button" onClick="{{ job.toggle }}" style="font-size:13px;padding:8px 13px;border:1px solid #d5d9df;border-radius:8px;background:#fff;cursor:pointer;color:#4d545c" style-hover="background:#f6f8fc">{{ job.listLabel }}</button>
+                </sc-if>
+                <sc-if value="{{ job.purgeShown }}">
+                  <button type="button" onClick="{{ job.purge }}" style="font-size:13px;padding:8px 13px;border:1px solid #d5d9df;border-radius:8px;background:#fff;cursor:pointer;color:{{ job.purgeInk }}" style-hover="background:#f6f8fc">{{ job.purgeLabel }}</button>
+                </sc-if>
+                <button type="button" onClick="{{ job.drop }}" style="font-size:13px;padding:8px 13px;border:1px solid #d5d9df;border-radius:8px;background:#fff;cursor:pointer;color:#4d545c" style-hover="background:#f6f8fc">Remove</button>
+              </div>
+
+              <sc-if value="{{ job.open }}">
+                <div style="display:flex;flex-direction:column;max-height:220px;overflow-y:auto;border:1px solid #ebedf0;border-radius:9px">
+                  <sc-for list="{{ job.parts }}" as="part" hint-placeholder-count="4">
+                    <div class="manager-part-row" style="display:grid;grid-template-columns:minmax(0,1fr) 84px 92px 84px;gap:10px;align-items:center;padding:8px 12px;border-bottom:1px solid #f4f5f7">
+                      <span onClick="{{ part.grab }}" role="button" title="{{ part.label }}" style="font:12.5px ui-monospace,Menlo,Consolas,monospace;color:{{ part.linkInk }};text-decoration:{{ part.linkLine }};cursor:{{ part.linkCursor }};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ part.label }}</span>
+                      <span style="font:12px ui-monospace,Menlo,Consolas,monospace;color:#6a727c;text-align:right">{{ part.size }}</span>
+                      <span style="font:11.5px ui-monospace,Menlo,Consolas,monospace;color:{{ part.stateInk }}">{{ part.stateLabel }}</span>
+                      <sc-if value="{{ part.actionShown }}" hint-placeholder-val="{{ true }}">
+                        <button type="button" onClick="{{ part.grab }}" style="justify-self:end;font-size:12.5px;padding:5px 11px;border:1px solid #d5d9df;border-radius:7px;background:#fff;cursor:pointer;color:{{ part.actionInk }}" style-hover="background:#eef2fb;border-color:#b6c6e8">{{ part.action }}</button>
+                      </sc-if>
+                    </div>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+          <sc-if value="{{ noTransfers }}">
+            <div style="display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:24px 4px">
+              <div style="width:26px;height:22px;border-radius:4px;border:1.5px dashed #c0c5cc"></div>
+              <strong style="font-size:15px;font-weight:500">No transfers yet.</strong>
+              <span style="font-size:13px;color:#6a727c">Select files or folders and choose Download to stage a zip here.</span>
+            </div>
+          </sc-if>
+        </div>
+
+        <p style="margin:0;padding:12px 20px;border-top:1px solid rgba(230,232,236,.85);background:rgba(251,251,252,.7);font-size:12px;color:#6a727c;text-wrap:pretty">Packing runs on the host, so you can leave this view. Each part downloads through the browser and resumes with an HTTP Range request; purging clears the staged copies once you have them.</p>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ signoutOpen }}">
+      <div style="position:fixed;inset:0;height:100vh;z-index:56;display:flex;justify-content:center;align-items:flex-start;padding:16px;overflow-y:auto;background:rgba(20,24,30,.3)">
+        <div style="width:min(380px,100%);max-height:calc(100vh - 32px);overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding:22px;background:#fff;border:1px solid #dcdfe4;border-radius:14px;box-shadow:0 18px 44px rgba(20,24,30,.2)">
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <p style="margin:0;font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#6a727c">Sign out</p>
+            <strong style="font-size:16px;font-weight:600">End this session?</strong>
+          </div>
+          <span style="font-size:13px;color:#4d545c;text-wrap:pretty">The session cookie is revoked and in-memory SMB credentials are dropped. Staged zips are left on their store — purge them first if you want the space back. Your shortlist stays, and your username and password sign you back in.</span>
+          <div style="display:flex;justify-content:flex-end;gap:9px">
+            <button type="button" onClick="{{ closeSignout }}" style="font-size:13.5px;padding:9px 14px;border:1px solid #d5d9df;border-radius:8px;background:rgba(255,255,255,.8);cursor:pointer;color:#4d545c" style-hover="background:#fff">Stay signed in</button>
+            <button type="button" onClick="{{ doSignout }}" style="font-size:13.5px;font-weight:500;padding:9px 14px;border:1px solid #2b57ae;border-radius:8px;background:#3f6fd1;color:#fff;cursor:pointer" style-hover="background:#3563c4">Sign out</button>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ keysOpen }}">
+      <div onClick="{{ closeKeys }}" style="position:fixed;inset:0;height:100vh;z-index:54;display:flex;justify-content:center;align-items:flex-start;padding:16px;overflow-y:auto;background:rgba(20,24,30,.3)">
+        <div style="width:min(420px,100%);max-height:calc(100vh - 32px);overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:22px;background:#fff;border:1px solid #dcdfe4;border-radius:14px;box-shadow:0 18px 44px rgba(20,24,30,.2)">
+          <div style="display:flex;align-items:baseline;gap:10px">
+            <strong style="flex:1;font-size:16px;font-weight:600">Keyboard shortcuts</strong>
+            <button type="button" onClick="{{ closeKeys }}" style="font-size:13px;padding:6px 10px;border:1px solid #d5d9df;border-radius:7px;background:#fff;cursor:pointer;color:#4d545c" style-hover="background:#f6f8fc">Close</button>
+          </div>
+          <div style="display:flex;flex-direction:column">
+            <sc-for list="{{ shortcuts }}" as="key" hint-placeholder-count="10">
+              <div style="display:grid;grid-template-columns:150px minmax(0,1fr);gap:12px;align-items:baseline;padding:7px 0;border-bottom:1px solid #f4f5f7">
+                <span style="font:12.5px ui-monospace,Menlo,Consolas,monospace;color:#22417d">{{ key.keys }}</span>
+                <span style="font-size:13px;color:#4d545c">{{ key.what }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ confirmOpen }}">
+      <div style="position:fixed;inset:0;height:100vh;z-index:52;display:flex;justify-content:center;align-items:flex-start;padding:16px;overflow-y:auto;background:rgba(20,24,30,.3)">
+        <div style="width:min(380px,100%);max-height:calc(100vh - 32px);overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding:22px;background:#fff;border:1px solid #dcdfe4;border-radius:14px;box-shadow:0 18px 44px rgba(20,24,30,.2)">
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <p style="margin:0;font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#6a727c">Already downloaded</p>
+            <strong style="font:600 15px ui-monospace,Menlo,Consolas,monospace;overflow-wrap:anywhere">{{ confirmName }}</strong>
+          </div>
+          <span style="font-size:13px;color:#4d545c;text-wrap:pretty">You have already pulled this part. Downloading it again leaves a second copy in your downloads folder — the browser will append a number to the filename.</span>
+          <div style="display:flex;justify-content:flex-end;gap:9px">
+            <button type="button" onClick="{{ closeConfirm }}" style="font-size:13.5px;padding:9px 14px;border:1px solid #d5d9df;border-radius:8px;background:rgba(255,255,255,.8);cursor:pointer;color:#4d545c" style-hover="background:#fff">Cancel</button>
+            <button type="button" onClick="{{ confirmAgain }}" style="font-size:13.5px;font-weight:500;padding:9px 14px;border:1px solid #2b57ae;border-radius:8px;background:#3f6fd1;color:#fff;cursor:pointer" style-hover="background:#3563c4">Download again</button>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ zipOpen }}">
+      <div style="position:fixed;inset:0;height:100vh;z-index:50;display:flex;justify-content:center;align-items:flex-start;padding:16px;overflow-y:auto;background:rgba(20,24,30,.3)">
+        <form onSubmit="{{ confirmZip }}" style="width:min(420px,100%);max-height:calc(100vh - 32px);overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding:22px;background:#fff;border:1px solid #dcdfe4;border-radius:14px;box-shadow:0 18px 44px rgba(20,24,30,.2)">
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <p style="margin:0;font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#6a727c">Download as zip</p>
+            <strong style="font:600 16px ui-monospace,Menlo,Consolas,monospace;overflow-wrap:anywhere">{{ zipName }}</strong>
+            <span style="font-size:12.5px;color:#6a727c">{{ zipContents }} · about {{ zipSize }} · needs {{ zipNeeded }} staged</span>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:7px">
+            <span style="font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#6a727c">Build the zip on</span>
+            <sc-for list="{{ zipStores }}" as="store" hint-placeholder-count="4">
+              <button type="button" onClick="{{ store.pick }}" style="display:flex;align-items:flex-start;gap:10px;width:100%;padding:10px 11px;border:1px solid {{ store.line }};border-radius:9px;background:{{ store.bg }};text-align:left;cursor:pointer" style-hover="border-color:#b6c6e8">
+                <span style="display:grid;place-items:center;width:15px;height:15px;flex:none;margin-top:2px;border:1px solid {{ store.tickLine }};border-radius:50%;background:{{ store.tickBg }};color:{{ store.tickInk }};font-size:9px;line-height:1;font-weight:700">✓</span>
+                <span style="display:flex;flex-direction:column;gap:5px;flex:1;min-width:0">
+                  <span style="font:13px ui-monospace,Menlo,Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ store.path }}</span>
+                  <span style="display:flex;height:4px;border-radius:2px;background:#e6e8ec;overflow:hidden">
+                    <span style="width:{{ store.usedWidth }};background:#c0c5cc"></span>
+                    <span style="width:{{ store.needWidth }};background:{{ store.needBar }}"></span>
+                  </span>
+                  <span style="display:flex;gap:8px;flex-wrap:wrap;font-size:12px;color:#6a727c">
+                    <span>{{ store.free }}</span>
+                    <span style="color:{{ store.verdictInk }}">{{ store.verdict }}</span>
+                  </span>
+                </span>
+              </button>
+            </sc-for>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:7px">
+            <span style="font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#6a727c">Split</span>
+            <div style="display:flex;gap:7px;flex-wrap:wrap">
+              <sc-for list="{{ zipSplits }}" as="split" hint-placeholder-count="4">
+                <button type="button" onClick="{{ split.pick }}" style="font-size:13px;padding:8px 12px;border:1px solid {{ split.line }};border-radius:8px;background:{{ split.bg }};color:{{ split.ink }};cursor:pointer">{{ split.label }}</button>
+              </sc-for>
+            </div>
+            <sc-if value="{{ zipCustom }}">
+              <div style="display:flex;align-items:center;gap:8px">
+                <input type="number" value="{{ zipCustomValue }}" onChange="{{ setZipCustom }}" min="1" step="1" aria-label="Part size" style="width:110px;padding:8px 11px;font:13.5px ui-monospace,Menlo,Consolas,monospace;color:#1c2024;border:1px solid #c8ccd3;border-radius:8px;background:rgba(255,255,255,.9)">
+                <sc-for list="{{ zipUnits }}" as="unit" hint-placeholder-count="2">
+                  <button type="button" onClick="{{ unit.pick }}" style="font:13px ui-monospace,Menlo,Consolas,monospace;padding:8px 12px;border:1px solid {{ unit.line }};border-radius:8px;background:{{ unit.bg }};color:{{ unit.ink }};cursor:pointer">{{ unit.label }}</button>
+                </sc-for>
+                <span style="font-size:12px;color:#6a727c">per part</span>
+              </div>
+            </sc-if>
+            <span style="font-size:12.5px;color:#6a727c;text-wrap:pretty">{{ zipParts }}</span>
+          </div>
+          <sc-if value="{{ zipBlocked }}">
+            <span style="font-size:12.5px;color:#7e2c20;background:#fdf1ef;border:1px solid #f0c9c4;border-radius:9px;padding:10px 12px;text-wrap:pretty">Not enough room on the chosen location. Pick one with more free space, or reduce the selection.</span>
+          </sc-if>
+          <div style="position:sticky;bottom:-22px;display:flex;justify-content:flex-end;gap:9px;margin:2px -22px -22px;padding:14px 22px;border-top:1px solid #ebedf0;background:#fff">
+            <button type="button" onClick="{{ closeZip }}" style="font-size:13.5px;padding:9px 14px;border:1px solid #d5d9df;border-radius:8px;background:rgba(255,255,255,.8);cursor:pointer;color:#4d545c" style-hover="background:#fff">Cancel</button>
+            <button type="submit" disabled="{{ zipBlocked }}" style="font-size:13.5px;font-weight:500;padding:9px 14px;border:1px solid {{ zipStartLine }};border-radius:8px;background:{{ zipStartBg }};color:#fff;cursor:pointer" style-hover="background:#3563c4">Start packing</button>
+          </div>
+        </form>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ promptOpen }}">
+      <div style="position:fixed;inset:0;height:100vh;z-index:50;display:flex;justify-content:center;align-items:flex-start;padding:16px;overflow-y:auto;background:rgba(20,24,30,.3)">
+        <form onSubmit="{{ submitPrompt }}" style="width:min(400px,100%);max-height:calc(100vh - 32px);overflow-y:auto;display:flex;flex-direction:column;gap:14px;padding:22px;background:#fff;border:1px solid #dcdfe4;border-radius:14px;box-shadow:0 18px 44px rgba(20,24,30,.2)">
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <p style="margin:0;font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#6a727c">{{ promptEyebrow }}</p>
+            <strong style="font:600 16px ui-monospace,Menlo,Consolas,monospace;overflow-wrap:anywhere">{{ promptHost }}</strong>
+            <span style="font:12px ui-monospace,Menlo,Consolas,monospace;color:#6a727c">{{ promptAddress }}</span>
+          </div>
+
+          <sc-if value="{{ promptSmb }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <span style="font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#6a727c">Saved credentials</span>
+              <sc-for list="{{ credOptions }}" as="cred" hint-placeholder-count="2">
+                <button type="button" onClick="{{ cred.pick }}" style="display:flex;align-items:center;gap:10px;width:100%;padding:10px 11px;border:1px solid {{ cred.line }};border-radius:9px;background:{{ cred.bg }};text-align:left;cursor:pointer" style-hover="border-color:#b6c6e8">
+                  <span style="display:grid;place-items:center;width:15px;height:15px;flex:none;border:1px solid {{ cred.tickLine }};border-radius:50%;background:{{ cred.tickBg }};color:{{ cred.tickInk }};font-size:9px;line-height:1;font-weight:700">✓</span>
+                  <span style="display:flex;flex-direction:column;min-width:0;gap:1px">
+                    <span style="font:13px ui-monospace,Menlo,Consolas,monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ cred.who }}</span>
+                    <span style="font-size:12px;color:#6a727c">{{ cred.note }}</span>
+                  </span>
+                </button>
+              </sc-for>
+              <sc-if value="{{ noSavedCreds }}">
+                <span style="font-size:12px;color:#6a727c">None saved yet for SMB hosts.</span>
+              </sc-if>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ promptSavedCred }}">
+            <span style="font-size:12px;color:#6a727c;text-wrap:pretty">{{ savedCredNote }}</span>
+          </sc-if>
+
+          <sc-if value="{{ promptSmb }}" hint-placeholder-val="{{ true }}">
+            <span style="font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#6a727c">New credentials</span>
+            <label style="display:grid;gap:6px;font-size:12px;color:#6a727c">Username
+              <input type="text" value="{{ promptUser }}" onChange="{{ setPromptUser }}" autoComplete="off" placeholder="media-reader" style="width:100%;padding:8px 11px;font:14px system-ui,sans-serif;color:#1c2024;border:1px solid #c8ccd3;border-radius:8px;background:rgba(255,255,255,.9)">
+            </label>
+            <label style="display:grid;gap:6px;font-size:12px;color:#6a727c">Password
+              <input type="password" value="{{ promptPass }}" onChange="{{ setPromptPass }}" autoComplete="off" style="width:100%;padding:8px 11px;font:14px system-ui,sans-serif;color:#1c2024;border:1px solid #c8ccd3;border-radius:8px;background:rgba(255,255,255,.9)">
+            </label>
+            <label style="display:grid;gap:6px;font-size:12px;color:#6a727c">Domain (optional)
+              <input type="text" value="{{ promptDomain }}" onChange="{{ setPromptDomain }}" autoComplete="off" placeholder="WORKGROUP" style="width:100%;padding:8px 11px;font:14px system-ui,sans-serif;color:#1c2024;border:1px solid #c8ccd3;border-radius:8px;background:rgba(255,255,255,.9)">
+            </label>
+            <div style="display:flex;flex-direction:column;gap:9px;padding:12px;border:1px solid #e6e8ec;border-radius:10px;background:#fafbfc">
+              <span onClick="{{ togglePromptStore }}" role="checkbox" aria-checked="{{ promptStore }}" style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+                <span style="display:grid;place-items:center;width:16px;height:16px;flex:none;margin-top:1px;border:1px solid {{ storeTickLine }};border-radius:4px;background:{{ storeTickBg }};color:{{ storeTickInk }};font-size:11px;line-height:1;font-weight:700">✓</span>
+                <span style="font-size:13px;color:#1c2024">Save these credentials for this host</span>
+              </span>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ promptNfs }}">
+            <label style="display:grid;gap:6px;font-size:12px;color:#6a727c">NFS version
+              <select value="{{ promptVersion }}" onChange="{{ setPromptVersion }}" style="width:100%;padding:8px 11px;font:14px system-ui,sans-serif;color:#1c2024;border:1px solid #c8ccd3;border-radius:8px;background:rgba(255,255,255,.9)">
+                <option value="4">NFSv4</option>
+                <option value="3">NFSv3</option>
+              </select>
+            </label>
+            <label style="display:grid;gap:6px;font-size:12px;color:#6a727c">Export path (optional — leave blank to list)
+              <input type="text" value="{{ promptExport }}" onChange="{{ setPromptExport }}" autoComplete="off" placeholder="/exports/media" style="width:100%;padding:8px 11px;font:14px ui-monospace,Menlo,Consolas,monospace;color:#1c2024;border:1px solid #c8ccd3;border-radius:8px;background:rgba(255,255,255,.9)">
+            </label>
+          </sc-if>
+
+          <span style="font-size:12px;line-height:1.5;color:#6a727c;text-wrap:pretty">{{ promptNote }}</span>
+
+          <div style="position:sticky;bottom:-22px;display:flex;justify-content:flex-end;gap:9px;margin:2px -22px -22px;padding:14px 22px;border-top:1px solid #ebedf0;background:#fff">
+            <button type="button" onClick="{{ closePrompt }}" style="font-size:13.5px;padding:9px 14px;border:1px solid #d5d9df;border-radius:8px;background:rgba(255,255,255,.8);cursor:pointer;color:#4d545c" style-hover="background:#fff">Cancel</button>
+            <button type="submit" style="font-size:13.5px;font-weight:500;padding:9px 14px;border:1px solid #2b57ae;border-radius:8px;background:#3f6fd1;color:#fff;cursor:pointer" style-hover="background:#3563c4">{{ promptSubmit }}</button>
+          </div>
+        </form>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ menuOpen }}">
+      <div onClick="{{ closeMenu }}" onContextMenu="{{ closeMenu }}" style="position:fixed;inset:0;z-index:40"></div>
+      <div style="position:fixed;left:{{ menuX }};top:{{ menuY }};z-index:41;width:216px;padding:5px;border:1px solid #d5d9df;border-radius:10px;background:rgba(255,255,255,.97);backdrop-filter:blur(20px);box-shadow:0 14px 34px rgba(20,24,30,.18)">
+        <sc-for list="{{ menuItems }}" as="item" hint-placeholder-count="8">
+          <div>
+            <sc-if value="{{ item.divider }}">
+              <div style="height:1px;margin:5px 6px;background:#ebedf0"></div>
+            </sc-if>
+            <sc-if value="{{ item.action }}" hint-placeholder-val="{{ true }}">
+              <button type="button" onClick="{{ item.run }}" style="display:flex;align-items:center;gap:10px;width:100%;padding:7px 9px;border:0;border-radius:7px;background:transparent;text-align:left;font-size:13.5px;color:{{ item.ink }};cursor:{{ item.cursor }};opacity:{{ item.opacity }}" style-hover="background:{{ item.hoverBg }}">
+                <span style="flex:1;min-width:0">{{ item.label }}</span>
+                <span style="font:11.5px ui-monospace,Menlo,Consolas,monospace;color:#9aa1ab">{{ item.keys }}</span>
+              </button>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ toast }}">
+      <div style="position:absolute;left:16px;bottom:56px;z-index:30;display:flex;gap:11px;max-width:460px;padding:12px 14px;border:1px solid #b6c6e8;border-radius:11px;background:#eef2fb;box-shadow:0 10px 26px rgba(20,24,30,.12)">
+        <span style="width:4px;border-radius:2px;background:#3f6fd1;flex:none"></span>
+        <span style="font-size:13.5px;color:#22417d;text-wrap:pretty">{{ toast }}</span>
+      </div>
+    </sc-if>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const Component = window.createRemoteFsManager(DCLogic, React)
+</script>
+</body></html>

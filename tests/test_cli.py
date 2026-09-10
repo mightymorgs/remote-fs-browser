@@ -6,6 +6,13 @@ import pytest
 from remote_fs_browser.cli import main, addresses, build_policy, load_or_create
 
 
+@pytest.fixture(autouse=True)
+def account_prompt(monkeypatch):
+    monkeypatch.setattr('sys.stdin.isatty', lambda: True)
+    monkeypatch.setattr('builtins.input', lambda _: 'tester')
+    monkeypatch.setattr('getpass.getpass', lambda _: 'test-password-for-account')
+
+
 @pytest.fixture
 def home(tmp_path, monkeypatch):
     """Isolated per-user config directory on every platform."""
@@ -31,7 +38,7 @@ def detected(monkeypatch, tmp_path):
     return {'home': str(tmp_path.resolve()), 'volume': str(volume.resolve())}
 
 
-def test_zero_config_creates_token_and_detects_defaults(home, launches, detected, capsys):
+def test_zero_config_creates_account_and_detects_defaults(home, launches, detected, capsys):
     main(['serve'])
     app, options = launches[-1]
     assert options['host'] == '127.0.0.1' and options['port'] == 8080
@@ -40,13 +47,15 @@ def test_zero_config_creates_token_and_detects_defaults(home, launches, detected
     assert policy.network_ranges == ['192.0.2.0/24']
     assert app.state.root_kinds == {detected['home']: 'home', detected['volume']: 'volume'}
     config = home / 'config.json'
-    token = json.loads(config.read_text())['token']
+    settings = json.loads(config.read_text())
+    key = settings['storage_key']
+    assert 'token' not in settings and settings['account']['username'] == 'tester'
     out = capsys.readouterr().out
-    assert token in out and '(created)' in out and 'WARNING' not in out and '(home)' in out
+    assert key not in out and 'tester' in out and '(created)' in out and 'WARNING' not in out and '(home)' in out
     if os.name != 'nt':
         assert config.stat().st_mode & 0o777 == 0o600
     main(['serve'])
-    assert json.loads(config.read_text())['token'] == token
+    assert json.loads(config.read_text())['storage_key'] == key
 
 
 def test_flags_override_defaults_and_warn_on_remote_bind(home, launches, detected, tmp_path, capsys):
@@ -88,17 +97,59 @@ def test_legacy_config_launch(tmp_path, launches, capsys):
     config.write_text(json.dumps({'port': 8765, 'policy': {'local_roots': []}}))
     main(['--config', str(config)])
     assert launches[0][1]['port'] == 8765
-    assert '(temporary' in capsys.readouterr().out
+    assert 'tester' in capsys.readouterr().out
     assert addresses('100.82.14.7', 8080) == [('Tailscale/CGNAT', 'http://100.82.14.7:8080')]
 
 
-def test_print_token(home, launches, capsys):
-    main(['serve', '--print-token'])
-    token = capsys.readouterr().out.strip()
-    assert len(token) >= 32 and not launches
-    assert load_or_create(home / 'config.json', explicit=True)[0]['token'] == token
+def test_account_setup_does_not_launch_service(home, launches, capsys):
+    main(['account', '--username', 'new-user'])
+    settings = load_or_create(home / 'config.json', explicit=True)[0]
+    assert settings['account']['username'] == 'new-user' and not launches
+    assert settings['storage_key'] not in capsys.readouterr().out
+
+
+def test_headless_service_requires_account(home, monkeypatch):
+    monkeypatch.setattr('sys.stdin.isatty', lambda: False)
+    with pytest.raises(SystemExit, match='Set up a username/password'):
+        main(['serve'])
+
+
+def test_read_only_flag_disables_writes(home, launches, detected):
+    main(['serve', '--read-only'])
+    assert 'write' not in launches[-1][0].state.browser.policy.operations
 
 
 def test_module_entry_point_help():
     result = subprocess.run([sys.executable, '-m', 'remote_fs_browser', 'serve', '--help'], capture_output=True, text=True)
     assert result.returncode == 0 and '--no-defaults' in result.stdout
+
+
+@pytest.mark.parametrize('name', ['remotefs', 'remote-fs-browser'])
+def test_console_launcher_does_not_import_adjacent_smbclient_script(tmp_path, name):
+    launcher = tmp_path / name
+    (tmp_path / 'smbclient.py').write_text("raise RuntimeError('Imported the Impacket-style console script')\n")
+    launcher.write_text('''
+import multiprocessing
+from remote_fs_browser.cli import main
+
+def check_library(queue):
+    import smbclient
+    queue.put(callable(smbclient.register_session))
+
+if __name__ == '__main__':
+    try:
+        main(['--version'])
+    except SystemExit as error:
+        assert error.code == 0
+    import smbclient
+    assert callable(smbclient.register_session)
+    context = multiprocessing.get_context('spawn')
+    queue = context.Queue()
+    process = context.Process(target=check_library, args=(queue,))
+    process.start()
+    assert queue.get(timeout=10) is True
+    process.join(10)
+    assert process.exitcode == 0
+''')
+    result = subprocess.run([sys.executable, str(launcher)], capture_output=True, text=True, timeout=25)
+    assert result.returncode == 0, result.stdout + result.stderr

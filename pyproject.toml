@@ -9,7 +9,7 @@ description = "One remote API for local folders, SMB shares and NFS exports"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
-license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md", "licenses/*/LICENSE"]
 authors = [{name = "remote-fs-browser contributors"}]
 dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "psutil>=6,<8", "cryptography>=42", "smbprotocol>=1.17,<2",
                 # Share enumeration only. Windows Defender quarantines impacket's bundled example scripts
@@ -32,4 +32,4 @@ where = ["src"]
 asyncio_mode = "auto"
 
 [tool.setuptools.package-data]
-remote_fs_browser = ["web/*.js", "web/*.html"]
+remote_fs_browser = ["web/*.js", "web/*.html", "web/*-LICENSE.txt"]

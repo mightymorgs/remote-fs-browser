@@ -34,18 +34,29 @@ async function enter(hostname) {
   document.querySelector('#signin-title').textContent = `Sign in to ${hostname}`
   signin.hidden = true
   app.dataset.ready = 'true'
-  await picker.discover()
+  if (mode === 'select') await picker.discover()
+  else {
+    picker.style.display = 'none'
+    let manager = document.querySelector('#manager-frame')
+    if (!manager) {
+      manager = document.createElement('iframe')
+      manager.id = 'manager-frame'; manager.title = 'Remote filesystem manager'
+      manager.style = 'width:100%;height:100%;border:0;display:block'
+      manager.src = '/manager'
+      app.append(manager)
+    }
+  }
 }
 
 document.querySelector('#signin-form').onsubmit = async event => {
   event.preventDefault()
-  const token = document.querySelector('#token')
+  const password = document.querySelector('#password')
+  const username = document.querySelector('#username')
   setStatus('Signing in…')
   try {
     await picker.disconnect()
-    const login = new RemoteFsClient(location.origin + '/api', () => ({ Authorization: `Bearer ${token.value}` }))
-    const session = await login.request('/login', { method: 'POST' })
-    token.value = ''
+    const session = await client.request('/login', { method: 'POST', body: { username: username.value, password: password.value } })
+    password.value = ''
     setStatus('Connected.')
     await enter(session.hostname)
   } catch (error) { setStatus(error.message, 'error') }

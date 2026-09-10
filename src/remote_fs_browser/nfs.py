@@ -6,6 +6,7 @@ import stat
 from pathlib import Path
 from .backends import child_path, entry, listing
 from .policy import normalize
+from .mutations import RemoteWrite, split
 
 
 class Stat(c.Structure):
@@ -42,6 +43,13 @@ def library():
         ('nfs_set_version', [P, c.c_int], c.c_int), ('nfs_set_timeout', [P, c.c_int], None),
         ('nfs_set_dircache', [P, c.c_int], None), ('nfs_mount', [P, c.c_char_p, c.c_char_p], c.c_int),
         ('nfs_mkdir', [P, c.c_char_p], c.c_int),
+        ('nfs_open2', [P, c.c_char_p, c.c_int, c.c_int, c.POINTER(P)], c.c_int),
+        ('nfs_pwrite', [P, P, P, c.c_size_t, c.c_uint64], c.c_int),
+        ('nfs_fsync', [P, P], c.c_int),
+        ('nfs_rename', [P, c.c_char_p, c.c_char_p], c.c_int),
+        ('nfs_link', [P, c.c_char_p, c.c_char_p], c.c_int),
+        ('nfs_unlink', [P, c.c_char_p], c.c_int),
+        ('nfs_rmdir', [P, c.c_char_p], c.c_int),
         ('nfs_lstat64', [P, c.c_char_p, c.POINTER(Stat)], c.c_int),
         ('nfs_opendir', [P, c.c_char_p, c.POINTER(P)], c.c_int),
         ('nfs_readdir', [P, P], c.POINTER(DirEntry)), ('nfs_closedir', [P, P], None),
@@ -73,8 +81,7 @@ class NFSFilesystem:
 
     def _stat(self, path):
         info = Stat()
-        if self.lib.nfs_lstat64(self.ctx, path.encode(), c.byref(info)) != 0:
-            raise OSError('NFS path unavailable')
+        self.check(self.lib.nfs_lstat64(self.ctx, path.encode(), c.byref(info)))
         return info
 
     def _path(self, path):
@@ -85,6 +92,60 @@ class NFSFilesystem:
             if stat.S_ISLNK(self._stat(current).mode):
                 raise PermissionError('Links are not browsable')
         return path
+
+    @staticmethod
+    def check(result):
+        if result < 0:
+            raise OSError(-result, os.strerror(-result))
+        return result
+
+    def destination(self, path):
+        parent, _ = split(path)
+        self._path(parent)
+        return normalize(path)
+
+    def begin_write(self, path, overwrite=False):
+        return RemoteWrite(self, path, overwrite)
+
+    def raw_write(self, path):
+        path = self.destination(path)
+        handle = c.c_void_p()
+        self.check(self.lib.nfs_open2(self.ctx, path.encode(), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600, c.byref(handle)))
+        return NFSFile(self, handle)
+
+    def commit_write(self, source, destination, overwrite):
+        source, destination = self._path(source), self.destination(destination)
+        if overwrite:
+            try:
+                if not stat.S_ISREG(self._stat(destination).mode):
+                    raise PermissionError('Destination is not a regular file')
+            except FileNotFoundError:
+                pass
+            self.check(self.lib.nfs_rename(self.ctx, source.encode(), destination.encode()))
+        else:
+            # LINK is atomic and fails if the destination exists (unlike RENAME).
+            self.check(self.lib.nfs_link(self.ctx, source.encode(), destination.encode()))
+            self.check(self.lib.nfs_unlink(self.ctx, source.encode()))
+
+    def rename(self, source, destination):
+        split(source)
+        source, destination = self._path(source), self.destination(destination)
+        if stat.S_ISDIR(self._stat(source).mode):
+            # NFS has no no-replace directory rename. Refuse to risk replacing
+            # a directory created by another client between STAT and RENAME.
+            raise ValueError('NFS folder moves require copy then delete')
+        self.commit_write(source, destination, False)
+        return {'path': destination}
+
+    def remove(self, path):
+        split(path)
+        path = self._path(path)
+        mode = self._stat(path).mode
+        if not (stat.S_ISREG(mode) or stat.S_ISDIR(mode)):
+            raise PermissionError('Only files and folders can be deleted')
+        fn = self.lib.nfs_rmdir if stat.S_ISDIR(mode) else self.lib.nfs_unlink
+        self.check(fn(self.ctx, path.encode()))
+        return {'removed': path}
 
     def mkdir(self, path):
         path = normalize(path)
@@ -112,6 +173,8 @@ class NFSFilesystem:
                 if not item:
                     break
                 name = os.fsdecode(item.contents.name)
+                if name not in ('.', '..') and item.contents.type == 5:
+                    skipped += 1
                 if name not in ('.', '..') and item.contents.type != 5:
                     child = child_path(path, name)
                     if child is None:
@@ -155,6 +218,15 @@ class NFSFile:
             raise OSError('NFS read failed')
         self.offset += size
         return buffer.raw[:size]
+
+    def write(self, data):
+        buffer = c.create_string_buffer(data)
+        size = self.fs.check(self.fs.lib.nfs_pwrite(self.fs.ctx, self.handle, buffer, len(data), self.offset))
+        self.offset += size
+        return size
+
+    def flush(self):
+        self.fs.check(self.fs.lib.nfs_fsync(self.fs.ctx, self.handle))
 
     def close(self):
         if self.handle:

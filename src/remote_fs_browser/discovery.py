@@ -64,6 +64,7 @@ def discover(policy: Policy, scan=False, root_kinds=None, ranges=None, offset=0)
         if len(hosts) == SCAN_BUDGET:
             break
     scanned = len(hosts)
+    result.update(scan_offset=offset, scanned=scanned, total_addresses=total)
     if offset + scanned < total:
         result['next_offset'] = offset + scanned
     result['notes'].append(f'Scanned addresses {offset + 1 if scanned else 0}–{offset + scanned} of {total}. Continue with the next batch for larger subnets.')
