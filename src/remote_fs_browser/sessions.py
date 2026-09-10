@@ -49,6 +49,8 @@ def worker(pipe, config, policy_values):
             try:
                 if operation == 'list':
                     value = fs.list(args[0], policy.max_entries)
+                elif operation == 'mkdir':
+                    value = fs.mkdir(args[0])
                 elif operation == 'stat':
                     value = fs.stat(args[0])
                 elif operation == 'open':
@@ -156,6 +158,10 @@ class FilesystemSession:
         rows = result['entries']
         return {'entries': rows[:self.policy.max_entries], 'truncated': len(rows) > self.policy.max_entries,
                 'skipped': result['skipped']}
+
+    async def mkdir(self, path):
+        self.policy.require('mkdir')
+        return await self._call('mkdir', normalize(path))
 
     async def stat(self, path):
         self.policy.require('stat')

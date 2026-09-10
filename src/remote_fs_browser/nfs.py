@@ -1,4 +1,4 @@
-"""ctypes binding for libnfs 6+ (API V2). Only read operations are exposed."""
+"""ctypes binding for libnfs 6+ (API V2). Read operations and opt-in folder creation."""
 import ctypes as c
 import ctypes.util
 import os
@@ -41,6 +41,7 @@ def library():
         ('nfs_init_context', [], P), ('nfs_destroy_context', [P], None),
         ('nfs_set_version', [P, c.c_int], c.c_int), ('nfs_set_timeout', [P, c.c_int], None),
         ('nfs_set_dircache', [P, c.c_int], None), ('nfs_mount', [P, c.c_char_p, c.c_char_p], c.c_int),
+        ('nfs_mkdir', [P, c.c_char_p], c.c_int),
         ('nfs_lstat64', [P, c.c_char_p, c.POINTER(Stat)], c.c_int),
         ('nfs_opendir', [P, c.c_char_p, c.POINTER(P)], c.c_int),
         ('nfs_readdir', [P, P], c.POINTER(DirEntry)), ('nfs_closedir', [P, P], None),
@@ -84,6 +85,16 @@ class NFSFilesystem:
             if stat.S_ISLNK(self._stat(current).mode):
                 raise PermissionError('Links are not browsable')
         return path
+
+    def mkdir(self, path):
+        path = normalize(path)
+        parent, name = path.rsplit('/', 1)
+        if not name:
+            raise ValueError('Enter a folder name')
+        self._path(parent or '/')
+        if self.lib.nfs_mkdir(self.ctx, path.encode()) != 0:
+            raise OSError('Cannot create folder; check permissions or whether it exists')
+        return {'path': path}
 
     def stat(self, path):
         info = self._stat(self._path(path))

@@ -226,3 +226,11 @@ python -m build
 Releases are built by `.github/workflows/release.yml`; `packaging/RELEASING.md` describes publishing to PyPI, the Homebrew tap and winget.
 
 MIT licensed. Protocol implementations are dependencies, not copied sources: [smbprotocol](https://github.com/jborean93/smbprotocol), [Impacket](https://github.com/fortra/impacket), and [libnfs](https://github.com/sahlberg/libnfs). Libnfs has its own LGPL licensing; installers fetch or build it separately. Preserve its license obligations if distributing a bundled native library.
+
+### Creating a directory (embedding API)
+
+Folder creation is opt-in: include `mkdir` in `Policy.operations` alongside the
+read operations you need. Then `POST /api/sessions/{id}/mkdir` with
+`{"path":"/new-folder"}` creates one directory inside that session's root.
+Local, SMB and NFS backends use the service/session's filesystem permissions;
+existing folders are not overwritten. The default policy remains read-only.

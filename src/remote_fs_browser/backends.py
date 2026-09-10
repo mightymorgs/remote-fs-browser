@@ -1,4 +1,4 @@
-"""Backend-neutral read-only operations; network connections belong to one worker."""
+"""Backend-neutral filesystem operations; network connections belong to one worker."""
 import os
 import stat
 from datetime import datetime, timezone
@@ -79,6 +79,22 @@ class LocalFilesystem:
             os.close(fd)
             raise
 
+    def mkdir(self, path):
+        path = normalize(path)
+        parent, name = path.rsplit('/', 1)
+        if not name:
+            raise ValueError('Enter a folder name')
+        handle = self._open(parent or '/', directory=True)
+        try:
+            if isinstance(handle, int):
+                os.mkdir(name, mode=0o755, dir_fd=handle)
+            else:
+                os.mkdir(os.path.join(handle, name), mode=0o755)
+        finally:
+            if isinstance(handle, int):
+                os.close(handle)
+        return {'path': path}
+
     def list(self, path, limit):
         path = normalize(path)
         handle = self._open(path, directory=True)
@@ -153,6 +169,14 @@ class SMBFilesystem:
             if stat.S_ISLNK(info.st_mode) or getattr(info, 'st_file_attributes', 0) & 0x400:
                 raise PermissionError('Links and reparse points are not browsable')
         return current
+
+    def mkdir(self, path):
+        path = normalize(path)
+        parent, name = path.rsplit('/', 1)
+        if not name:
+            raise ValueError('Enter a folder name')
+        self.client.mkdir(self._path(parent or '/') + '\\' + name, connection_cache=self.cache)
+        return {'path': path}
 
     def list(self, path, limit):
         rows, skipped = [], 0

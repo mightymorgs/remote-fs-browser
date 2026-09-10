@@ -267,6 +267,14 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         owners[session.id] = request.state.principal
         return {'id': session.id, 'descriptor': session.descriptor(), 'idle_seconds': policy.idle_seconds}
 
+    @app.post('/api/sessions/{id}/mkdir')
+    async def mkdir(request: Request, id: str):
+        data = await request.json()
+        path = data.get('path', '')
+        session = get(request, id)
+        await allowed(request, 'mkdir', session.descriptor(path))
+        return await session.mkdir(path)
+
     @app.get('/api/sessions/{id}/list')
     @app.get('/sessions/{id}/list', include_in_schema=False)
     async def listing(request: Request, id: str, path: str = '/', ndjson: bool = False):
