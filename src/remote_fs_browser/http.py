@@ -74,11 +74,13 @@ class BodyLimit:
 
 
 def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
-               authorize: Callable | None = None, credential_resolver=None, root_kinds=None, saved_locations=None, account=None):
+               authorize: Callable | None = None, credential_resolver=None, root_kinds=None, saved_locations=None, account=None, staging_stores=None):
     if not account and not authenticate and (not token or len(token) < 32):
         raise ValueError('Configure an authentication hook or a token of at least 32 characters')
     if saved_locations is not None and credential_resolver is None:
         credential_resolver = saved_locations.resolve
+    from .jobs import ArchiveJobs
+    jobs = ArchiveJobs(staging_stores)
     browser = Browser(policy, root_kinds=root_kinds)
     owners, rates = {}, defaultdict(deque)
     logins = {}
@@ -101,9 +103,11 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
+            await jobs.close()
             await browser.close()
     app = FastAPI(title='Remote filesystem browser', version='0.1.0', lifespan=lifespan)
     app.add_middleware(BodyLimit)
+    app.state.jobs = jobs
     app.state.browser = browser
     app.state.root_kinds = browser.root_kinds
 
@@ -111,7 +115,7 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
     async def access(request, call_next):
         if account and request.url.path == '/api/login' and request.method == 'POST':
             return await call_next(request)
-        if request.url.path in ('/', '/browser.js', '/demo.js'):
+        if request.url.path in ('/', '/browser.js', '/demo.js', '/manager', '/manager.js', '/support.js', '/react.js', '/react-dom.js'):
             return await call_next(request)
         principal = None
         cookie = request.cookies.get('remote_fs_session')
@@ -212,6 +216,16 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
     async def demo_script():
         return FileResponse(Path(__file__).with_name('web') / 'demo.js', media_type='text/javascript')
 
+    @app.get('/manager')
+    async def manager_page():
+        return FileResponse(Path(__file__).with_name('web') / 'manager.html')
+
+    @app.get('/{asset}.js')
+    async def manager_asset(asset: str):
+        if asset not in ('manager', 'support', 'react', 'react-dom'):
+            raise HTTPException(404)
+        return FileResponse(Path(__file__).with_name('web') / (asset + '.js'), media_type='text/javascript')
+
     async def allowed(request, operation, session=None):
         policy.require(operation)
         if authorize:
@@ -251,7 +265,13 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         data = await request.json()
         descriptor = clean_descriptor(data['descriptor'])
         descriptor['path'] = normalize(data['descriptor'].get('path', '/'))
-        reference = saved_locations.add(request.state.principal, descriptor, data.get('credentials'), data.get('label'))
+        credentials = data.get('credentials')
+        reference = data['descriptor'].get('credential_id')
+        if reference and not credentials:
+            row = saved_locations.get(request.state.principal, reference)
+            credentials = (saved_locations.resolve_host(request.state.principal, reference, descriptor.get('host', ''))
+                           if row.get('kind') == 'host' else saved_locations.resolve(request.state.principal, reference))
+        reference = saved_locations.add(request.state.principal, descriptor, credentials, data.get('label'))
         return {'id': reference}
 
     @app.delete('/api/saved/{reference}')
@@ -261,6 +281,90 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         if saved_locations is None or not saved_locations.remove(request.state.principal, reference):
             raise HTTPException(404, 'Saved location not found')
         return {'removed': True}
+
+    @app.get('/api/credentials')
+    async def host_credentials(request: Request):
+        await allowed(request, 'discover')
+        return {'credentials': saved_locations.hosts(request.state.principal) if saved_locations else [],
+                'available': saved_locations is not None}
+
+    @app.post('/api/credentials')
+    async def save_host_credentials(request: Request):
+        await allowed(request, 'discover')
+        if saved_locations is None:
+            raise HTTPException(404, 'Credential storage unavailable')
+        data = await request.json()
+        policy.host(data['host'])
+        return {'id': saved_locations.add_host(request.state.principal, data['host'], data['credentials'])}
+
+    @app.delete('/api/credentials/{reference}')
+    async def forget_host_credentials(request: Request, reference: str):
+        await allowed(request, 'discover')
+        if saved_locations is None or saved_locations.get(request.state.principal, reference).get('kind') != 'host':
+            raise HTTPException(404, 'Host credentials not found')
+        saved_locations.remove(request.state.principal, reference)
+        return {'removed': True}
+
+    @app.get('/api/downloads')
+    async def downloads(request: Request):
+        await allowed(request, 'read')
+        return {'jobs': jobs.list(request.state.principal), 'stores': jobs.capacity()}
+
+    @app.post('/api/downloads/estimate')
+    async def estimate_archive(request: Request):
+        data = await request.json()
+        session = get(request, data['session'])
+        async def check(operation, descriptor):
+            await allowed(request, operation, descriptor)
+        rows, total, needed = await jobs.plan(session, data['paths'], check)
+        return {'total': total, 'needed': needed, 'entries': len(rows), 'stores': jobs.capacity()}
+
+    @app.post('/api/downloads')
+    async def create_archive(request: Request):
+        data = await request.json()
+        session = get(request, data['session'])
+        async def check(operation, descriptor):
+            await allowed(request, operation, descriptor)
+        return await jobs.create(request.state.principal, session, data['paths'],
+                                 data['store'], data.get('part_size', 0), check)
+
+    @app.post('/api/downloads/{id}')
+    async def control_archive(request: Request, id: str):
+        await allowed(request, 'read')
+        data = await request.json()
+        if data.get('action') == 'forget':
+            return jobs.forget(request.state.principal, id)
+        return jobs.control(request.state.principal, id, data.get('action'))
+
+    @app.delete('/api/downloads/{id}')
+    async def purge_archive(request: Request, id: str):
+        await allowed(request, 'read')
+        return await jobs.purge(request.state.principal, id)
+
+    @app.get('/api/downloads/{id}/parts/{index}')
+    async def archive_part(request: Request, id: str, index: int):
+        await allowed(request, 'read')
+        job = jobs.get(request.state.principal, id)
+        if job['stage'] not in ('packing', 'ready') or index < 0 or index >= len(job['parts']) or not job['parts'][index].get('ready', job['stage'] == 'ready'):
+            raise HTTPException(409, 'Archive part is not ready')
+        for source in job.get('sources', []):
+            await allowed(request, 'read', source)
+        part = job['parts'][index]
+        try:
+            byte_range(request.headers.get('range'), part['size'])
+        except ValueError:
+            return JSONResponse({'detail': 'Invalid byte range'}, status_code=416,
+                                headers={'Content-Range': f"bytes */{part['size']}"})
+        # Only manifest-generated basenames can be served; never accept a path from the client.
+        if Path(part['name']).name != part['name'] or '\\' in part['name']:
+            raise HTTPException(404)
+        path = jobs.directory(job) / part['name']
+        if path.is_symlink():
+            raise HTTPException(404)
+        # This records a browser handoff, not proof the user saved the file.
+        part['downloaded'] = True
+        jobs.save(job)
+        return FileResponse(path, filename=part['name'], media_type='application/octet-stream')
 
     @app.get('/api/discover')
     @app.get('/discover', include_in_schema=False)
@@ -275,7 +379,12 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         data = await request.json()
         if 'ranges' in data:
             return await browser.discover(scan=True, ranges=data['ranges'], offset=data.get('offset', 0))
-        return await browser.discover(host=data['host'], protocol=data['type'], credentials=data.get('credentials'))
+        credentials = data.get('credentials')
+        if data.get('credential_id'):
+            if saved_locations is None:
+                raise PermissionError('No credential store configured')
+            credentials = saved_locations.resolve_host(request.state.principal, data['credential_id'], data['host'])
+        return await browser.discover(host=data['host'], protocol=data['type'], credentials=credentials)
 
     @app.post('/api/sessions')
     @app.post('/sessions', include_in_schema=False)
@@ -294,7 +403,12 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         if reference:
             if not credential_resolver:
                 raise PermissionError('No credential resolver configured')
-            credentials = credential_resolver(request.state.principal, reference)
+            if saved_locations and saved_locations.get(request.state.principal, reference).get('kind') == 'host':
+                if descriptor.get('type') != 'smb':
+                    raise PermissionError('Host credentials require SMB')
+                credentials = saved_locations.resolve_host(request.state.principal, reference, descriptor.get('host', ''))
+            else:
+                credentials = credential_resolver(request.state.principal, reference)
             if inspect.isawaitable(credentials):
                 credentials = await credentials
         session = await browser.connect(descriptor, credentials)

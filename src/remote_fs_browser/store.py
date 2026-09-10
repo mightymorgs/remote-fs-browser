@@ -70,14 +70,14 @@ class SavedLocations:
                 'created': record['created'], 'has_credentials': bool(record.get('credential'))}
 
     def list(self, principal):
-        return [self.public(row) for row in self.records if row['principal'] == principal]
+        return [self.public(row) for row in self.records if row['principal'] == principal and row.get('kind') != 'host']
 
     def add(self, principal, descriptor, credentials=None, label=None):
         """Remember a folder. Folders on one share share credentials; the same folder is updated in place."""
         path = descriptor.get('path', '/')
         identity = {k: v for k, v in descriptor.items() if k not in ('path', 'credential_id')}
         credential = {k: v for k, v in (credentials or {}).items() if k in CREDENTIAL_KEYS and v}
-        siblings = [row for row in self.records if row['principal'] == principal
+        siblings = [row for row in self.records if row['principal'] == principal and row.get('kind') != 'host'
                     and {k: v for k, v in row['descriptor'].items() if k != 'path'} == identity]
         if credential:
             for row in siblings:
@@ -120,3 +120,36 @@ class SavedLocations:
     def resolve(self, principal, reference):
         """Credential resolver for create_app: the principal must own the saved location."""
         return dict(self.get(principal, reference).get('credential') or {})
+
+    def hosts(self, principal):
+        return [{'id': row['id'], 'host': row['host'], 'username': row['credential'].get('username', ''),
+                 'domain': row['credential'].get('domain', '')}
+                for row in self.records if row['principal'] == principal and row.get('kind') == 'host']
+
+    def add_host(self, principal, host, credentials):
+        if not isinstance(host, str) or not host.strip() or len(host) > 253:
+            raise ValueError('Invalid host')
+        host = host.strip().lower().rstrip('.')
+        if not isinstance(credentials, dict) or any(not isinstance(v, str) for v in credentials.values()):
+            raise ValueError('Invalid credentials')
+        credential = {k: v for k, v in credentials.items() if k in CREDENTIAL_KEYS}
+        if not credential.get('username') or not credential.get('password'):
+            raise ValueError('Username and password are required')
+        if len(self.hosts(principal)) >= self.limit:
+            raise ValueError('Too many saved credentials')
+        row = next((row for row in self.records if row['principal'] == principal
+                    and row.get('kind') == 'host' and row['host'] == host
+                    and row['credential'].get('username') == credential['username']
+                    and row['credential'].get('domain', '') == credential.get('domain', '')), None)
+        if row is None:
+            row = {'id': secrets.token_urlsafe(12), 'principal': principal, 'kind': 'host', 'host': host}
+            self.records.append(row)
+        row['credential'] = credential
+        self.save()
+        return row['id']
+
+    def resolve_host(self, principal, reference, host):
+        row = self.get(principal, reference)
+        if row.get('kind') != 'host' or row['host'] != host.strip().lower().rstrip('.'):
+            raise PermissionError('Credentials belong to a different host')
+        return dict(row['credential'])

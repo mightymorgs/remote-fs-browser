@@ -24,8 +24,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Browser discovery tests
-        run: node --test frontend/browser.test.js
+      - name: Browser interaction tests
+        run: node --test frontend/*.test.js
       - name: Build distribution
         run: python -m build
 

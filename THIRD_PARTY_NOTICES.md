@@ -57,3 +57,15 @@ This product includes software developed by SecureAuth Corporation
 
 The full licence texts shipped with each release take precedence over this
 summary. The inventory is generated from the packages installed for that build.
+
+## Browser manager assets
+
+The redesigned browser bundles React and ReactDOM 18.3.1 under MIT terms, with
+copyright Meta Platforms, Inc. and affiliates. Full notices are included beside
+the JavaScript as `web/react-LICENSE.txt` and `web/react-dom-LICENSE.txt` in the
+Python package (and the corresponding package data in portable builds).
+The declarative layout and DC support runtime came from the supplied design ZIP.
+The browser loads the included assets locally; no Node server is required.
+
+ZIP packing and job coordination use Python's standard library. No additional
+Python package is required for those features.

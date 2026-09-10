@@ -34,7 +34,18 @@ async function enter(hostname) {
   document.querySelector('#signin-title').textContent = `Sign in to ${hostname}`
   signin.hidden = true
   app.dataset.ready = 'true'
-  await picker.discover()
+  if (mode === 'select') await picker.discover()
+  else {
+    picker.style.display = 'none'
+    let manager = document.querySelector('#manager-frame')
+    if (!manager) {
+      manager = document.createElement('iframe')
+      manager.id = 'manager-frame'; manager.title = 'Remote filesystem manager'
+      manager.style = 'width:100%;height:100%;border:0;display:block'
+      manager.src = '/manager'
+      app.append(manager)
+    }
+  }
 }
 
 document.querySelector('#signin-form').onsubmit = async event => {

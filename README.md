@@ -260,3 +260,66 @@ Uploads are staged beside the destination and committed after the full body arri
 Folder copies, recursive deletes and NFS folder moves run in steps. An error can leave partial results: refresh both locations before retrying. NFS folder moves create destinations exclusively and move files with server-side links before removing empty source folders. They are not atomic. Servers must support hard links for non-overwriting NFS file publication/moves. Symlinks, reparse points and special files are excluded; a recursive operation with hidden or truncated entries is rejected. Directory operations are bounded by `max_entries` and a depth of 64. The editor does not lock out other clients; the last explicit save wins.
 
 Filesystem ownership, POSIX permissions and server ACLs remain authoritative. The app does not expose arbitrary shell commands, ownership changes, ACL editing, symlink creation or mount administration.
+
+### File manager and staged downloads
+
+The standalone browser uses the supplied redesigned layout: collapsible sidebar,
+shortlist, local roots and mapped network hosts; checkbox/range selection;
+context menus; and floating scan, connection and download windows. Row clicks
+open folders or preview small UTF-8 files. Copy/cut/paste, uploads, new text files,
+rename and recursive deletion use the authenticated filesystem API. Cross-location
+moves copy an item successfully before deleting its source; failures may leave a
+completed destination copy and the original source. Refresh before retrying.
+The embeddable `remote-fs-browser` component and `?mode=select` retain the picker API.
+
+Scan windows display DNS, NetBIOS and IP together and continue through server
+pages of up to 256 candidate addresses. Stop finishes no further pages; an already
+running server probe is bounded and may finish in the background. SMB host
+credentials can be saved encrypted for the signed-in account. References are
+bound to the exact hostname/IP entered, preventing reuse against another host.
+NFSv4-only servers can be added with an explicit export when discovery returns none.
+
+Folder/selection ZIPs are built on the service host. The default staging directory
+is `staging` beside the configuration file. To offer other host directories, add
+this top-level configuration field, then restart:
+
+```json
+"staging_stores": {
+  "Downloads": "/srv/remotefs-staging",
+  "Scratch disk": "/mnt/scratch/remotefs-staging"
+}
+```
+
+These are administrator-configured directories writable by the service, not
+arbitrary paths supplied by a browser. Use dedicated directories; this feature
+does not mount SMB/NFS shares. An SDK embedding opts in with
+`create_app(..., staging_stores={"Downloads": "/path/to/staging"})`.
+An empty map disables packing. Loose files still stream without staging.
+
+Packing first walks and authorizes the selection, checks free capacity including
+space reserved by other jobs, and uses ZIP64 with stored (uncompressed) entries.
+It needs payload size plus header space (at least approximately 2% headroom).
+This avoids wasting CPU recompressing media. Source size changes fail the job;
+packing does not take a filesystem snapshot. Partial archives remain available
+to purge, and are never reported as complete.
+
+Choose a single ZIP or byte-split `.zip.001`, `.002`, … parts (1 MB minimum,
+999 maximum). **All parts belong to one archive**: concatenate them in numeric
+order before opening the ZIP, or use an archiver that supports split files.
+Each completed part has HTTP Range support. Full parts may be fetched while the
+remaining archive packs. Pause/resume applies to packing while this service is
+running. Completed archives survive restarts; interrupted packing is marked failed
+and must be purged and restarted. Up to 32 unpurged jobs per account are allowed.
+
+The Downloads window opens each link separately. “Handed to browser” records
+that a download was requested; use the browser's download manager to confirm
+completion or resume an interrupted transfer. Staged files are retained until
+explicitly purged. Purging warns about parts not yet requested and returns the
+freed byte count. Clear purged removes their job records. Loose-file queues are
+kept in the current page and do not persist after refresh.
+
+New API endpoints: `GET /api/downloads`, `POST /api/downloads/estimate`,
+`POST /api/downloads`, `POST /api/downloads/{id}` (`pause`, `resume`, `forget`),
+`GET /api/downloads/{id}/parts/{index}`, `DELETE /api/downloads/{id}`, and
+`GET/POST /api/credentials` / `DELETE /api/credentials/{id}`. These use the same
+account ownership and authorization policy as file access.

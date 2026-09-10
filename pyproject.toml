@@ -32,4 +32,4 @@ where = ["src"]
 asyncio_mode = "auto"
 
 [tool.setuptools.package-data]
-remote_fs_browser = ["web/*.js", "web/*.html"]
+remote_fs_browser = ["web/*.js", "web/*.html", "web/*-LICENSE.txt"]

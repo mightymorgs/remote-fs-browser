@@ -151,7 +151,8 @@ def main(argv=None):
         saved = SavedLocations(path.with_name('saved.json'), config['storage_key'])
     except StoreLocked:
         saved_note = 'saved locations use a different storage key; restore the matching config to unlock them'
-    app = create_app(policy, account=config['account'], root_kinds=kinds, saved_locations=saved)
+    app = create_app(policy, account=config['account'], root_kinds=kinds, saved_locations=saved,
+                     staging_stores=config.get('staging_stores', {'Downloads': str(path.parent / 'staging')}))
     bind = args.bind or config.get('bind', '127.0.0.1')
     port = args.port if args.port is not None else config.get('port', 8080)
     if not 1 <= port <= 65535:
