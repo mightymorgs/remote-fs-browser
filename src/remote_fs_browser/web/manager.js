@@ -378,7 +378,7 @@ class Component extends DCLogic {
     const tail = [place.share, ...place.folders].filter(Boolean).join('/')
     return place.host ? `${place.host}/${tail}`.replace(/([^:])\/\//g, '$1/') : '/' + tail.replace(/^\/+/, '')
   }
-  goTo(place) {this.setState({place,selected:[],filter:'',view:'browse',menu:null})}
+  goTo(place) {this.setState({place,selected:[],filter:'',view:'browse',menu:null,...(this.state.width<700?{collapsed:true}:{})})}
   async pin(place,label) {
     if(!place.descriptor) return this.say('Open this folder before adding it to the shortlist')
     const descriptor={...place.descriptor,path:this.currentPath(place)}
@@ -451,7 +451,7 @@ class Component extends DCLogic {
     const shown = DEVICES
     const railItem = (label, active) => ({ bg: active ? '#e3ebfb' : 'transparent', dot: active ? '#3f6fd1' : '#6a727c' })
 
-    const pane = this.state.width - (this.state.collapsed ? 56 : 272)
+    const pane = this.state.width - (this.state.width<700 || this.state.collapsed ? 56 : 272)
     const roomy = this.state.width >= 1040
     const showKind = pane >= 820
     const wideScan = pane >= 820
@@ -470,6 +470,7 @@ class Component extends DCLogic {
       overflowMenu: event => this.setState({menu:{...this.place(event),kind:'toolbar'}}),
       collapsed: this.state.collapsed,
       expanded: !this.state.collapsed,
+      mobileRailOpen: this.state.width<700 && !this.state.collapsed,
       railWidth: this.state.collapsed ? '56px' : '272px',
       toggleRail: () => this.setState({ collapsed: !this.state.collapsed }),
       toggleAdd: () => this.toView('add'),
@@ -977,7 +978,8 @@ class Component extends DCLogic {
         : menu?.kind === 'pin' ? this.pinItems(menu.pin)
         : menu?.kind === 'share' ? this.shareItems(menu.host, menu.share)
         : this.items()).map(item => item.divider ? { divider: true, action: false } : {
-        divider: false, action: true, label: item.label, keys: item.keys, run: item.on ? item.run : () => {},
+        divider: false, action: true, label: item.label, keys: item.keys,
+        run: item.on ? () => { this.setState({menu:null}); return item.run() } : () => {},
         ink: item.on ? '#1c2024' : '#9aa1ab', opacity: item.on ? '1' : '.6',
         cursor: item.on ? 'pointer' : 'default', hoverBg: item.on ? '#eef2fb' : 'transparent'
       }),

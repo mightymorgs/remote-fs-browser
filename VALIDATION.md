@@ -24,3 +24,7 @@ The read/write and password-login changes are not published yet. Local tests cov
 On macOS Apple Silicon, an isolated Docker Samba server and NFS-Ganesha v4 server (MEM filesystem with data storage enabled) passed binary upload/readback, no-overwrite conflict, explicit replacement, recursive copy, folder move, and recursive delete. The native libnfs write symbols loaded successfully. These are protocol integration checks, not proof for every NAS implementation or ACL model.
 
 The local browser preview passed username/password login, text editing/save, and folder creation. Cross-platform CI exercises the local mutation primitives and password handling; NFS/SMB integration remains an explicit test-server check.
+
+## Cross-host browser dogfood
+
+The [11 September 2026 report](docs/validation/2026-09-11-dogfood.md) records real Mac, Windows and Ubuntu click-through checks, manual SMB/NFS mapping, native Windows Chromium runs, and two verified 100 MiB network multipart downloads. It also records the bugs found, fixes, environment requirements and cleanup. Publication remains on hold.

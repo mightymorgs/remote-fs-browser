@@ -4,7 +4,7 @@
 
 Run remotefs on a workstation, server or homelab node to access the storage that machine can reach. Its home directory, mounted volumes and permitted network servers appear in one interface. The viewing computer needs only access to the service’s HTTP port; SMB and NFS connections run from the service host.
 
-**Development status — publication is on hold.** This README describes the implementation on `codex/filesystem-manager`, including password login, write operations and staged downloads. Those changes are not yet published. Homebrew, PyPI and the versioned Windows ZIP below provide earlier releases; their interface and authentication differ. Cross-host validation is still in progress. See [validation](VALIDATION.md) for recorded evidence, not a compatibility guarantee.
+**Development status — publication is on hold.** This README describes the implementation on `codex/filesystem-manager`, including password login, write operations and staged downloads. Those changes are not yet published. Homebrew, PyPI and the versioned Windows ZIP below provide earlier releases; their interface and authentication differ. The [cross-host dogfood report](docs/validation/2026-09-11-dogfood.md) records the completed browser workflows and network download checks. See [validation](VALIDATION.md) for scope and limitations.
 
 ## What is included
 

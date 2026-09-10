@@ -60,3 +60,19 @@ test('ZIP estimates and submissions use server bytes, selected store and actual 
  assert.equal(calls[1][1].store,'scratch');assert.equal(calls[1][1].part_size,1048576)
  assert.equal(calls[1][1].paths[0],'/real/folder')
 })
+
+test('context menu dismisses before running an enabled action and preserves selection',()=>{
+ const m=manager();m.state.menu={kind:'file',x:1,y:1};m.state.selected=['alpha.txt']
+ let called=false
+ m.items=()=>[{label:'Upload files here',on:true,run:()=>{called=true;assert.equal(m.state.menu,null);assert.deepEqual(m.state.selected,['alpha.txt'])}}]
+ m.renderVals().menuItems[0].run()
+ assert.equal(called,true)
+})
+
+test('narrow viewport sidebar overlays the list and closes when navigating',()=>{
+ const m=manager();m.state.width=390;m.state.collapsed=false
+ const open=m.renderVals();assert.equal(open.mobileRailOpen,true)
+ m.state.collapsed=true;assert.equal(m.renderVals().listCols,open.listCols)
+ m.state.collapsed=false;m.goTo(m.fromDescriptor({type:'local',root:'/tmp/files'}))
+ assert.equal(m.state.collapsed,true)
+})
