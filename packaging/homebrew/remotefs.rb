@@ -5,11 +5,8 @@ class Remotefs < Formula
 
   desc "Browse local, SMB and NFS storage over HTTP from another machine"
   homepage "https://github.com/mightymorgs/remote-fs-browser"
-  # `brew audit` insists on the long hashed "Source" URL shown on
-  # https://pypi.org/project/remote-fs-browser/#files once 0.2.0 is published;
-  # this short form resolves to the same file until then.
-  url "https://files.pythonhosted.org/packages/source/r/remote-fs-browser/remote_fs_browser-0.2.0.tar.gz"
-  sha256 "TODO"
+  url "https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.0/remote_fs_browser-0.2.0.tar.gz"
+  sha256 "b6809fd20e33e2ea399ff31e62e4a54e01ada232641ebf7be4199dab6a976853"
   license "MIT"
 
   depends_on "rust" => :build # cryptography (via smbprotocol) builds from source
