@@ -56,7 +56,7 @@ winget install --id mightymorgs.remotefs --exact --source winget
 remotefs serve
 ```
 
-Until WinGet accepts the package, download the [Windows x64 ZIP](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.0/remotefs-0.2.0-windows-x64.zip), extract it, and run `remotefs\remotefs.exe serve` from PowerShell. The portable executable includes libnfs and does not require a separate Python installation. If `remotefs` is not found after installation, open a new terminal. To update:
+Until WinGet accepts the package, download the [Windows x64 ZIP](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.1/remotefs-0.2.1-windows-x64.zip), extract it, and run `remotefs\remotefs.exe serve` from PowerShell. The portable executable includes libnfs and does not require a separate Python installation. If `remotefs` is not found after installation, open a new terminal. To update:
 
 ```powershell
 winget upgrade --id mightymorgs.remotefs --exact --source winget
@@ -234,3 +234,5 @@ read operations you need. Then `POST /api/sessions/{id}/mkdir` with
 `{"path":"/new-folder"}` creates one directory inside that session's root.
 Local, SMB and NFS backends use the service/session's filesystem permissions;
 existing folders are not overwritten. The default policy remains read-only.
+
+Third-party licence notices are documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Windows portable releases include dependency licence texts and the matching modified libnfs source, build recipe and DLL replacement instructions.
