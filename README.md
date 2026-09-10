@@ -30,7 +30,7 @@ Choose an installation method below, then run `remotefs serve`.
 
 ### Homebrew (macOS)
 
-The Homebrew package is pending publication: the formula in this repository still needs its release checksum and publication to the tap. Once published, install with [Homebrew](https://brew.sh/):
+Install from the [Homebrew tap](https://github.com/mightymorgs/homebrew-tap) with [Homebrew](https://brew.sh/):
 
 ```sh
 brew tap mightymorgs/tap
@@ -49,14 +49,14 @@ Use `brew services stop remotefs` to stop it. To update, run `brew update` follo
 
 ### WinGet (Windows x64)
 
-The WinGet package is pending publication: its manifest still needs the release ZIP checksum and acceptance into the WinGet community repository. Once published, run in PowerShell with [WinGet installed](https://learn.microsoft.com/en-us/windows/package-manager/winget/):
+The WinGet package has been [submitted for review](https://github.com/microsoft/winget-pkgs/pull/432620) and is awaiting acceptance into the community repository. Once accepted, run in PowerShell with [WinGet installed](https://learn.microsoft.com/en-us/windows/package-manager/winget/):
 
 ```powershell
 winget install --id mightymorgs.remotefs --exact --source winget
 remotefs serve
 ```
 
-The package uses a portable Windows executable, so a separate Python installation is not required. If `remotefs` is not found after installation, open a new terminal. To update:
+Until WinGet accepts the package, download the [Windows x64 ZIP](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.0/remotefs-0.2.0-windows-x64.zip), extract it, and run `remotefs\remotefs.exe serve` from PowerShell. The portable executable includes libnfs and does not require a separate Python installation. If `remotefs` is not found after installation, open a new terminal. To update:
 
 ```powershell
 winget upgrade --id mightymorgs.remotefs --exact --source winget
@@ -66,14 +66,14 @@ See [WinGet install options](https://learn.microsoft.com/en-us/windows/package-m
 
 ### Python (Windows, macOS or Linux)
 
-Requires Python 3.11+ and pipx. For a published PyPI release:
+Requires Python 3.11+ and pipx. Install the published release wheel:
 
 ```sh
-pipx install remote-fs-browser
+pipx install https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.0/remote_fs_browser-0.2.0-py3-none-any.whl
 remotefs serve
 ```
 
-Before the packages are published, install directly from a checkout of this repository:
+PyPI publication is pending publisher setup. You can also install directly from a checkout of this repository:
 
 ```sh
 pipx install .

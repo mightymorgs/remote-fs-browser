@@ -11,8 +11,6 @@ Commands:
 Installers:
   - Architecture: x64
     InstallerUrl: https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.0/remotefs-0.2.0-windows-x64.zip
-    # TODO: replace with the SHA-256 of the published release zip
-    # (sha256sum on Unix, Get-FileHash -Algorithm SHA256 on Windows).
-    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+    InstallerSha256: 866EAD9B8D9CDDD7261D304CDC32B12595A83EF683A2B9DF20812FC8C5DED9C8
 ManifestType: installer
 ManifestVersion: 1.6.0

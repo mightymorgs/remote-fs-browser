@@ -6,7 +6,7 @@ directory and `v0.2.0` as the version being released.
 
 ## 0. Already verified locally
 
-- `packaging/homebrew/remotefs.rb` carries resource blocks for 0.2.0 resolved against PyPI; only the sdist `sha256` is left to fill.
+- `packaging/homebrew/remotefs.rb` carries resource blocks and the GitHub release sdist checksum for 0.2.0.
 - The winget manifests pass `winget validate` on Windows 11. When copying them from macOS, use `COPYFILE_DISABLE=1 tar ...` or delete the `._*` AppleDouble files first; winget tries to parse every file in the directory.
 - The PyInstaller spec produces a working `remotefs.exe` on Windows 11 (about 39 MB unpacked).
 
@@ -85,8 +85,7 @@ GitHub release lists the sdist, wheel and Windows zip.
 
 ## 7. Homebrew tap
 
-First time only: create the repo `mightymorgs/homebrew-tap` on GitHub with a
-`Formula/` directory.
+The tap is published at `mightymorgs/homebrew-tap` with a `Formula/` directory.
 
 ```sh
 git clone git@github.com:mightymorgs/homebrew-tap.git
@@ -94,15 +93,14 @@ cp packaging/homebrew/remotefs.rb homebrew-tap/Formula/remotefs.rb
 cd homebrew-tap
 ```
 
-Fill in the sdist URL and checksum. `brew audit` rejects the short
-`packages/source/` URL, so take the long hashed "Source" link from
-https://pypi.org/project/remote-fs-browser/0.2.0/#files and put it in `url`:
+Use the sdist attached to the GitHub release as the formula URL and checksum.
+This lets Homebrew install the release independently of PyPI publication:
 
 ```sh
-curl -sLo /tmp/remote_fs_browser-0.2.0.tar.gz \
-  https://files.pythonhosted.org/packages/source/r/remote-fs-browser/remote_fs_browser-0.2.0.tar.gz
+curl -fL -o /tmp/remote_fs_browser-0.2.0.tar.gz \
+  https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.0/remote_fs_browser-0.2.0.tar.gz
 shasum -a 256 /tmp/remote_fs_browser-0.2.0.tar.gz
-# paste the hash into sha256 "..." in Formula/remotefs.rb
+# Update url and sha256 in Formula/remotefs.rb for each release.
 ```
 
 Generate the dependency resource blocks, then build and test:
