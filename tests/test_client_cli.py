@@ -240,3 +240,19 @@ try {
     result = subprocess.run(['node', str(script), module, str(tmp / 'client.json'), str(root)], capture_output=True, text=True, timeout=30)
     assert result.returncode == 0, result.stderr
     assert not (root / 'js-folder').exists()
+
+
+@pytest.mark.parametrize('reference', ['-h0Nh5D6vO_VXw-A', '--' + 'a' * 14])
+def test_dash_prefixed_opaque_references_are_not_options(reference):
+    assert parser().parse_args(['connect', '--saved-id', reference]).saved_id == reference
+    assert parser().parse_args(['shares', 'nas', '--credential-id', reference]).credential_id == reference
+    assert parser().parse_args(['saved', 'remove', '--id', reference]).id == reference
+
+
+def test_dash_prefixed_session_and_real_options():
+    sid = '-' + 'a' * 42
+    args = parser().parse_args(['ls', sid, '/', '--timeout', '5'])
+    assert args.session == sid and args.timeout == 5
+    assert parser().parse_args(['login', '--username', 'user', '--password-stdin']).password_stdin
+    with pytest.raises(SystemExit):
+        parser().parse_args(['ls', 'sid', '--unknown-option'])

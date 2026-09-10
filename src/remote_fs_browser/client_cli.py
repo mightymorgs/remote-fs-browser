@@ -4,6 +4,7 @@ import getpass
 import http.cookiejar
 import json
 import os
+import re
 from pathlib import Path
 import sys
 import tempfile
@@ -14,6 +15,28 @@ from urllib.request import build_opener, HTTPCookieProcessor, HTTPRedirectHandle
 COMMANDS = ('login', 'logout', 'discover', 'scan', 'shares', 'connect', 'disconnect',
             'ls', 'stat', 'select', 'mkdir', 'rename', 'copy', 'remove', 'get', 'put',
             'saved', 'credentials', 'downloads')
+
+
+class ClientParser(argparse.ArgumentParser):
+    def parse_known_args(self, args=None, namespace=None):
+        values = list(sys.argv[1:] if args is None else args)
+        if self.prog != 'remotefs':
+            # Bind opaque reference values to their named option before argparse
+            # can interpret a leading dash as a flag. Real options still win.
+            options = {'--saved-id', '--credential-id', '--id', '--target-session'}
+            index = 0
+            while index + 1 < len(values):
+                value = values[index + 1]
+                if values[index] in options and value not in self._option_string_actions and re.fullmatch(r'-(?:[A-Za-z0-9_-]{15}|[A-Za-z0-9_-]{42})', value):
+                    values[index:index + 2] = [values[index] + '=' + value]
+                index += 1
+        return super().parse_known_args(values, namespace)
+
+    def _parse_optional(self, value):
+        # Positional session IDs are 43-character URL-safe random tokens.
+        if value not in self._option_string_actions and re.fullmatch(r'-[A-Za-z0-9_-]{42}', value):
+            return None
+        return super()._parse_optional(value)
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -150,7 +173,7 @@ def location(args, client):
 
 def parser():
     from .cli import config_home
-    p = argparse.ArgumentParser(prog='remotefs', description='Use the web file manager API from the terminal. Results are JSON; file transfers are streamed.')
+    p = ClientParser(prog='remotefs', description='Use the web file manager API from the terminal. Results are JSON; file transfers are streamed.')
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument('--url', default=os.environ.get('REMOTEFS_URL', 'http://127.0.0.1:8080'), help='Server origin (or REMOTEFS_URL)')
     common.add_argument('--auth-file', default=str(config_home() / 'client.json'), help='Private login-cookie file; passwords are not stored here')
