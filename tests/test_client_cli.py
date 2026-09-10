@@ -199,6 +199,7 @@ def test_javascript_client_against_live_api(server):
     script.write_text('''
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 globalThis.HTMLElement = class {};
 globalThis.customElements = { get: () => true };
 const { RemoteFsClient } = await import(process.argv[2]);
@@ -209,7 +210,7 @@ try {
   await c.mkdir(sid, '/js-folder');
   await c.copy(sid, '/hello.txt', '/js-folder/copy.txt');
   await c.rename(sid, '/js-folder/copy.txt', '/js-folder/renamed.txt');
-  assert.equal(await (await c.file(sid, '/js-folder/renamed.txt')).text(), 'hello from HTTP\\n');
+  assert.equal(await (await c.file(sid, '/js-folder/renamed.txt')).text(), readFileSync(join(process.argv[4], 'hello.txt'), 'utf8'));
   const credential = await c.saveHostCredentials('127.0.0.1', { username: 'test', password: 'not-a-real-password' });
   assert.equal((await c.hostCredentials()).credentials[0].id, credential.id);
   await c.forgetHostCredentials(credential.id);
