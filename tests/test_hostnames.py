@@ -8,15 +8,14 @@ from remote_fs_browser.discovery import grouped
 from remote_fs_browser import Policy
 
 
-def test_dns_name_and_fallback(monkeypatch):
+def test_dns_name_and_timeout(monkeypatch):
     monkeypatch.setattr(subprocess, 'run', lambda *a, **kw: SimpleNamespace(stdout=json.dumps('nas.office.')))
-    assert hostnames.resolve_host('192.168.1.2') == 'nas.office'
+    assert hostnames.dns_name('192.168.1.2') == 'nas.office'
     def timeout(*a, **kw):
         assert kw['timeout'] == 1.25
         raise subprocess.TimeoutExpired('lookup', 1.25)
     monkeypatch.setattr(subprocess, 'run', timeout)
-    monkeypatch.setattr(hostnames, 'netbios_name', lambda host: 'HOME-PC')
-    assert hostnames.resolve_host('192.168.1.2') == 'HOME-PC'
+    assert hostnames.dns_name('192.168.1.2') is None
 
 
 def test_netbios_ignores_group_names(monkeypatch):
@@ -45,7 +44,7 @@ def test_frozen_dns_uses_executable_helper(monkeypatch):
         assert kwargs['timeout'] == 1.25
         return SimpleNamespace(stdout=json.dumps('nas.office'))
     monkeypatch.setattr(subprocess, 'run', lookup)
-    assert hostnames.resolve_host('192.168.1.2') == 'nas.office'
+    assert hostnames.dns_name('192.168.1.2') == 'nas.office'
 
 
 def test_dns_helper_does_not_start_service(monkeypatch, capsys):
@@ -61,7 +60,7 @@ def test_missing_dns_and_netbios_leave_address(monkeypatch):
         raise subprocess.CalledProcessError(1, 'lookup')
     monkeypatch.setattr(subprocess, 'run', missing)
     monkeypatch.setattr(hostnames, 'netbios_name', lambda host: None)
-    assert hostnames.resolve_host('192.168.1.2') is None
+    assert hostnames.dns_name('192.168.1.2') is None
 
 
 def test_scan_resolves_only_live_devices(monkeypatch):
@@ -75,8 +74,11 @@ def test_scan_resolves_only_live_devices(monkeypatch):
         raise OSError('closed')
     resolved = []
     monkeypatch.setattr(socket, 'create_connection', connect)
-    monkeypatch.setattr(discovery, 'resolve_host', lambda host: resolved.append(host) or 'nas.office')
+    monkeypatch.setattr(discovery, 'dns_name', lambda host: resolved.append(('dns', host)) or 'nas.office')
+    monkeypatch.setattr(discovery, 'netbios_name', lambda host: resolved.append(('netbios', host)) or 'NAS')
     result = discovery.discover(Policy(network_ranges=['192.0.2.0/30']), scan=True)
-    assert resolved == ['192.0.2.1']
-    assert result['hosts'] == [{'host': '192.0.2.1', 'protocols': ['smb'], 'name': 'nas.office'}]
+    assert resolved == [('dns', '192.0.2.1'), ('netbios', '192.0.2.1')]
+    assert result['hosts'] == [{'host': '192.0.2.1', 'protocols': ['smb'], 'name': 'nas.office', 'dns_name': 'nas.office', 'netbios_name': 'NAS'}]
     assert result['groups'][1]['items'][0]['label'] == 'nas.office'
+    assert result['groups'][1]['items'][0]['dns_name'] == 'nas.office'
+    assert result['groups'][1]['items'][0]['netbios_name'] == 'NAS'

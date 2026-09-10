@@ -46,7 +46,7 @@ def netbios_name(host):
     return None
 
 
-def resolve_host(host):
+def dns_name(host):
     # libc resolver timeouts are not controlled by socket.settimeout. A short-lived
     # subprocess gives DNS a hard deadline without leaving blocked resolver threads.
     try:
@@ -61,4 +61,4 @@ def resolve_host(host):
             return label
     except (OSError, subprocess.SubprocessError, ValueError):
         pass
-    return netbios_name(host)
+    return None

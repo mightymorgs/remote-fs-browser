@@ -149,7 +149,9 @@ form[hidden]{display:none}
   border:1px solid #e2e5ea;border-radius:11px;background:rgba(255,255,255,.8)}
 .device:hover:not(:disabled){border-color:var(--accent-line);background:#fff}
 .device .dot{width:15px;height:13px;border-radius:2.5px;background:var(--accent);flex:none}
-.device .name{flex:1;min-width:0;font:14.5px var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.device .identity{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.device .name{font:14.5px var(--mono);overflow-wrap:anywhere}
+.device .address{font:12px var(--mono);color:var(--muted);overflow-wrap:anywhere}
 .device .tag{font:11px var(--mono);color:var(--dim);border:1px solid #d5d9df;border-radius:999px;padding:3px 9px;flex:none}
 .scan-notes{display:flex;flex-direction:column;gap:6px;max-width:640px}
 .scan-notes p{margin:0;font-size:12px;color:var(--dim);text-wrap:pretty}
@@ -527,7 +529,8 @@ export class RemoteFsBrowser extends HTMLElement {
       : (result.hosts || [])
     return hosts.flatMap(host => {
       const protocols = host.protocols?.length ? host.protocols : [host.type]
-      return protocols.filter(Boolean).map(protocol => ({ type: protocol, host: host.host, label: host.label || host.name || host.host }))
+      return protocols.filter(Boolean).map(protocol => ({ type: protocol, host: host.host, label: host.label || host.name || host.host,
+        ...(host.dns_name ? { dns_name: host.dns_name } : {}), ...(host.netbios_name ? { netbios_name: host.netbios_name } : {}) }))
     })
   }
   /** The scan is a view of its own: devices to map, with the scan's own bounds noted there. */
@@ -539,7 +542,12 @@ export class RemoteFsBrowser extends HTMLElement {
     this.devices.replaceChildren()
     for (const device of this.deviceList || []) {
       const node = this.button('', () => this.mapDevice(device), 'device')
-      node.append(this.el('span', null, 'dot'), this.el('span', device.label === device.host ? device.host : `${device.label} (${device.host})`, 'name'), this.el('span', device.type.toUpperCase(), 'tag'))
+      const identity = this.el('span', null, 'identity')
+      if (device.dns_name) identity.append(this.el('span', `DNS: ${device.dns_name}`, 'name'))
+      if (device.netbios_name) identity.append(this.el('span', `NetBIOS: ${device.netbios_name}`, 'name'))
+      if (!device.dns_name && !device.netbios_name && device.label !== device.host) identity.append(this.el('span', device.label, 'name'))
+      identity.append(this.el('span', `IP: ${device.host}`, 'address'))
+      node.append(this.el('span', null, 'dot'), identity, this.el('span', device.type.toUpperCase(), 'tag'))
       this.devices.append(node)
     }
     if (!(this.deviceList || []).length) {

@@ -5,7 +5,7 @@ import ipaddress
 from pathlib import PurePath
 import socket
 from .policy import Policy
-from .hostnames import resolve_host
+from .hostnames import dns_name, netbios_name
 
 # Candidate addresses probed per scan request: four /24 ranges, about half a minute worst case on 64 threads.
 SCAN_BUDGET = 1024
@@ -21,7 +21,9 @@ def grouped(policy: Policy, roots, hosts, scanned):
                 if policy.network_ranges else 'No networks are permitted for SMB/NFS on this service.')
     groups = [{'id': 'local', 'label': 'This Computer', 'items': local}]
     for protocol, label in (('smb', 'SMB'), ('nfs', 'NFS')):
-        items = [{'type': protocol, 'host': row['host'], 'label': row.get('name') or row['host']} for row in hosts if protocol in row['protocols']]
+        items = [{'type': protocol, 'host': row['host'], 'label': row.get('name') or row['host'],
+                  **{key: row[key] for key in ('dns_name', 'netbios_name') if row.get(key)}}
+                 for row in hosts if protocol in row['protocols']]
         groups.append({'id': protocol, 'label': label, 'items': items, 'hint': hint})
     return groups
 
@@ -59,8 +61,10 @@ def discover(policy: Policy, scan=False, root_kinds=None):
                 pass
         if not protocols:
             return None
-        name = resolve_host(host)
-        return {'host': host, 'protocols': protocols, **({'name': name} if name else {})}
+        names = {key: value for key, value in (
+            ('dns_name', dns_name(host)), ('netbios_name', netbios_name(host))) if value}
+        name = names.get('dns_name') or names.get('netbios_name')
+        return {'host': host, 'protocols': protocols, **names, **({'name': name} if name else {})}
 
     with ThreadPoolExecutor(max_workers=64) as executor:
         result['hosts'] = [row for row in executor.map(probe, hosts) if row]

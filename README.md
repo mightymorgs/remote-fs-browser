@@ -209,7 +209,7 @@ The element fills the box it is given. It renders the shortlist and the host's r
 
 ## Discovery limits
 
-Scan results show a DNS hostname when reverse lookup succeeds, falling back to a NetBIOS device name and then the IP address. Named devices retain their labels in the Network sidebar; connections still use the scanned IP address. Name lookup is bounded so unavailable DNS does not hold up the scan indefinitely.
+Scan results show the DNS hostname, NetBIOS device name and IP address together whenever the names are available. DNS and NetBIOS are queried independently; devices without either name still show their IP address. Named devices retain a label in the Network sidebar, and connections use the scanned IP address. Both name lookups have deadlines so unavailable name services do not hold up the scan indefinitely.
 
 Discovery probes TCP 445/2049 only in explicitly permitted ranges of at most 256 addresses each, and scans at most 1024 candidates per request, reporting when more were permitted. This is portable and requires no SMB1 browser service. Manual hostnames work when discovery cannot cross subnets or VPNs. SMB authentication uses NTLM (including domain-qualified usernames). SMB enumeration uses Impacket's SRVS RPC over SMB2; traversal and streaming use smbprotocol's SMB2/3 session. NFS export enumeration uses mountd and may return no exports on NFSv4-only servers; enter the export manually in that case. NFS uses AUTH_SYS UID/GID behaviour from libnfs and the service account; NFS Kerberos is not configured.
 
