@@ -27,13 +27,17 @@ def server(tmp_path):
         'storage_key': 'temporary-test-vault-key', 'policy': {'local_roots': [str(root)],
         'network_ranges': ['127.0.0.1/32'], 'operations': READ_OPERATIONS + WRITE_OPERATIONS},
         'port': port}))
+    # Windows pipes can fill on a single Uvicorn error traceback. Keep logs in a
+    # file so expected HTTP failures cannot deadlock the server under test.
+    log = (tmp_path / 'server.log').open('w+')
     proc = subprocess.Popen([sys.executable, '-m', 'remote_fs_browser', 'serve', '--config', str(config)],
-                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                            stdout=subprocess.DEVNULL, stderr=log)
     url = f'http://127.0.0.1:{port}'
     try:
         for _ in range(100):
             if proc.poll() is not None:
-                pytest.fail(proc.stderr.read().decode())
+                log.seek(0)
+                pytest.fail(log.read())
             try:
                 with socket.create_connection(('127.0.0.1', port), timeout=.1):
                     break
@@ -55,6 +59,7 @@ def server(tmp_path):
     finally:
         proc.terminate()
         proc.communicate(timeout=10)
+        log.close()
 
 
 def test_file_manager_round_trip(server):
@@ -151,7 +156,7 @@ def test_archive_download_round_trip(server):
     target = tmp / 'archive.zip'
     run('downloads', 'part', '--id', job['id'], '--index', '0', '--file', str(target))
     with zipfile.ZipFile(target) as archive:
-        assert archive.read('hello.txt') == b'hello from HTTP\n'
+        assert archive.read('hello.txt') == (root / 'hello.txt').read_bytes()
     run('downloads', 'purge', '--id', job['id'])
     run('downloads', 'forget', '--id', job['id'])
     assert run('downloads', 'list')['jobs'] == []
