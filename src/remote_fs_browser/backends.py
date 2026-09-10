@@ -4,6 +4,7 @@ import stat
 from datetime import datetime, timezone
 from pathlib import Path
 from .policy import normalize
+from .mutations import LocalMutations, SMBMutations, local_parent
 
 
 def entry(name, path, mode, size, modified):
@@ -25,7 +26,7 @@ def listing(rows, skipped):
     return {'entries': rows, 'skipped': skipped}
 
 
-class LocalFilesystem:
+class LocalFilesystem(LocalMutations):
     def __init__(self, config):
         self.root = Path(config['root']).resolve(strict=True)
         self.root_fd = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY) if os.name != 'nt' else None
@@ -80,20 +81,9 @@ class LocalFilesystem:
             raise
 
     def mkdir(self, path):
-        path = normalize(path)
-        parent, name = path.rsplit('/', 1)
-        if not name:
-            raise ValueError('Enter a folder name')
-        handle = self._open(parent or '/', directory=True)
-        try:
-            if isinstance(handle, int):
-                os.mkdir(name, mode=0o755, dir_fd=handle)
-            else:
-                os.mkdir(os.path.join(handle, name), mode=0o755)
-        finally:
-            if isinstance(handle, int):
-                os.close(handle)
-        return {'path': path}
+        with local_parent(self, path) as (name, kwargs):
+            os.mkdir(name, mode=0o755, **kwargs)
+        return {'path': normalize(path)}
 
     def list(self, path, limit):
         path = normalize(path)
@@ -103,6 +93,7 @@ class LocalFilesystem:
             with os.scandir(handle) as entries:
                 for item in entries:
                     if item.is_symlink() or (os.name == 'nt' and getattr(item.stat(follow_symlinks=False), 'st_file_attributes', 0) & 0x400):
+                        skipped += 1
                         continue
                     child = child_path(path, item.name)
                     if child is None:
@@ -142,7 +133,7 @@ class LocalFilesystem:
             self.root_fd = None
 
 
-class SMBFilesystem:
+class SMBFilesystem(SMBMutations):
     def __init__(self, config):
         import smbclient
         self.client, self.cache = smbclient, {}
@@ -183,6 +174,7 @@ class SMBFilesystem:
         for item in self.client.scandir(self._path(path), connection_cache=self.cache):
             info = item.stat(follow_symlinks=False)
             if stat.S_ISLNK(info.st_mode) or getattr(info, 'st_file_attributes', 0) & 0x400:
+                skipped += 1
                 continue
             child = child_path(path, item.name)
             if child is None:

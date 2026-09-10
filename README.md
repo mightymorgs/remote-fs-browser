@@ -2,7 +2,7 @@
 
 **Browse local, SMB and NFS storage over HTTP from another machine.**
 
-Install it on any machine inside a network, then browse the storage that machine can see from anywhere you can reach its HTTP port. A Mac mini, a workstation, a server or a homelab node becomes a small read-only storage window: it shows its own disks and mounted volumes, and the SMB shares and NFS exports it can reach, without mounting anything, syncing anything or giving the viewer direct access to the NAS.
+Install it on any machine inside a network, then browse the storage that machine can see from anywhere you can reach its HTTP port. A Mac mini, a workstation, a server or a homelab node becomes a remote filesystem manager: it shows its own disks and mounted volumes, and the SMB shares and NFS exports it can reach, without mounting anything, syncing anything or giving the viewer direct access to the NAS.
 
 ```text
 This Computer
@@ -42,7 +42,7 @@ The formula installs Python and libnfs as dependencies. To run it in the backgro
 
 ```sh
 brew services start remotefs
-remotefs --print-token
+remotefs account --username YOUR_NAME
 ```
 
 Use `brew services stop remotefs` to stop it. To update, run `brew update` followed by `brew upgrade mightymorgs/tap/remotefs`. See the [Homebrew tap documentation](https://docs.brew.sh/Taps) for how third-party packages are installed.
@@ -82,9 +82,13 @@ remotefs serve
 
 ### Open the browser
 
-Open `http://127.0.0.1:8080/` and sign in with the token printed in the terminal. The first run creates `~/.config/remotefs/config.json` (`%APPDATA%\remotefs\config.json` on Windows) with a random token, readable only by you, and every later run reuses it. `remotefs --print-token` shows it again.
+On first interactive launch, choose a username and password (at least 12 characters), then open `http://127.0.0.1:8080/`. The private config stores a salted scrypt password hash, not your password.
 
-With no configuration the service exposes, read-only, on loopback only:
+Set up or reset the account separately with `remotefs account --username YOUR_NAME`; restart the service after changing it. For automation, `--password-stdin` reads the password from standard input without putting it in command-line arguments. A non-interactive service refuses to start until an account exists. The config is `~/.config/remotefs/config.json` (`%APPDATA%\remotefs\config.json` on Windows).
+
+Existing token-based configs are migrated during account setup. The old token becomes an internal storage key so saved NAS credentials remain readable; it no longer authenticates the standalone service. Password changes preserve that key. Back up the private config and `saved.json` together.
+
+The standalone service defaults to read/write access on loopback only. Use `--read-only` to disable mutations, or set an explicit `policy.operations` list. Its default locations are:
 
 - **This Computer**: your home directory and mounted volumes (`/Volumes` on macOS, drive letters on Windows, mounts under `/mnt`, `/media`, `/run/media`, `/srv`, `/data` and `/home` on Linux).
 - **SMB and NFS**: servers in the private subnets of the host's physical interfaces (container, VM and tunnel interfaces are ignored), each narrowed to a /24. Press **Scan network** to probe them, or add a server by name.
@@ -110,13 +114,13 @@ NFS needs libnfs 6 or newer (included as a Homebrew dependency; for Python insta
 
 ## Shortlist
 
-**Save folder to shortlist** pins the folder you are viewing, on a local root, an SMB share or an NFS export. Signing in later with the same token shows it under **Shortlist**, and one click reopens it; folders on the same SMB share reuse the credentials you gave when you first saved one. The shortlist lives in `saved.json` beside the config, readable only by you and encrypted under the service token; a different token cannot open it. **Forget** removes one entry, deleting the file removes them all. See [security boundaries](SECURITY.md).
+**Save folder to shortlist** pins the current folder and remembers its connection credentials. The shortlist is encrypted in `saved.json` beside the config using a separate private storage key. Changing your login password does not discard it. **Forget** removes one entry. See [security boundaries](SECURITY.md).
 
 ## The browser
 
-The UI and API share one port and origin. Sign-in is its own screen: it exchanges the token for an HttpOnly, SameSite browser cookie lasting eight hours, and **Sign out** revokes it. The picker shows the host's roots and mapped network locations in a sidebar, the folder listing beside it, and collapses to a sources sheet on phones. Downloads stream through the browser's download manager with HTTP Range support, and tokens never appear in download URLs.
+The UI and API share one port and origin. Sign-in is its own screen: it verifies your username and password and issues an HttpOnly, SameSite browser cookie lasting eight hours, and **Sign out** revokes it. The picker shows the host's roots and mapped network locations in a sidebar, the folder listing beside it, and collapses to a sources sheet on phones. Downloads stream through the browser's download manager with HTTP Range support, and credentials never appear in download URLs.
 
-- `/?mode=browse` (default): navigate folders and download files.
+- `/?mode=browse` (default): manage files and folders, upload/download, edit UTF-8 text, copy between locations, rename/move and delete.
 - `/?mode=select`: choose a directory and copy its credential-free descriptor, for use by other automation.
 
 ## System service installs
@@ -127,7 +131,7 @@ For an always-on service run as root or SYSTEM, from a checkout on the target ho
 - macOS: `sudo scripts/macos/install.sh /path/to/private-config.json`
 - Windows, elevated PowerShell: `scripts/windows/install.ps1 -Config C:\path\private-config.json`
 
-These install into a private prefix, build the pinned libnfs (macOS uses Homebrew's), and register a systemd unit, launchd daemon or Windows startup task running `remotefs serve --no-defaults --config …`, so only the roots and networks in the private config are exposed. Start from `examples/config.example.json`: set `local_roots`, `network_ranges` and a random token of at least 32 characters (`python -c "import secrets; print(secrets.token_urlsafe(48))"`), and keep the file private. An empty list denies that class of access.
+These install into a private prefix, build the pinned libnfs (macOS uses Homebrew's), and register a systemd unit, launchd daemon or Windows startup task running `remotefs serve --no-defaults --config …`, so only the roots and networks in the private config are exposed. Start from `examples/config.example.json`: set `local_roots`, `network_ranges` and `operations`, then run `remotefs account --config /path/to/private-config.json --username YOUR_NAME` before installing the service. Keep the file private. An empty list denies that class of access.
 
 For Ansible, use `playbooks/<platform>/install.yml` with the `filesystem_hosts` group, `remote_fs_source` (destination checkout directory) and `remote_fs_config` (private config path already on the host). macOS also needs `remote_fs_brew_user`; Windows needs `ansible.windows`. The playbooks copy only public source files. Matching uninstall scripts and playbooks stop and remove the service; `--purge` on Unix or `-Purge` on Windows also removes the private installation directory. Never store credentials or real host configurations in Git.
 
@@ -160,11 +164,11 @@ The worker is created when connecting to a selected location, not merely when op
 
 ## HTTP API
 
-All data endpoints require `Authorization: Bearer <token>` or the browser cookie. The page assets alone are public. Routes are served under `/api/`; the unprefixed forms remain for existing SDK clients.
+The standalone data endpoints require the signed-in browser cookie. Embedded services may configure their own authentication or a bearer credential. The page assets alone are public. Routes are served under `/api/`; the unprefixed forms remain for existing SDK clients.
 
 | Method / route | Purpose |
 |---|---|
-| `POST /api/login`, `DELETE /api/login` | Exchange the token for a browser cookie; revoke it |
+| `POST /api/login`, `DELETE /api/login` | Sign in with username/password for a browser cookie; sign out |
 | `GET /api/discover?scan=false` | Allowed roots and the `groups` tree; `scan=true` also probes permitted ranges |
 | `POST /api/discover` | Enumerate shares/exports: `{type, host, credentials?}` |
 | `GET /api/saved`, `POST /api/saved`, `DELETE /api/saved/{id}` | Remembered locations for the signed-in principal |
@@ -211,9 +215,9 @@ The element fills the box it is given. It renders the shortlist and the host's r
 
 Scan results show the DNS hostname, NetBIOS device name and IP address together whenever the names are available. DNS and NetBIOS are queried independently; devices without either name still show their IP address. Named devices retain a label in the Network sidebar, and connections use the scanned IP address. Both name lookups have deadlines so unavailable name services do not hold up the scan indefinitely.
 
-Discovery probes TCP 445/2049 only in explicitly permitted ranges of at most 256 addresses each, and scans at most 1024 candidates per request, reporting when more were permitted. This is portable and requires no SMB1 browser service. Manual hostnames work when discovery cannot cross subnets or VPNs. SMB authentication uses NTLM (including domain-qualified usernames). SMB enumeration uses Impacket's SRVS RPC over SMB2; traversal and streaming use smbprotocol's SMB2/3 session. NFS export enumeration uses mountd and may return no exports on NFSv4-only servers; enter the export manually in that case. NFS uses AUTH_SYS UID/GID behaviour from libnfs and the service account; NFS Kerberos is not configured.
+Discovery probes TCP 445/2049 within permitted CIDRs, at most 256 candidate addresses per page. Custom ranges must remain inside the policy; the next-page offset lets large ranges be scanned without expanding them in memory. This is portable and requires no SMB1 browser service. Manual hostnames work when discovery cannot cross subnets or VPNs. SMB authentication uses NTLM (including domain-qualified usernames). SMB enumeration uses Impacket's SRVS RPC over SMB2; traversal and streaming use smbprotocol's SMB2/3 session. NFS export enumeration uses mountd and may return no exports on NFSv4-only servers; enter the export manually in that case. NFS uses AUTH_SYS UID/GID behaviour from libnfs and the service account; NFS Kerberos is not configured.
 
-This project is a path picker and read-only browser. It does not provision mounts, manage backups, sync files, or abstract cloud object storage. It is a reference service and embedding SDK, not a hardened multi-tenant filesystem sandbox: see [security boundaries](SECURITY.md) and [validation](VALIDATION.md) before exposing it beyond a trusted network.
+This project is a filesystem manager with an embeddable path picker. It does not provision mounts, manage backups, sync files, or abstract cloud object storage. It is a reference service and embedding SDK, not a hardened multi-tenant filesystem sandbox: see [security boundaries](SECURITY.md) and [validation](VALIDATION.md) before exposing it beyond a trusted network.
 
 ## Development
 
@@ -236,3 +240,23 @@ Local, SMB and NFS backends use the service/session's filesystem permissions;
 existing folders are not overwritten. The default policy remains read-only.
 
 Third-party licence notices are documented in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Windows portable releases include dependency licence texts and the matching modified libnfs source, build recipe and DLL replacement instructions.
+
+## File operations
+
+Local folders, SMB shares and NFS exports support uploads, downloads, new files, folder creation, rename/move, copy and deletion. The browser includes a UTF-8 editor for files up to 1 MiB. Use **Copy**, open another folder or location, then **Paste** to copy across backends. Copies never replace an existing destination. Upload replacement is explicit.
+
+| API | Operation |
+| --- | --- |
+| `PUT /api/sessions/{id}/file?path=/file&overwrite=false` | Stream a raw binary upload |
+| `POST /api/sessions/{id}/mkdir` | `{"path":"/folder"}` |
+| `POST /api/sessions/{id}/rename` | `{"source":"/old","destination":"/new"}` |
+| `POST /api/sessions/{id}/copy` | `{"source":"/file","destination":"/copy","target_session":"optional-other-session"}` |
+| `DELETE /api/sessions/{id}/entry?path=/folder&recursive=true` | Delete a file or folder tree |
+
+The SDK `Policy` still defaults to read-only. Add `write`, `mkdir`, `rename`, `copy` and `delete` individually to grant mutations. `FilesystemSession.write(path, async_byte_chunks, overwrite=False)` streams an upload; `copy`, `rename`, `mkdir` and `remove` expose the other operations. HTTP authorization hooks check source and destination access and preflight recursive copy/delete entries. Sessions belong to the signed-in user.
+
+Uploads are staged beside the destination and committed after the full body arrives; ordinary cancellation cleans the temporary file and keeps the original. The default upload limit is 10 GiB (`max_write_bytes`). A killed process or lost server connection can leave a `.remotefs-*.part` file; remove stale files after checking no upload is active. Atomic replacement inherits the staging file's permissions/ACLs (local replacement preserves permission bits), so this is not an ACL-preserving backup tool.
+
+Folder copies, recursive deletes and NFS folder moves run in steps. An error can leave partial results: refresh both locations before retrying. NFS folder moves create destinations exclusively and move files with server-side links before removing empty source folders. They are not atomic. Servers must support hard links for non-overwriting NFS file publication/moves. Symlinks, reparse points and special files are excluded; a recursive operation with hidden or truncated entries is rejected. Directory operations are bounded by `max_entries` and a depth of 64. The editor does not lock out other clients; the last explicit save wins.
+
+Filesystem ownership, POSIX permissions and server ACLs remain authoritative. The app does not expose arbitrary shell commands, ownership changes, ACL editing, symlink creation or mount administration.

@@ -14,7 +14,7 @@ def worker(pipe, config, policy_values):
     from .backends import LocalFilesystem, SMBFilesystem
     from .nfs import NFSFilesystem
     from .discovery import discover, smb_shares, nfs_exports
-    fs, files = None, {}
+    fs, files, uploads = None, {}, {}
     try:
         policy = Policy(**policy_values)
         kind = config['type']
@@ -51,6 +51,35 @@ def worker(pipe, config, policy_values):
                     value = fs.list(args[0], policy.max_entries)
                 elif operation == 'mkdir':
                     value = fs.mkdir(args[0])
+                elif operation in ('rename', 'remove'):
+                    value = getattr(fs, operation)(*args)
+                elif operation == 'begin_write':
+                    if len(uploads) >= 4:
+                        raise ValueError('Too many uploads')
+                    handle = secrets.token_urlsafe(12)
+                    uploads[handle] = fs.begin_write(*args)
+                    value = handle
+                elif operation == 'write_chunk':
+                    data = args[1]
+                    if len(data) > CHUNK:
+                        raise ValueError('Upload chunk too large')
+                    position = 0
+                    while position < len(data):
+                        size = uploads[args[0]].write(data[position:])
+                        if not size:
+                            raise OSError('Write made no progress')
+                        position += size
+                    value = position
+                elif operation == 'commit_write':
+                    upload = uploads[args[0]]
+                    upload.commit()
+                    uploads.pop(args[0])
+                    value = True
+                elif operation == 'abort_write':
+                    upload = uploads.pop(args[0], None)
+                    if upload:
+                        upload.abort()
+                    value = True
                 elif operation == 'stat':
                     value = fs.stat(args[0])
                 elif operation == 'open':
@@ -70,14 +99,25 @@ def worker(pipe, config, policy_values):
                 else:
                     raise ValueError('Unknown operation')
                 pipe.send({'ok': value})
-            except Exception:
-                pipe.send({'error': 'Filesystem operation failed; check path and permissions'})
+            except Exception as error:
+                import errno
+                kind = {errno.EEXIST: 'FileExistsError', errno.ENOENT: 'FileNotFoundError',
+                        errno.EACCES: 'PermissionError', errno.EPERM: 'PermissionError'}.get(getattr(error, 'errno', None), type(error).__name__)
+                messages = {'FileExistsError': 'Destination already exists', 'FileNotFoundError': 'File or folder not found',
+                            'PermissionError': 'Permission denied', 'IsADirectoryError': 'Destination is a folder',
+                            'NotADirectoryError': 'Parent is not a folder', 'ValueError': str(error)}
+                pipe.send({'error': messages.get(kind, 'Filesystem operation failed; check path and permissions'), 'kind': kind})
     except Exception:
         try:
             pipe.send({'error': 'Connection failed; check policy, credentials and native dependencies'})
         except (OSError, EOFError):
             pass
     finally:
+        for upload in uploads.values():
+            try:
+                upload.abort()
+            except OSError:
+                pass
         for handle in files.values():
             handle.close()
         if fs:
@@ -109,7 +149,9 @@ class Worker:
         except (OSError, EOFError):
             raise KeyError('Session expired') from None
         if 'error' in value:
-            raise OSError(value['error'])
+            types = {'FileExistsError': FileExistsError, 'FileNotFoundError': FileNotFoundError,
+                     'PermissionError': PermissionError, 'ValueError': ValueError}
+            raise types.get(value.get('kind'), OSError)(value['error'])
         return value['ok']
 
     def call(self, operation, *args):
@@ -186,6 +228,133 @@ class FilesystemSession:
                     await asyncio.shield(self._call('release', handle))
                 except (KeyError, OSError):
                     pass
+
+    async def write(self, path, chunks, overwrite=False):
+        """Stream into a sibling temporary file, then publish the completed file."""
+        self.policy.require('write')
+        path = normalize(path)
+        task = asyncio.create_task(self._call('begin_write', path, bool(overwrite)))
+        handle, committed, size = None, False, 0
+        self.active += 1
+        try:
+            try:
+                handle = await asyncio.shield(task)
+            except asyncio.CancelledError:
+                handle = await task
+                raise
+            async for chunk in chunks:
+                if not isinstance(chunk, bytes):
+                    raise ValueError('Upload chunks must be bytes')
+                size += len(chunk)
+                if size > self.policy.max_write_bytes:
+                    raise ValueError('Upload exceeds max_write_bytes')
+                for offset in range(0, len(chunk), CHUNK):
+                    await self._call('write_chunk', handle, chunk[offset:offset + CHUNK])
+            await self._call('commit_write', handle)
+            committed = True
+            return {'path': path, 'size': size}
+        finally:
+            if handle and not committed and not self.closed:
+                try:
+                    await asyncio.shield(self._call('abort_write', handle))
+                except (OSError, KeyError):
+                    pass
+            self.active -= 1
+
+    async def tree(self, path, recursive=False):
+        """Plan a bounded operation before mutating anything. Reject partial listings."""
+        result = []
+        async def visit(current, depth):
+            if depth > 64 or len(result) >= self.policy.max_entries:
+                raise ValueError('Folder operation exceeds the entry or depth limit')
+            info = await self.stat(current)
+            if info['type'] not in ('file', 'directory'):
+                raise PermissionError('Only files and folders are supported')
+            result.append(info)
+            if recursive and info['type'] == 'directory':
+                rows = await self.list(current)
+                if rows['truncated'] or rows['skipped']:
+                    raise ValueError('Folder contains hidden or too many entries; handle those separately')
+                for row in rows['entries']:
+                    await visit(row['path'], depth + 1)
+        await visit(normalize(path), 0)
+        return result
+
+    async def remove(self, path, recursive=False, check=None):
+        self.policy.require('delete')
+        path = normalize(path)
+        if path == '/':
+            raise PermissionError('The selected root cannot be deleted')
+        rows = await self.tree(path, recursive)
+        for row in rows:
+            if check:
+                await check('delete', self.descriptor(row['path']))
+        removed = 0
+        for row in reversed(rows):
+            await self._call('remove', row['path'])
+            removed += 1
+        return {'removed': path, 'entries': removed}
+
+    async def rename(self, source, destination, check=None):
+        self.policy.require('rename')
+        source, destination = normalize(source), normalize(destination)
+        if source == '/' or destination == '/' or destination == source or destination.startswith(source + '/'):
+            raise ValueError('Choose a different destination outside the source folder')
+        if self._descriptor['type'] == 'nfs' and (await self.stat(source))['type'] == 'directory':
+            rows = await self.tree(source, recursive=True)
+            for row in rows:
+                if check:
+                    await check('rename', self.descriptor(row['path']))
+                    await check('rename', self.descriptor(destination + row['path'][len(source):]))
+            # NFS has no atomic no-replace directory rename: create destinations
+            # exclusively, move regular files with LINK/UNLINK, then remove empty
+            # source directories. A failure leaves visible partial progress.
+            for row in rows:
+                dest = destination + row['path'][len(source):]
+                if row['type'] == 'directory':
+                    await self._call('mkdir', dest)
+                else:
+                    await self._call('rename', row['path'], dest)
+            for row in reversed(rows):
+                if row['type'] == 'directory':
+                    await self._call('remove', row['path'])
+            return {'path': destination, 'atomic': False}
+        return await self._call('rename', source, destination)
+
+    async def copy(self, source, destination, target=None, check=None):
+        self.policy.require('copy')
+        self.policy.require('read')
+        target = target or self
+        target.policy.require('write')
+        source, destination = normalize(source), normalize(destination)
+        if source == '/' or destination == '/':
+            raise ValueError('Choose a file or folder inside the selected root')
+        # Compare storage identities, including separate sessions on the same root.
+        identity = lambda session: {k: v for k, v in session._descriptor.items() if k not in ('credential_id', 'path')}
+        if self._descriptor['type'] == target._descriptor['type'] == 'local':
+            from pathlib import Path
+            src = Path(self._descriptor['root']) / source.lstrip('/')
+            dst = Path(target._descriptor['root']) / destination.lstrip('/')
+            if dst == src or dst.is_relative_to(src):
+                raise ValueError('Cannot copy a folder into itself')
+        if identity(self) == identity(target) and (destination == source or destination.startswith(source + '/')):
+            raise ValueError('Cannot copy a folder into itself')
+        rows = await self.tree(source, recursive=True)
+        plan = [(row, destination + row['path'][len(source):]) for row in rows]
+        for row, dest in plan:
+            if row['type'] == 'directory':
+                target.policy.require('mkdir')
+            if check:
+                await check(self, 'read', self.descriptor(row['path']))
+                await check(target, 'mkdir' if row['type'] == 'directory' else 'write', target.descriptor(dest))
+        count = 0
+        for row, dest in plan:
+            if row['type'] == 'directory':
+                await target.mkdir(dest)
+            else:
+                await target.write(dest, self.stream(row['path']))
+            count += 1
+        return {'path': destination, 'entries': count}
 
     def descriptor(self, path='/'):
         return {**self._descriptor, 'path': normalize(path)}

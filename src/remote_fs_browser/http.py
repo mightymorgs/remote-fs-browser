@@ -6,6 +6,7 @@ import hmac
 import inspect
 import json
 import secrets
+import re
 import socket
 from pathlib import Path
 import time
@@ -47,6 +48,9 @@ class BodyLimit:
     async def __call__(self, scope, receive, send):
         if scope['type'] != 'http':
             return await self.app(scope, receive, send)
+        if scope['method'] == 'PUT' and re.fullmatch(r'/api/sessions/[^/]+/file', scope['path']):
+            # Upload route counts bytes incrementally after authentication.
+            return await self.app(scope, receive, send)
         # Buffer only the small control request, never file response contents.
         body = bytearray()
         while True:
@@ -70,14 +74,16 @@ class BodyLimit:
 
 
 def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
-               authorize: Callable | None = None, credential_resolver=None, root_kinds=None, saved_locations=None):
-    if not authenticate and (not token or len(token) < 32):
+               authorize: Callable | None = None, credential_resolver=None, root_kinds=None, saved_locations=None, account=None):
+    if not account and not authenticate and (not token or len(token) < 32):
         raise ValueError('Configure an authentication hook or a token of at least 32 characters')
     if saved_locations is not None and credential_resolver is None:
         credential_resolver = saved_locations.resolve
     browser = Browser(policy, root_kinds=root_kinds)
     owners, rates = {}, defaultdict(deque)
     logins = {}
+    login_attempts = {}
+    password_slots = asyncio.Semaphore(2)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -103,6 +109,8 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
 
     @app.middleware('http')
     async def access(request, call_next):
+        if account and request.url.path == '/api/login' and request.method == 'POST':
+            return await call_next(request)
         if request.url.path in ('/', '/browser.js', '/demo.js'):
             return await call_next(request)
         principal = None
@@ -145,8 +153,29 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
 
     @app.post('/api/login')
     async def login(request: Request):
-        # Exchange the service token for a short-lived HttpOnly browser cookie.
         now = time.monotonic()
+        if account:
+            from .auth import verify_account
+            origin = request.headers.get('origin')
+            if origin and origin != str(request.base_url).rstrip('/'):
+                raise HTTPException(403, 'Same-origin request required')
+            peer = request.client.host if request.client else 'unknown'
+            for name, attempts in list(login_attempts.items()):
+                if attempts[-1] < now - 300:
+                    login_attempts.pop(name)
+            attempts = login_attempts.setdefault(peer, deque())
+            while attempts and attempts[0] < now - 300:
+                attempts.popleft()
+            if len(attempts) >= 10 or len(login_attempts) > 4096:
+                raise HTTPException(429, 'Too many sign-in attempts; wait five minutes', headers={'Retry-After': '300'})
+            attempts.append(now)
+            data = await request.json()
+            async with password_slots:
+                valid = await asyncio.to_thread(verify_account, account, data.get('username'), data.get('password'))
+            if not valid:
+                raise HTTPException(401, 'Incorrect username or password')
+            request.state.principal = account.get('principal', 'owner')
+        # Successful authentication creates a short-lived HttpOnly cookie.
         for key in list(logins):
             if logins[key][1] <= now:
                 logins.pop(key, None)
@@ -154,7 +183,7 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
             raise HTTPException(429, 'Too many browser logins')
         key = secrets.token_urlsafe(32)
         logins[key] = (request.state.principal, now + 28800)
-        response = JSONResponse({'hostname': socket.gethostname()})
+        response = JSONResponse({'hostname': socket.gethostname()}, headers={'Cache-Control': 'no-store'})
         response.set_cookie('remote_fs_session', key, httponly=True, samesite='strict',
                             secure=request.url.scheme == 'https', max_age=28800, path='/api')
         return response
@@ -162,6 +191,12 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
     @app.delete('/api/login')
     async def logout(request: Request):
         logins.pop(request.cookies.get('remote_fs_session'), None)
+        for sid, owner in list(owners.items()):
+            if owner == request.state.principal:
+                session = browser.sessions.pop(sid, None)
+                if session:
+                    await session.close()
+                owners.pop(sid, None)
         response = JSONResponse({'closed': True})
         response.delete_cookie('remote_fs_session', path='/api')
         return response
@@ -197,8 +232,8 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
 
     @app.exception_handler(Exception)
     async def failure(request, error):
-        status = 403 if isinstance(error, PermissionError) else 410 if isinstance(error, KeyError) else 504 if isinstance(error, TimeoutError) else 422
-        return JSONResponse({'detail': 'Session expired; reconnect' if status == 410 else 'Request failed; check permissions, path, connection and dependencies'}, status_code=status)
+        status = 409 if isinstance(error, FileExistsError) else 404 if isinstance(error, FileNotFoundError) else 403 if isinstance(error, PermissionError) else 410 if isinstance(error, KeyError) else 504 if isinstance(error, TimeoutError) else 422
+        return JSONResponse({'detail': 'Session expired; reconnect' if status == 410 else str(error) if isinstance(error, (ValueError, FileExistsError, FileNotFoundError, PermissionError)) else 'Request failed; check permissions, path, connection and dependencies'}, status_code=status)
 
     @app.get('/api/saved')
     @app.get('/saved', include_in_schema=False)
@@ -267,7 +302,9 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         if reference:
             session._descriptor['credential_id'] = reference
         owners[session.id] = request.state.principal
-        return {'id': session.id, 'descriptor': session.descriptor(), 'idle_seconds': policy.idle_seconds}
+        return {'id': session.id, 'descriptor': session.descriptor(), 'idle_seconds': policy.idle_seconds,
+                'operations': policy.operations, 'max_write_bytes': policy.max_write_bytes,
+                'rename_directories': True}
 
     @app.post('/api/sessions/{id}/mkdir')
     async def mkdir(request: Request, id: str):
@@ -276,6 +313,52 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         session = get(request, id)
         await allowed(request, 'mkdir', session.descriptor(path))
         return await session.mkdir(path)
+
+    @app.put('/api/sessions/{id}/file')
+    async def upload(request: Request, id: str, path: str, overwrite: bool = False):
+        session = get(request, id)
+        await allowed(request, 'write', session.descriptor(path))
+        length = request.headers.get('content-length')
+        if length and (not length.isdecimal() or int(length) > policy.max_write_bytes):
+            raise HTTPException(413, 'Upload exceeds max_write_bytes')
+        async def chunks():
+            received = 0
+            async for chunk in request.stream():
+                received += len(chunk)
+                if received > policy.max_write_bytes:
+                    raise HTTPException(413, 'Upload exceeds max_write_bytes')
+                yield chunk
+            if length and received != int(length):
+                raise HTTPException(400, 'Incomplete upload')
+        return await session.write(path, chunks(), overwrite)
+
+    @app.post('/api/sessions/{id}/rename')
+    async def rename(request: Request, id: str):
+        data = await request.json()
+        session = get(request, id)
+        await allowed(request, 'rename', session.descriptor(data['source']))
+        await allowed(request, 'rename', session.descriptor(data['destination']))
+        async def check(operation, descriptor):
+            await allowed(request, operation, descriptor)
+        return await session.rename(data['source'], data['destination'], check)
+
+    @app.post('/api/sessions/{id}/copy')
+    async def copy(request: Request, id: str):
+        data = await request.json()
+        session = get(request, id)
+        target = get(request, data.get('target_session', id))
+        await allowed(request, 'copy', session.descriptor(data['source']))
+        async def check(_session, operation, descriptor):
+            await allowed(request, operation, descriptor)
+        return await session.copy(data['source'], data['destination'], target, check)
+
+    @app.delete('/api/sessions/{id}/entry')
+    async def remove(request: Request, id: str, path: str, recursive: bool = False):
+        session = get(request, id)
+        await allowed(request, 'delete', session.descriptor(path))
+        async def check(operation, descriptor):
+            await allowed(request, operation, descriptor)
+        return await session.remove(path, recursive, check)
 
     @app.get('/api/sessions/{id}/list')
     @app.get('/sessions/{id}/list', include_in_schema=False)

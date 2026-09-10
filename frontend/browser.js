@@ -15,12 +15,36 @@ export class RemoteFsClient {
     return raw ? response : response.json()
   }
   discover(scan = false) { return this.request(`/discover?scan=${scan}`) }
+  scan(ranges, offset = 0) { return this.request('/discover', { method: 'POST', body: { ranges, offset } }) }
   shares(type, host, credentials) { return this.request('/discover', { method: 'POST', body: { type, host, credentials } }) }
   connect(descriptor, credentials) { return this.request('/sessions', { method: 'POST', body: { descriptor, credentials } }) }
   list(id, path) { return this.request(`/sessions/${encodeURIComponent(id)}/list?${new URLSearchParams({ path })}`) }
   stat(id, path) { return this.request(`/sessions/${encodeURIComponent(id)}/stat?${new URLSearchParams({ path })}`) }
   descriptor(id, path) { return this.request(`/sessions/${encodeURIComponent(id)}/descriptor?${new URLSearchParams({ path })}`) }
   file(id, path, range) { return fetch(`${this.baseUrl}/sessions/${encodeURIComponent(id)}/file?${new URLSearchParams({ path })}`, { headers: { ...this.headers(), ...(range ? { Range: range } : {}) } }) }
+  mutate(id, operation, body) { return this.request(`/sessions/${encodeURIComponent(id)}/${operation}`, { method: 'POST', body }) }
+  remove(id, path, recursive = false) { return this.request(`/sessions/${encodeURIComponent(id)}/entry?${new URLSearchParams({ path, recursive })}`, { method: 'DELETE' }) }
+  upload(id, path, file, { overwrite = false, signal, progress } = {}) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('PUT', `${this.baseUrl}/sessions/${encodeURIComponent(id)}/file?${new URLSearchParams({ path, overwrite })}`)
+      for (const [key, value] of Object.entries(this.headers())) xhr.setRequestHeader(key, value)
+      xhr.setRequestHeader('Content-Type', 'application/octet-stream')
+      const abort = () => xhr.abort()
+      signal?.addEventListener('abort', abort, { once: true })
+      xhr.upload.onprogress = event => progress?.(event.loaded, event.total || file.size)
+      xhr.onloadend = () => signal?.removeEventListener('abort', abort)
+      xhr.onerror = () => reject(new Error('Upload failed; check the connection.'))
+      xhr.onabort = () => reject(new Error('Upload cancelled.'))
+      xhr.onload = () => {
+        let data = {}; try { data = JSON.parse(xhr.responseText) } catch {}
+        if (xhr.status >= 200 && xhr.status < 300) resolve(data)
+        else reject(Object.assign(new Error(data.detail || `Upload failed (${xhr.status})`), { status: xhr.status }))
+      }
+      if (signal?.aborted) { reject(new Error('Upload cancelled.')); return }
+      xhr.send(file)
+    })
+  }
   close(id) { return this.request(`/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }) }
   saved() { return this.request('/saved') }
   save(descriptor, credentials, label) { return this.request('/saved', { method: 'POST', body: { descriptor, credentials, label } }) }
@@ -226,6 +250,29 @@ form[hidden]{display:none}
   .picker .acts{flex-direction:row;width:100%}
   .picker .acts .btn{flex:1;min-height:48px}
 }
+
+/* Files are the workspace; controls and details stay in quiet, solid chrome. */
+:host{background:#eef1f6;--glass:#fff;--glass-chrome:#f7f9fc;--glass-rail:#eaf0f8;--blur:none}
+.tools{padding:10px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-bottom:1px solid var(--line);background:#f7f9fc}
+.tools[hidden],.file-area[hidden]{display:none}
+.tool-actions{display:flex;gap:6px;flex-wrap:wrap}.tool-actions .btn{font-size:12px;padding:7px 10px}
+.filter{margin-left:auto;min-width:150px;max-width:230px;flex:1}.access-label{font-size:12px;color:var(--muted)}
+.file-area{display:grid;grid-template-columns:minmax(0,1fr) 230px;flex:1;min-height:0}
+.details{padding:18px;border-left:1px solid var(--line);background:#f7f9fc;overflow:auto}
+.details h3{margin:0 0 22px;font-size:15px;overflow-wrap:anywhere}.details p{margin:4px 0 18px;font-size:13px;overflow-wrap:anywhere}
+.detail-label{color:var(--dim);font-size:12px}.entry-name{border:0;padding:0;background:none;text-align:left;font:inherit;color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.entry-name:hover{color:var(--accent);text-decoration:underline}.row.selected{background:var(--accent-sel)}
+.row{grid-template-columns:minmax(0,1fr) 80px 145px 94px;gap:10px}.thead{padding-right:250px;grid-template-columns:minmax(0,1fr) 80px 145px 94px;gap:10px}
+.eyebrow,.thead{font-family:inherit;text-transform:none;letter-spacing:0;font-size:12px}
+.operation-dialog{width:min(760px,calc(100vw - 32px));max-height:90vh;border:1px solid #b9c7db;border-radius:12px;padding:24px;color:var(--ink);background:#fff;box-shadow:0 16px 60px #172d4933}
+.operation-dialog::backdrop{background:#172d4966}.operation-dialog form{padding:0}.operation-dialog h2{margin:0;font-size:20px}.operation-dialog p{font-size:14px;color:var(--muted)}
+.operation-dialog textarea{width:100%;min-height:45vh;padding:12px;resize:vertical;font:13px/1.6 var(--mono);border:1px solid var(--line);border-radius:6px;tab-size:4}
+.dialog-actions{display:flex;justify-content:flex-end;gap:8px}.btn.danger{background:#b52936;color:white;border-color:#b52936}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+.scan-controls{display:flex;align-items:end;gap:8px;flex-wrap:wrap}.scan-controls .field{flex:1;min-width:200px}
+@media(max-width:1100px){.row,.thead{grid-template-columns:minmax(0,1fr) 145px 94px}}
+@media(max-width:1200px){.file-area{grid-template-columns:1fr}.details{display:none}.thead{padding-right:20px}}
+@media(max-width:780px){.row{grid-template-columns:minmax(0,1fr) 90px}.tools{padding:10px}.row .mod,.row .size{display:none}.filter{max-width:none}.access-label{margin-left:auto}}
 `
 
 export class RemoteFsBrowser extends HTMLElement {
@@ -233,7 +280,7 @@ export class RemoteFsBrowser extends HTMLElement {
     super(); this.attachShadow({ mode: 'open' }); this.path = '/'; this.session = null; this.generation = 0
   }
   connectedCallback() { this.render() }
-  disconnectedCallback() { this.generation++; void this.close(); this.credentials = undefined }
+  disconnectedCallback() { this.generation++; void this.close(); this.credentials = undefined; this.clipboard = null }
   async close() {
     const id = this.session; this.session = null
     if (id && this.client) await this.client.close(id).catch(() => {})
@@ -314,8 +361,15 @@ export class RemoteFsBrowser extends HTMLElement {
       <button type="button" class="btn icon" data-refresh title="Refresh" aria-label="Refresh">↻</button>
       ${this.hasAttribute('signout') ? '<button type="button" class="btn" data-signout>Sign out</button>' : ''}
     </div>
+    <div class="tools" data-tools>
+      <div class="tool-actions">${[['folder','New folder'],['newfile','New file'],['upload','Upload'],['edit','Edit text'],['copy','Copy'],['paste','Paste'],['move','Rename / move'],['remove','Delete']].map(([op,label]) => `<button class="btn" type="button" data-op="${op}" disabled>${label}</button>`).join('')}</div>
+      <label class="filter"><span class="sr-only">Filter this folder</span><input type="search" data-filter placeholder="Filter this folder"></label>
+      <span class="access-label" data-access>No connection</span>
+      <input type="file" data-upload-input multiple hidden>
+      <button class="btn" data-cancel-transfer type="button" hidden>Cancel upload</button>
+    </div>
     <div class="thead" data-thead aria-hidden="true"><span>Name</span><span class="size">Size</span><span class="mod">Modified</span><span></span></div>
-    <div class="list" data-list role="list" aria-label="Folder entries"></div>
+    <div class="file-area" data-file-area><div class="list" data-list role="list" aria-label="Folder entries"></div><section class="details" data-details aria-label="Selection details"><h3>File details</h3><p>Select a file or folder.</p></section></div>
     <section class="scan" data-scan hidden aria-label="Network scan">
       <div class="scan-head">
         <div class="scan-title">
@@ -325,6 +379,7 @@ export class RemoteFsBrowser extends HTMLElement {
         </div>
         <button type="button" class="btn" data-scan-close>Close</button>
       </div>
+      <div class="scan-controls"><label class="field">CIDR ranges (comma separated)<input type="text" data-scan-ranges placeholder="192.168.1.0/24"></label><button class="btn" type="button" data-scan-start>Scan ranges</button><button class="btn" type="button" data-scan-next hidden>Next 256 addresses</button></div>
       <div class="devices" data-devices></div>
       <div class="scan-notes" data-scan-notes></div>
     </section>
@@ -339,7 +394,7 @@ export class RemoteFsBrowser extends HTMLElement {
       </div>
     </div>
     <div class="foot">
-      <span class="count" data-count>Not connected</span>
+      <span class="count" data-count role="status" aria-live="polite">Not connected</span>
       <span class="pill" data-pill hidden></span>
       <span class="session" data-session></span>
       <button type="button" class="btn" data-disconnect>Disconnect</button>
@@ -405,6 +460,10 @@ export class RemoteFsBrowser extends HTMLElement {
     q('[data-disconnect]').onclick = () => this.disconnect()
     q('[data-sheet]').onclick = () => { this.app.dataset.view = 'sources' }
     q('[data-scan-btn]').onclick = () => this.scanNetwork()
+    this.scanRangesInput = q('[data-scan-ranges]'); this.nextScanButton = q('[data-scan-next]')
+    this.scanRangesInput.oninput = () => { this.nextScan = null; this.nextScanButton.hidden = true }
+    q('[data-scan-start]').onclick = () => this.scanNetwork()
+    this.nextScanButton.onclick = () => this.scanNetwork(this.nextScan)
     q('[data-scan-close]').onclick = () => this.showView('files')
     q('[data-modal-cancel]').onclick = () => this.closeModal(null)
     this.modal.onclick = event => { if (event.target === this.modal) this.closeModal(null) }
@@ -418,6 +477,11 @@ export class RemoteFsBrowser extends HTMLElement {
     q('[data-copy]').onclick = () => this.copyDescriptor()
     this.shortlist.onclick = () => this.saveToShortlist()
     this.entries = []
+    this.details = q('[data-details]'); this.accessLabel = q('[data-access]')
+    this.filter = q('[data-filter]')
+    this.filter.oninput = () => this.renderEntries()
+    for (const button of this.shadowRoot.querySelectorAll('[data-op]')) button.onclick = () => this.manage(button.dataset.op)
+    q('[data-upload-input]').onchange = event => { const files = [...event.target.files]; event.target.value = ''; void this.uploadFiles(files) }
   }
 
   /* ---------- helpers ---------- */
@@ -483,8 +547,9 @@ export class RemoteFsBrowser extends HTMLElement {
   }
 
   async action(fn) {
-    if (!this.client) { this.setStatus('Set the component client property first.'); return }
-    const controls = this.shadowRoot.querySelectorAll('button,input,select')
+    this.busy = true
+    if (!this.client) { this.busy = false; this.setStatus('Set the component client property first.'); return }
+    const controls = this.shadowRoot.querySelectorAll('button:not([data-cancel-transfer]),input,select')
     for (const control of controls) control.disabled = true
     try { await fn(); this.notes() }
     catch (error) {
@@ -494,9 +559,11 @@ export class RemoteFsBrowser extends HTMLElement {
       this.dispatchEvent(new CustomEvent('browser-error', { detail: error }))
     }
     finally {
+      this.busy = false
       for (const control of controls) control.disabled = false
       this.choose.disabled = !this.session
       this.shortlist.disabled = !this.session || this.shortlistAvailable === false
+      this.updateTools()
     }
   }
   notes() {
@@ -509,11 +576,19 @@ export class RemoteFsBrowser extends HTMLElement {
 
   /* ---------- discovery ---------- */
   /** Startup: local roots only. Network devices come from an explicit scan. */
-  async discover(scan) {
+  async discover(scan, offset = 0) {
     await this.action(async () => {
-      const result = await this.client.discover(scan ?? false)
+      const ranges = this.scanRangesInput?.value.split(',').map(value => value.trim()).filter(Boolean)
+      const result = scan && ranges?.length ? await this.client.scan(ranges, offset) : await this.client.discover(scan ?? false)
+      if (this.scanRangesInput && !scan) this.scanRangesInput.value = (result.scan_ranges || []).join(', ')
+      this.nextScan = result.next_offset
+      if (this.nextScanButton) this.nextScanButton.hidden = this.nextScan == null
       this.roots = this.rootsFrom(result)
-      if (scan) { this.deviceList = this.devicesFrom(result); this.notesList = result.notes || [] }
+      if (scan) {
+        const devices = [...(offset ? this.deviceList || [] : []), ...this.devicesFrom(result)]
+        this.deviceList = [...new Map(devices.map(device => [device.type + ':' + device.host, device])).values()]
+        this.notesList = result.notes || []
+      }
       await this.renderSaved()
       this.renderRail()
     })
@@ -534,11 +609,11 @@ export class RemoteFsBrowser extends HTMLElement {
     })
   }
   /** The scan is a view of its own: devices to map, with the scan's own bounds noted there. */
-  async scanNetwork() {
+  async scanNetwork(offset = 0) {
     this.showView('scan')
     this.devices.replaceChildren()
     this.scanNotes.replaceChildren(this.el('p', 'Probing permitted ranges…'))
-    await this.discover(true)
+    await this.discover(true, offset)
     this.devices.replaceChildren()
     for (const device of this.deviceList || []) {
       const node = this.button('', () => this.mapDevice(device), 'device')
@@ -592,6 +667,10 @@ export class RemoteFsBrowser extends HTMLElement {
   showView(view) {
     this.view = view
     const files = view === 'files'
+    const area = this.shadowRoot.querySelector('[data-file-area]')
+    if (area) area.hidden = !files
+    const tools = this.shadowRoot.querySelector('[data-tools]')
+    if (tools) tools.hidden = !files || this.mode === 'select'
     this.scan.hidden = files
     this.list.hidden = !files
     this.thead.hidden = !files
@@ -708,7 +787,8 @@ export class RemoteFsBrowser extends HTMLElement {
       const generation = this.generation
       const result = await this.client.connect(this.descriptor, {})
       if (generation !== this.generation) { await this.client.close(result.id); return }
-      this.session = result.id; await this.show(d.path || '/')
+      this.session = result.id
+      this.operations = result.operations || []; this.renameDirectories = result.rename_directories; await this.show(d.path || '/')
     })
   }
   pick(item) {
@@ -730,6 +810,7 @@ export class RemoteFsBrowser extends HTMLElement {
       const result = await this.client.connect(this.descriptor, this.credentials)
       if (generation !== this.generation) { await this.client.close(result.id); return }
       this.session = result.id
+      this.operations = result.operations || []; this.renameDirectories = result.rename_directories
       if (this.descriptor.host) this.rememberHost({ type: this.descriptor.type, host: this.descriptor.host })
       this.form.hidden = this.mode !== 'select'
       if (this.addButton) { this.addButton.setAttribute('aria-expanded', 'false'); this.addButton.textContent = '+ Add a location' }
@@ -749,11 +830,15 @@ export class RemoteFsBrowser extends HTMLElement {
       const opened = await this.client.connect(this.descriptor, this.credentials)
       if (generation !== this.generation || !this.isConnected) { await this.client.close(opened.id); return }
       this.session = opened.id
+      this.operations = opened.operations || []; this.renameDirectories = opened.rename_directories
       result = await this.client.list(this.session, path)
     }
     if (generation !== this.generation || !this.isConnected) { await this.close(); return }
+    if (this.filter && this.path !== path) this.filter.value = ''
     this.path = path; this.truncated = result.truncated; this.skipped = result.skipped || 0
     this.entries = result.entries
+    this.selected = null
+    this.updateTools()
     this.app.dataset.view = 'browse'
     this.showView('files')
     this.sessionLabel.textContent = `${this.descriptor?.type ?? ''} · session ${String(this.session).slice(0, 4)}`
@@ -808,7 +893,7 @@ export class RemoteFsBrowser extends HTMLElement {
     })
   }
   renderEntries() {
-    const rows = this.entries
+    const rows = this.entries.filter(item => item.name.toLowerCase().includes((this.filter?.value || "").toLowerCase())).sort((a,b) => (b.type === "directory") - (a.type === "directory") || a.name.localeCompare(b.name, undefined, { numeric: true }))
     this.list.replaceChildren()
     this.setStatus(`${rows.length} item${rows.length === 1 ? '' : 's'}`)
     if (!rows.length) {
@@ -822,16 +907,27 @@ export class RemoteFsBrowser extends HTMLElement {
     }
     for (const item of rows) {
       const directory = item.type === 'directory'
-      const row = this.el(directory ? 'button' : 'div', null, 'row' + (directory ? '' : ' plain'))
-      if (directory) { row.type = 'button'; row.onclick = () => this.action(() => this.show(item.path)) }
+      const row = this.el('div', null, 'row plain')
+      row.tabIndex = 0
+      row.classList.toggle('selected', this.selected?.path === item.path)
+      row.dataset.path = item.path
+      const select = () => { this.selected = item; this.renderEntries(); this.updateTools(); [...this.list.children].find(node => node.dataset.path === item.path)?.focus() }
+      row.onclick = select
+      row.onkeydown = event => { if (event.key === ' ' || event.key === 'Enter') { event.preventDefault(); select() } }
+      row.ondblclick = () => directory ? this.action(() => this.show(item.path)) : this.manage('edit')
       row.setAttribute('role', 'listitem')
       const name = this.el('span', null, `nm${directory ? ' dir' : ''}`)
       const stack = this.el('span', null, 'stack')
       const sub = this.el('span', null, 'sub')
       sub.append(this.el('span', directory ? 'Folder' : this.bytes(item.size)))
       sub.append(this.el('span', ` · ${this.when(item.modified)}`, 'sub-date'))
-      stack.append(this.el('span', item.name, 'name'), sub)
-      name.append(this.el('span', null, 'dot'), stack)
+      const open = this.button(item.name, event => { event.stopPropagation(); if (directory) this.action(() => this.show(item.path)); else { this.selected = item; this.updateTools(); void this.manage('edit') } }, 'entry-name')
+      stack.append(open, sub)
+      const selection = this.el('input')
+      selection.type = 'checkbox'; selection.checked = this.selected?.path === item.path
+      selection.setAttribute('aria-label', `Select ${item.name}`)
+      selection.onclick = event => { event.stopPropagation(); this.selected = selection.checked ? item : null; this.renderEntries(); this.updateTools() }
+      name.append(selection, this.el('span', null, 'dot'), stack)
       row.append(name,
         this.el('span', directory ? '—' : this.bytes(item.size), 'size'),
         this.el('span', this.when(item.modified), 'mod'))
@@ -842,6 +938,126 @@ export class RemoteFsBrowser extends HTMLElement {
       this.list.append(row)
     }
   }
+  updateTools() {
+    const permitted = new Set(this.operations || [])
+    const selected = this.selected
+    for (const button of this.shadowRoot.querySelectorAll('[data-op]')) {
+      const op = button.dataset.op
+      const permission = ({ newfile: 'write', upload: 'write', edit: 'write', folder: 'mkdir', move: 'rename', remove: 'delete', paste: 'write', copy: 'copy' })[op]
+      button.disabled = !this.session || this.busy || (permission && !permitted.has(permission))
+        || (['edit','move','remove','copy','download'].includes(op) && !selected)
+        || (['edit','download'].includes(op) && selected?.type !== 'file')
+        || (op === 'paste' && !this.clipboard)
+        || (op === 'move' && selected?.type === 'directory' && this.renameDirectories === false)
+    }
+    if (this.accessLabel) this.accessLabel.textContent = this.session ? (permitted.has('write') ? 'Read / write' : 'Read only') : 'No connection'
+    if (this.details) {
+      this.details.replaceChildren(this.el('h3', selected?.name || 'File details'))
+      for (const [label, value] of selected ? [['Type', selected.type], ['Size', this.bytes(selected.size)], ['Modified', this.when(selected.modified)], ['Path', selected.path]] : [['Selection', 'Select a file or folder to see its details.']]) {
+        this.details.append(this.el('span', label, 'detail-label'), this.el('p', value))
+      }
+      if (selected?.type === 'directory' && this.renameDirectories === false) this.details.append(this.el('p', 'For NFS folders, copy to the new location, then delete the original.'))
+    }
+  }
+
+  async ask(title, { label, value = '', message, multiline = false, readOnly = false, confirm = 'Continue', danger = false } = {}) {
+    const dialog = this.el('dialog', null, 'operation-dialog')
+    const form = this.el('form')
+    const heading = this.el('h2', title); heading.id = 'operation-title'
+    dialog.setAttribute('aria-labelledby', heading.id)
+    form.append(heading)
+    if (message) form.append(this.el('p', message))
+    let field
+    if (label) {
+      const wrapper = this.el('label', label, 'field')
+      field = this.el(multiline ? 'textarea' : 'input')
+      field.value = value; field.spellcheck = false; field.readOnly = readOnly
+      if (!multiline) { field.type = 'text'; field.required = true }
+      wrapper.append(field); form.append(wrapper)
+    }
+    const actions = this.el('div', null, 'dialog-actions')
+    const cancel = this.button('Cancel', () => dialog.close('cancel'))
+    const submit = this.el('button', confirm, danger ? 'btn danger' : 'btn primary'); submit.type = 'submit'
+    actions.append(cancel, submit); form.append(actions); dialog.append(form)
+    form.onsubmit = event => { event.preventDefault(); dialog.close('ok') }
+    this.shadowRoot.append(dialog)
+    const result = new Promise(resolve => { dialog.onclose = () => { const result = dialog.returnValue === 'ok' ? (field ? field.value : true) : null; dialog.remove(); resolve(result) } })
+    dialog.showModal(); (field || cancel).focus()
+    return result
+  }
+
+  child(name) {
+    if (!name || name === '.' || name === '..' || /[\\/:\x00]/.test(name)) throw new Error('Enter one file or folder name without slashes.')
+    return this.path.replace(/\/$/, '') + '/' + name
+  }
+
+  async manage(op) {
+    const item = this.selected, session = this.session, path = this.path
+    try {
+      if (op === 'upload') { this.shadowRoot.querySelector('[data-upload-input]').click(); return }
+      if (op === 'download') { this.download?.(session, item); return }
+      if (op === 'copy') {
+        this.clipboard = { descriptor: { ...this.descriptor }, credentials: { ...this.credentials }, path: item.path, name: item.name }
+        this.setStatus(`Copied ${item.name}. Open a destination folder and choose Paste.`); this.updateTools(); return
+      }
+      let value
+      if (op === 'folder' || op === 'newfile') value = await this.ask(op === 'folder' ? 'New folder' : 'New file', { label: 'Name', confirm: 'Create' })
+      if (op === 'move') value = await this.ask('Rename or move', { label: 'Destination path within this location', value: item.path, message: this.descriptor?.type === 'nfs' && item.type === 'directory' ? 'NFS folder moves run in steps. An interrupted move can leave items in both locations; refresh before retrying. Existing destinations are never replaced.' : 'Existing destinations are never replaced.', confirm: 'Move' })
+      if (op === 'remove') value = await this.ask(`Delete ${item.name}?`, { message: item.type === 'directory' ? 'This permanently deletes the folder and all its contents. There is no undo.' : 'This permanently deletes the file. There is no undo.', confirm: 'Delete permanently', danger: true })
+      if (op === 'paste') value = await this.ask('Paste into this folder', { label: 'Name', value: this.clipboard.name, message: 'Copies files and folders to this location. Existing names are never replaced.', confirm: 'Copy' })
+      if (op === 'edit') {
+        if (item.size > 1024 * 1024) throw new Error('The text editor supports files up to 1 MiB. Download larger files to edit them.')
+        const response = await this.client.file(session, item.path, 'bytes=0-1048575')
+        if (!response.ok && !(response.status === 416 && item.size === 0)) throw new Error('Could not read this file.')
+        const total = Number(response.headers.get('content-range')?.split('/')[1] || response.headers.get('content-length') || 0)
+        if (total > 1024 * 1024) throw new Error('The file is now too large for the text editor. Download it instead.')
+        const bytes = item.size === 0 ? new Uint8Array() : new Uint8Array(await response.arrayBuffer())
+        if (bytes.includes(0)) throw new Error('This looks like a binary file. Download it to edit it.')
+        let text
+        try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes) } catch { throw new Error('The editor supports UTF-8 text. Download this file to edit its encoding.') }
+        value = await this.ask(item.name, { label: 'UTF-8 text', value: text, multiline: true, readOnly: !this.operations?.includes('write'), confirm: this.operations?.includes('write') ? 'Save changes' : 'Close', message: this.operations?.includes('write') ? 'Saving replaces this file. Other clients may also be editing it.' : 'Read-only preview.' })
+      }
+      if (value === null || value === undefined || (op === 'edit' && !this.operations?.includes('write'))) return
+      if (session !== this.session || path !== this.path) throw new Error('The location changed; start the operation again.')
+      await this.action(async () => {
+        if (op === 'folder') await this.client.mutate(session, 'mkdir', { path: this.child(value) })
+        if (op === 'newfile') await this.client.upload(session, this.child(value), new Blob([]))
+        if (op === 'move') await this.client.mutate(session, 'rename', { source: item.path, destination: value })
+        if (op === 'remove') await this.client.remove(session, item.path, item.type === 'directory')
+        if (op === 'edit') await this.client.upload(session, item.path, new Blob([value]), { overwrite: true })
+        if (op === 'paste') {
+          const source = await this.client.connect(this.clipboard.descriptor, this.clipboard.credentials)
+          try { await this.client.mutate(source.id, 'copy', { source: this.clipboard.path, destination: this.child(value), target_session: session }) }
+          finally { await this.client.close(source.id).catch(() => {}) }
+        }
+        await this.show(path)
+        this.setStatus('Operation completed.')
+      })
+    } catch (error) { this.setStatus(error.message) }
+  }
+
+  async uploadFiles(files) {
+    const session = this.session, path = this.path
+    const controller = new AbortController()
+    const cancel = this.shadowRoot.querySelector('[data-cancel-transfer]')
+    cancel.hidden = false; cancel.onclick = () => controller.abort()
+    await this.action(async () => {
+      for (const file of files) {
+        if (session !== this.session || controller.signal.aborted) throw new Error('Upload cancelled.')
+        const destination = this.child(file.name)
+        const exists = this.entries.some(item => item.name === file.name)
+        const overwrite = exists && await this.ask(`Replace ${file.name}?`, { message: 'The completed upload will replace the existing file.', confirm: 'Replace', danger: true })
+        if (exists && !overwrite) continue
+        this.setStatus(`Uploading ${file.name}…`)
+        await this.client.upload(session, destination, file, { overwrite: !!overwrite, signal: controller.signal,
+          progress: (loaded, total) => this.setStatus(`Uploading ${file.name}: ${this.bytes(loaded)} of ${this.bytes(total)}`) })
+      }
+      await this.show(path)
+      this.setStatus('Uploads completed.')
+    })
+    cancel.hidden = true
+  }
+
   /** Pin the folder being viewed to the shortlist (POST /saved). */
   async saveToShortlist() {
     await this.action(async () => {
@@ -884,7 +1100,8 @@ export class RemoteFsBrowser extends HTMLElement {
     })
   }
   async disconnect() {
-    await this.close(); this.credentials = undefined; this.password.value = ''
+    await this.close(); this.credentials = undefined; this.clipboard = null; this.selected = null; this.operations = []; this.password.value = ''
+    this.updateTools()
     this.choose.disabled = true; this.entries = []
     this.list.replaceChildren()
     this.crumbs.replaceChildren(this.el('span', 'No location connected', 'here'))

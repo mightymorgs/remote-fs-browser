@@ -78,11 +78,14 @@ remote-fs-browser{display:block;height:100%}
     <div class="lede">
       <div class="badge"><span class="mark"></span><span>remote-fs-browser</span></div>
       <h1 id="signin-title">Sign in to this host</h1>
-      <p>Enter the service token printed in the terminal, or supplied by whoever runs this host.</p>
+      <p>Sign in with the account configured on this host.</p>
     </div>
-    <label>Service token
-      <input id="token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" required>
-      <span class="note">Keep this token somewhere safe. It is the only way back in — losing it means losing access to your shortlist and settings.</span>
+    <label>Username
+      <input id="username" type="text" autocomplete="username" autocapitalize="off" spellcheck="false" required>
+    </label>
+    <label>Password
+      <input id="password" type="password" autocomplete="current-password" required>
+      <span class="note">To reset your password, run <code>remotefs account</code> on the host and restart the service.</span>
     </label>
     <div class="go">
       <button class="btn primary" type="submit" id="start">Sign in</button>

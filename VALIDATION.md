@@ -8,7 +8,7 @@ During development on macOS Apple Silicon, the standalone SDK was also exercised
 
 Known limits:
 
-- Host discovery is opt-in TCP probing of explicitly permitted ranges of at most 256 addresses each, with at most 1024 candidates probed per request. It is not a network inventory service.
+- Host discovery is opt-in TCP probing of explicitly permitted ranges with at most 256 candidates probed per page. It is not a network inventory service.
 - SMB share enumeration uses SMB2 SRVS RPC with bounded pagination; traversal uses SMB2/3. Some servers disallow enumeration while allowing a manually named share.
 - NFS export discovery uses mountd; NFSv4-only servers may require a manual export path. libnfs AUTH_SYS identity follows the service account. Kerberos setup is outside this release.
 - NDJSON is emitted after a bounded native listing completes. Very large/slow directories may hit the configured entry or operation limit; truncation is reported.
@@ -16,3 +16,11 @@ Known limits:
 - SDK worker processes require the usual Python `if __name__ == '__main__'` guard. File streams, metadata and session operations share the same backend context; no per-click CLI subprocess is used.
 - The system installers are provided for review and testing. Public CI checks libraries and API behavior, not complete host service installation/uninstallation. macOS may need Apple's command-line-tools/license setup before unattended Homebrew bootstrap can finish.
 - This is an initial open-source release, not a signed binary distribution or a blanket compatibility guarantee for all NAS servers and authentication modes.
+
+## Filesystem manager development checks
+
+The read/write and password-login changes are not published yet. Local tests cover staged writes, replacement conflicts, cancelled and oversized uploads, traversal/link refusal, recursive authorization, copying between owned sessions, and read-only policy enforcement. Password tests cover salted hashes, wrong credentials, HttpOnly/SameSite cookies, same-origin mutation checks, sign-in throttling, logout cleanup, and migration of existing saved credentials.
+
+On macOS Apple Silicon, an isolated Docker Samba server and NFS-Ganesha v4 server (MEM filesystem with data storage enabled) passed binary upload/readback, no-overwrite conflict, explicit replacement, recursive copy, folder move, and recursive delete. The native libnfs write symbols loaded successfully. These are protocol integration checks, not proof for every NAS implementation or ACL model.
+
+The local browser preview passed username/password login, text editing/save, and folder creation. Cross-platform CI exercises the local mutation primitives and password handling; NFS/SMB integration remains an explicit test-server check.

@@ -13,13 +13,18 @@ def normalize(path: str) -> str:
     return str(PurePosixPath('/' + path.lstrip('/')))
 
 
+READ_OPERATIONS = ['discover', 'list', 'stat', 'read']
+WRITE_OPERATIONS = ['write', 'mkdir', 'rename', 'delete', 'copy']
+
+
 @dataclass
 class Policy:
     local_roots: list[str] = field(default_factory=list)
     network_ranges: list[str] = field(default_factory=list)
     discovery_ranges: list[str] | None = None
     servers: list[str] = field(default_factory=list)
-    operations: list[str] = field(default_factory=lambda: ['discover', 'list', 'stat', 'read'])
+    operations: list[str] = field(default_factory=lambda: list(READ_OPERATIONS))
+    max_write_bytes: int = 10 * 1024**3
     max_sessions: int = 16
     idle_seconds: float = 300
     operation_timeout: float = 10
@@ -30,7 +35,7 @@ class Policy:
         self.local_roots = [str(Path(p).resolve(strict=True)) for p in self.local_roots]
         for network in self.network_ranges:
             ipaddress.ip_network(network)
-        if min(self.max_sessions, self.idle_seconds, self.operation_timeout, self.max_entries, self.requests_per_minute) <= 0:
+        if min(self.max_write_bytes, self.max_sessions, self.idle_seconds, self.operation_timeout, self.max_entries, self.requests_per_minute) <= 0:
             raise ValueError('Policy limits must be positive')
         if self.max_entries > 100000:
             raise ValueError('max_entries must be at most 100000')

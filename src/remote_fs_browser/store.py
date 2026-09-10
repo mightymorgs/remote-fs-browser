@@ -1,4 +1,4 @@
-"""Remembered SMB/NFS locations for the standalone service, sealed under the service token."""
+"""Remembered SMB/NFS locations for the standalone service, sealed under a private storage key."""
 import base64
 import hashlib
 import json
@@ -12,15 +12,22 @@ CREDENTIAL_KEYS = ('username', 'password', 'domain')
 
 
 class StoreLocked(Exception):
-    """The file exists but was sealed under a different service token."""
+    """The file exists but was sealed under a different storage key."""
 
 
 def write_private(path, text):
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, 'w') as handle:
-        handle.write(text)
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temporary = path.with_name('.' + path.name + '.' + secrets.token_hex(8) + '.tmp')
+    try:
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, 'w', encoding='utf-8') as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def derive(token, salt):
@@ -46,7 +53,7 @@ class SavedLocations:
         try:
             plain = AESGCM(self.key).decrypt(base64.b64decode(data['nonce']), base64.b64decode(data['sealed']), None)
         except InvalidTag:
-            raise StoreLocked(f'{self.path} was saved under a different service token') from None
+            raise StoreLocked(f'{self.path} was saved under a different storage key') from None
         return json.loads(plain)
 
     def save(self):

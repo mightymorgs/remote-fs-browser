@@ -39,13 +39,13 @@ async function enter(hostname) {
 
 document.querySelector('#signin-form').onsubmit = async event => {
   event.preventDefault()
-  const token = document.querySelector('#token')
+  const password = document.querySelector('#password')
+  const username = document.querySelector('#username')
   setStatus('Signing in…')
   try {
     await picker.disconnect()
-    const login = new RemoteFsClient(location.origin + '/api', () => ({ Authorization: `Bearer ${token.value}` }))
-    const session = await login.request('/login', { method: 'POST' })
-    token.value = ''
+    const session = await client.request('/login', { method: 'POST', body: { username: username.value, password: password.value } })
+    password.value = ''
     setStatus('Connected.')
     await enter(session.hostname)
   } catch (error) { setStatus(error.message, 'error') }
