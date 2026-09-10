@@ -19,7 +19,7 @@ def worker(pipe, config, policy_values):
         policy = Policy(**policy_values)
         kind = config['type']
         if kind == 'discover':
-            pipe.send({'ok': discover(policy, config.get('scan', False), config.get('root_kinds'))})
+            pipe.send({'ok': discover(policy, config.get('scan', False), config.get('root_kinds'), config.get('ranges'), config.get('offset', 0))})
             return
         if kind in ('shares', 'exports'):
             host = policy.host(config['host'])
@@ -271,9 +271,9 @@ class Browser:
         finally:
             self.pending -= 1
 
-    async def discover(self, scan=False, host=None, protocol=None, credentials=None):
+    async def discover(self, scan=False, host=None, protocol=None, credentials=None, ranges=None, offset=0):
         self.policy.require('discover')
-        config = {'type': 'discover', 'scan': scan, 'root_kinds': self.root_kinds}
+        config = {'type': 'discover', 'scan': scan, 'root_kinds': self.root_kinds, 'ranges': ranges, 'offset': offset}
         if host:
             if protocol not in ('smb', 'nfs'):
                 raise ValueError('Choose smb or nfs discovery')

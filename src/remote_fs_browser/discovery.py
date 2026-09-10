@@ -7,8 +7,8 @@ import socket
 from .policy import Policy
 from .hostnames import dns_name, netbios_name
 
-# Candidate addresses probed per scan request: four /24 ranges, about half a minute worst case on 64 threads.
-SCAN_BUDGET = 1024
+# Candidate addresses probed per scan request: one page at a time, keeping large subnets within the operation timeout.
+SCAN_BUDGET = 256
 
 
 def grouped(policy: Policy, roots, hosts, scanned):
@@ -28,27 +28,48 @@ def grouped(policy: Policy, roots, hosts, scanned):
     return groups
 
 
-def discover(policy: Policy, scan=False, root_kinds=None):
+def discover(policy: Policy, scan=False, root_kinds=None, ranges=None, offset=0):
     policy.require('discover')
+    if ranges is not None and (not isinstance(ranges, list) or not ranges or len(ranges) > 16):
+        raise ValueError('Enter between one and sixteen CIDR ranges')
+    selected = ranges if ranges is not None else (policy.discovery_ranges if policy.discovery_ranges is not None else policy.network_ranges)
+    parsed = [ipaddress.ip_network(value, strict=False) for value in selected]
+    networks = [net for version in (4, 6) for net in ipaddress.collapse_addresses([net for net in parsed if net.version == version])]
+    allowed_networks = [ipaddress.ip_network(value) for value in policy.network_ranges]
+    permitted = [net for version in (4, 6) for net in ipaddress.collapse_addresses([net for net in allowed_networks if net.version == version])]
+    if any(not any(net.version == allowed.version and net.subnet_of(allowed) for allowed in permitted) for net in networks):
+        raise PermissionError('Scan range is outside permitted networks')
+    if not isinstance(offset, int) or offset < 0:
+        raise ValueError('Invalid scan offset')
     kinds = root_kinds or {}
     result = {'roots': [{'type': 'local', 'root': root, 'kind': kinds.get(root, 'configured')} for root in policy.local_roots],
-              'hosts': [], 'notes': ['Automatic discovery is best effort. A hostname/IP can always be supplied within policy.']}
+              'scan_ranges': [str(net) for net in networks], 'next_offset': None, 'hosts': [], 'notes': ['Automatic discovery is best effort. A hostname/IP can always be supplied within policy.']}
     if not scan:
         result['groups'] = grouped(policy, result['roots'], [], False)
         return result
-    hosts = set()
-    for network in policy.network_ranges:
-        network = ipaddress.ip_network(network)
-        if network.num_addresses > 256:
-            result['notes'].append('Skipped a range larger than 256 addresses; configure narrower discovery ranges.')
+    # Generate only the requested page, including for very large subnets.
+    hosts = []
+    skip = offset
+    total = sum(net.num_addresses - (2 if net.version == 4 and net.prefixlen < 31 else 1 if net.version == 6 and net.prefixlen < 127 else 0) for net in networks)
+    for net in networks:
+        excluded = 2 if net.version == 4 and net.prefixlen < 31 else 1 if net.version == 6 and net.prefixlen < 127 else 0
+        count = net.num_addresses - excluded
+        if skip >= count:
+            skip -= count
             continue
-        hosts.update(str(host) for host in network.hosts())
+        first = int(net.network_address) + (1 if excluded else 0) + skip
+        take = min(SCAN_BUDGET - len(hosts), count - skip)
+        hosts.extend(str(type(net.network_address)(first + index)) for index in range(take))
+        skip = 0
+        if len(hosts) == SCAN_BUDGET:
+            break
+    scanned = len(hosts)
+    if offset + scanned < total:
+        result['next_offset'] = offset + scanned
+    result['notes'].append(f'Scanned addresses {offset + 1 if scanned else 0}–{offset + scanned} of {total}. Continue with the next batch for larger subnets.')
     if policy.servers:
-        hosts &= {policy.host(host) for host in policy.servers}
-    hosts = sorted(hosts, key=ipaddress.ip_address)
-    if len(hosts) > SCAN_BUDGET:
-        result['notes'].append(f'Scanned the first {SCAN_BUDGET} of {len(hosts)} candidate addresses; narrow the permitted ranges to scan the rest.')
-        hosts = hosts[:SCAN_BUDGET]
+        allowed_hosts = {policy.host(host) for host in policy.servers}
+        hosts = [host for host in hosts if host in allowed_hosts]
 
     def probe(host):
         protocols = []

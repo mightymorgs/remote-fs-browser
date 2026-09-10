@@ -239,6 +239,8 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
     async def discover_server(request: Request):
         await allowed(request, 'discover')
         data = await request.json()
+        if 'ranges' in data:
+            return await browser.discover(scan=True, ranges=data['ranges'], offset=data.get('offset', 0))
         return await browser.discover(host=data['host'], protocol=data['type'], credentials=data.get('credentials'))
 
     @app.post('/api/sessions')

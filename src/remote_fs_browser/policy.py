@@ -17,6 +17,7 @@ def normalize(path: str) -> str:
 class Policy:
     local_roots: list[str] = field(default_factory=list)
     network_ranges: list[str] = field(default_factory=list)
+    discovery_ranges: list[str] | None = None
     servers: list[str] = field(default_factory=list)
     operations: list[str] = field(default_factory=lambda: ['discover', 'list', 'stat', 'read'])
     max_sessions: int = 16
