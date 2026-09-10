@@ -30,3 +30,15 @@ def verify_account(account, username, password):
     actual = password_hash(password, base64.b64decode(account['salt']))
     valid = hmac.compare_digest(actual, base64.b64decode(account['hash']))
     return valid and hmac.compare_digest(username.encode(), account['username'].encode())
+
+
+async def verify_async(account, username, password, slots):
+    # Cancellation must not release the memory budget while scrypt still runs.
+    import asyncio
+    async with slots:
+        task = asyncio.create_task(asyncio.to_thread(verify_account, account, username, password))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            await task
+            raise

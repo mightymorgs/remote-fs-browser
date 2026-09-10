@@ -155,7 +155,7 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
     async def login(request: Request):
         now = time.monotonic()
         if account:
-            from .auth import verify_account
+            from .auth import verify_async
             origin = request.headers.get('origin')
             if origin and origin != str(request.base_url).rstrip('/'):
                 raise HTTPException(403, 'Same-origin request required')
@@ -170,8 +170,7 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
                 raise HTTPException(429, 'Too many sign-in attempts; wait five minutes', headers={'Retry-After': '300'})
             attempts.append(now)
             data = await request.json()
-            async with password_slots:
-                valid = await asyncio.to_thread(verify_account, account, data.get('username'), data.get('password'))
+            valid = await verify_async(account, data.get('username'), data.get('password'), password_slots)
             if not valid:
                 raise HTTPException(401, 'Incorrect username or password')
             request.state.principal = account.get('principal', 'owner')

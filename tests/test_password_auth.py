@@ -63,3 +63,26 @@ def test_legacy_key_and_saved_credentials_survive_account_migration(tmp_path, mo
     key = settings['storage_key']
     main(['account','--config',str(config),'--username','renamed'])
     assert json.loads(config.read_text())['storage_key'] == key
+
+
+@pytest.mark.asyncio
+async def test_cancelled_password_check_keeps_memory_slot(monkeypatch):
+    import asyncio
+    import threading
+    from remote_fs_browser.auth import verify_async
+    started, finish = threading.Event(), threading.Event()
+    def verify(*args):
+        started.set()
+        assert finish.wait(5)
+        return True
+    monkeypatch.setattr('remote_fs_browser.auth.verify_account', verify)
+    slots = asyncio.Semaphore(1)
+    task = asyncio.create_task(verify_async({}, 'tester', PASSWORD, slots))
+    assert await asyncio.to_thread(started.wait, 5)
+    task.cancel()
+    await asyncio.sleep(0)
+    assert slots.locked()
+    finish.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert not slots.locked()
