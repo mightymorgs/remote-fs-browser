@@ -114,6 +114,8 @@ def main(argv=None):
     parser.add_argument('--password-stdin', action='store_true', help='Read the new password from standard input for account setup')
     parser.add_argument('--resolve-host', help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if args.port is not None and not 1 <= args.port <= 65535:
+        parser.error('Port must be between 1 and 65535')
 
     if args.resolve_host:
         import socket

@@ -33,3 +33,11 @@ def test_setup_custom_subnet_validation_and_existing_account(tmp_path, monkeypat
     config = json.loads(target.read_text())
     assert config['policy']['network_ranges'] == ['192.168.122.0/24']
     assert config['account'] == account and config['storage_key'] == 'keep-this-key'
+
+
+def test_invalid_setup_port_does_not_create_configuration(tmp_path, monkeypatch):
+    monkeypatch.setenv('XDG_CONFIG_HOME', str(tmp_path))
+    monkeypatch.setenv('APPDATA', str(tmp_path))
+    with pytest.raises(SystemExit):
+        main(['setup', '--port', '0'])
+    assert not (tmp_path/'remotefs/config.json').exists()
