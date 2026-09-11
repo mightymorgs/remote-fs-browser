@@ -1,6 +1,7 @@
 """Build GitHub Pages from the canonical Markdown documentation."""
 from pathlib import Path
 import re
+import shutil
 import markdown
 
 root = Path(__file__).resolve().parents[1]
@@ -16,7 +17,7 @@ remotefs is an open source file manager for local folders, SMB shares and NFS ex
 
 ## Watch it install and run
 
-<video controls preload="metadata" aria-label="remotefs installation and file management demonstration"><source src="{video}" type="video/mp4"></video>
+<video controls preload="metadata" poster="demo-poster.jpg" aria-label="remotefs installation and file management demonstration"><source src="{video}" type="video/mp4"><track default kind="captions" src="demo.vtt" srclang="en" label="English"></video>
 
 [Download the video]({video}) · [Read the demonstration transcript](demo.html)
 
@@ -43,3 +44,6 @@ for filename, title, source in [('index.html','remotefs',home),('quickstart.html
     body = re.sub(r'href="([^"]+)"', link, body)
     (out/filename).write_text(f'<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="remotefs: browser file management for local folders, SMB and NFS. Installation, quickstart and API documentation."><title>{title} — remotefs</title><style>{style}</style></head><body><main><nav><a href="index.html">remotefs</a><a href="quickstart.html">Quickstart</a><a href="reference.html">Reference</a><a href="https://github.com/mightymorgs/remote-fs-browser">GitHub</a></nav>{body}<footer>MIT licensed · Built from the repository documentation.</footer></main></body></html>')
 (out/'.nojekyll').touch()
+
+for asset in ("demo-poster.jpg", "demo.vtt"):
+    shutil.copyfile(root / "docs/site" / asset, out / asset)

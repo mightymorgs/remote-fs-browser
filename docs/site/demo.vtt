@@ -1,0 +1,29 @@
+WEBVTT
+
+00:00.000 --> 00:07.000
+Install the published package with pipx.
+Python and pipx are already installed.
+
+00:07.000 --> 00:13.000
+Create a demo login and start remotefs.
+Only the isolated demo folder is exposed.
+
+00:13.000 --> 00:18.000
+Open the browser interface and sign in.
+
+00:18.000 --> 00:24.000
+Open a text file, edit its contents and save.
+
+00:24.000 --> 00:29.000
+Create a folder and add it to favourites.
+
+00:29.000 --> 00:33.000
+Browse the favourite folder and return.
+
+00:33.000 --> 00:40.000
+Download the edited file.
+The script verifies the downloaded contents.
+
+00:40.000 --> 00:46.240
+Ready to use. See the quickstart for SMB,
+NFS, multipart downloads and other platforms.
