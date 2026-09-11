@@ -17,10 +17,20 @@ REPO = Path(__file__).resolve().parents[1]
 PLATFORM = 'windows' if sys.platform == 'win32' else 'macos' if sys.platform == 'darwin' else 'linux'
 PREFIX = Path('C:/ProgramData/remote-fs-browser' if PLATFORM == 'windows' else '/opt/remote-fs-browser')
 BASE = 'http://127.0.0.1:18765'
+# Public fixtures for the disposable, loopback-only CI service; never deployment defaults.
+INITIAL_CREDENTIAL = 'deployment-smoke-test-password'
+ROTATED_CREDENTIAL = 'deployment-smoke-rotated-password'
 
 
 def run(args, **kwargs):
     return subprocess.run([str(a) for a in args], check=True, **kwargs)
+
+
+def private_input(path, text):
+    # Set Unix permissions before writing, not after exposing the contents.
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, 'w', encoding='utf-8') as stream:
+        stream.write(text)
 
 
 def main():
@@ -32,9 +42,8 @@ def main():
     root.mkdir(exist_ok=True)
     config = workspace / 'config.json'
     password_file = workspace / 'password'
-    password = secrets.token_urlsafe(32)
-    password_file.write_text(password)
-    password_file.chmod(0o600)
+    password = INITIAL_CREDENTIAL
+    private_input(password_file, password)
     settings = {'bind': '127.0.0.1', 'port': 18765,
                 'policy': {'local_roots': [str(root)], 'network_ranges': ['127.0.0.1/32']},
                 'staging_stores': {'Downloads': str(workspace / 'staging 100%')}}
@@ -90,8 +99,7 @@ def main():
                          'remote_fs_skip_dependencies': True, 'remote_fs_without_nfs': True,
                          'remote_fs_python': sys.executable, 'ansible_python_interpreter': sys.executable}
             var_file = workspace / 'ansible-private.json'
-            var_file.write_text(json.dumps(variables))
-            var_file.chmod(0o600)
+            private_input(var_file, json.dumps(variables))
             ansible = [shutil.which('ansible-playbook'), REPO / f'playbooks/{PLATFORM}/install.yml', '-i', 'localhost,', '-c', 'local', '-e', '@' + str(var_file), '-e', '{"ansible_become":true}', '--limit', 'all']
             # Use the playbook's actual inventory group.
             inventory = workspace / 'inventory.ini'
@@ -132,8 +140,8 @@ if ($Ansible.Changed) { throw 'Windows playbook repeat was not idempotent' }
             run(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', harness, '-Parameters', parameters])
         login()
         assert any(c['id'] == credential for c in request('/api/credentials')['credentials'])
-        password = secrets.token_urlsafe(32)
-        password_file.write_text(password)
+        password = ROTATED_CREDENTIAL
+        private_input(password_file, password)
         run(install)
         login()
         assert any(c['id'] == credential for c in request('/api/credentials')['credentials'])
