@@ -8,20 +8,20 @@ root = Path(__file__).resolve().parents[1]
 out = root / '_site'
 out.mkdir(exist_ok=True)
 style = '''body{margin:0;background:#10171e;color:#e4eaf0;font:17px/1.7 system-ui,sans-serif}main{max-width:920px;margin:auto;padding:48px 24px}a{color:#69ddd0}nav{display:flex;gap:24px;flex-wrap:wrap;margin-bottom:48px}h1{font-size:clamp(36px,6vw,60px);line-height:1.15}h2{margin-top:48px}pre{padding:20px;background:#1c2934;overflow:auto;border-radius:10px}code{font-size:.9em}table{display:block;overflow:auto;border-collapse:collapse}td,th{border:1px solid #42525f;padding:10px;text-align:left}video{width:100%;border-radius:12px;background:#000}blockquote{border-left:3px solid #69ddd0;padding-left:20px}footer{margin-top:60px;color:#aab8c5}img{max-width:100%}'''
-video = 'https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.1/remotefs-demo.mp4'
+video = 'https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.1/remotefs-feature-demo.mp4'
 home = f'''# Your files. In your browser.
 
-remotefs is an open source file manager for local folders, SMB shares and NFS exports. Browse, edit, upload and download through a browser, with a Python API for integration.
+Install one Python service on a computer that can reach your shares. Open a browser from another device, from anywhere with a permitted connection to the service. Browse local folders, SMB shares and NFS exports over your LAN, VPN, SSH tunnel or HTTPS setup. No operating-system mounts or remotefs agents on each file server are required.
 
 [Get started →](quickstart.html) · [Full features and API reference](reference.html)
 
 ## Watch it install and run
 
-<video controls preload="metadata" poster="demo-poster.jpg" aria-label="remotefs installation and file management demonstration"><source src="{video}" type="video/mp4"><track default kind="captions" src="demo.vtt" srclang="en" label="English"></video>
+<video controls preload="metadata" poster="demo-poster.jpg" aria-label="remotefs installation and file management demonstration"><source src="{video}" type="video/mp4"><track kind="captions" src="demo.vtt" srclang="en" label="English"></video>
 
 [Download the video]({video}) · [Read the demonstration transcript](demo.html)
 
-The recording uses the published 0.2.1 package on macOS, with Python and pipx already installed. It shows local demo files; SMB and NFS setup are covered in the quickstart.
+A 70-second feature demo using published 0.2.1: a short installation excerpt, real LAN discovery and SMB browsing through a Linux service. It shows subnet selection, saved locations, repo files, right-click actions, Shift-click selection, a verified SMB download and Unmount. This recording uses SSH over Tailscale; that is one connection option, not a requirement. NFS uses libnfs 6+.
 
 ## Install
 
