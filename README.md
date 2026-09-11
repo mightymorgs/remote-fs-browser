@@ -16,7 +16,7 @@ Install one Python service on a computer that can reach your shares, then use it
 - Direct file downloads or host-staged ZIP64 archives, optional byte splitting, HTTP Range support, packing pause/resume and explicit purge.
 - A Python SDK, authenticated HTTP API and embeddable directory picker with credential-free descriptors.
 
-[Documentation site](https://mightymorgs.github.io/remote-fs-browser/) · [Installation demo](https://mightymorgs.github.io/remote-fs-browser/#watch-it-install-and-run)
+[Documentation site](https://mightymorgs.github.io/remote-fs-browser/) · [Product demo](https://mightymorgs.github.io/remote-fs-browser/#watch-it-install-and-run)
 
 ## Quick start
 

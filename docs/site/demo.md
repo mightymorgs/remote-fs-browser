@@ -1,13 +1,12 @@
 # Installation and network demonstration
 
-The recording uses the published 0.2.1 package and real browser interactions. The opening shows installation and local file management on macOS. The network section uses the same package on a Linux hypervisor, reached from the Mac through an SSH tunnel over Tailscale. The SMB server is SmartNAS, with a temporary read-only share containing a clean checkout of this public repository.
+The recording uses the published 0.2.1 package and real browser interactions. The opening includes a short installation excerpt on macOS. The network section uses the same package on a Linux hypervisor, reached from the Mac through an SSH tunnel over Tailscale. The SMB server is SmartNAS, with a temporary read-only share containing a clean checkout of this public repository.
 
-## Installation and local files
+## Short installation excerpt
 
-1. Install `remote-fs-browser==0.2.1` with pipx. Python 3.11+ and pipx are already installed.
-2. Create a demo account and start the service with an isolated local root. The password is supplied privately; paths in the terminal are shortened for readability.
-3. Sign in, open and edit a text file, create a folder and add it to favourites.
-4. Download the edited file. The recording script checks the downloaded bytes against the saved file.
+The feature cut briefly shows installing `remote-fs-browser==0.2.1` with pipx. Python and pipx are already installed. The longer [installation and local-file walkthrough](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.1/remotefs-demo.mp4) also shows account setup, editing, folder creation and a local-file download.
+
+The 70-second feature cut removes scan waits and repeated navigation. Feature labels are built into the MP4, including explicit SMB connection and download proof. These are edited recordings of actual interactions; filesystem responses are not simulated.
 
 ## Network workflow
 
@@ -22,9 +21,17 @@ The recording uses the published 0.2.1 package and real browser interactions. Th
 9. Reload the page and reopen the saved network location from the shortlist.
 10. Map the server again using its saved credentials, then **Unmount** it. The recording checks that the session deletion succeeds and the sidebar mapping disappears.
 
+## SMB proof
+
+The service connected to `smb://192.168.0.107/remotefs-demo`. The browser downloaded `remote-fs-browser/README.md` through that SMB session, and the recording script compared the downloaded bytes with the NAS source over SSH. They matched. The downloaded file also matches the README in the public v0.2.1 tag:
+
+```text
+SHA-256: 2166f9029173896511b2feeb5c98f255df7d840c323ddb998291a88ecc4036d6
+```
+
 ## How it works
 
-One Python service connects to the shares its host can reach. The viewing device needs a browser and a permitted connection to that service; file servers need no remotefs agent. Tailscale can carry the browser-to-service connection without installing Tailscale on every LAN file server.
+Open a browser from another device, from anywhere. One Python service connects to the shares its host can reach. The viewing device needs a browser and a permitted connection to that service; file servers need no remotefs agent. Tailscale can carry the browser-to-service connection without installing Tailscale on every LAN file server.
 
 **Map** and **Unmount** manage application sessions. They do not create or remove operating-system mounts on either computer. Saved locations and credentials persist separately from page-local mappings. Network routes, policy, share credentials and filesystem permissions still apply.
 

@@ -1,71 +1,89 @@
 WEBVTT
 
-00:00:00.000 --> 00:00:07.000
-Install the published package with pipx.
-Python and pipx are already installed.
+00:00:00.000 --> 00:00:01.800
+Real SMB. Real files.
+SmartNAS → Python service → Mac browser
 
-00:00:07.000 --> 00:00:13.000
-Create a demo login and start remotefs.
-Only the isolated demo folder is exposed.
+00:00:01.800 --> 00:00:03.800
+Install once
+Python + pipx already installed
 
-00:00:13.000 --> 00:00:18.000
-Open the browser interface and sign in.
+00:00:03.800 --> 00:00:05.800
+Installed from PyPI
+The published 0.2.1 package
 
-00:00:18.000 --> 00:00:24.000
-Open a text file, edit its contents and save.
+00:00:05.800 --> 00:00:09.520
+Sign in from another device
+Demo connection: SSH over Tailscale
 
-00:00:24.000 --> 00:00:29.000
-Create a folder and add it to favourites.
+00:00:09.520 --> 00:00:13.800
+Scan your LAN
+Choose the subnet the service should probe
 
-00:00:29.000 --> 00:00:33.000
-Browse the favourite folder and return.
+00:00:13.800 --> 00:00:16.000
+Real network results
+SMB and NFS services discovered on the LAN
 
-00:00:33.000 --> 00:00:37.500
-Download the edited file.
-The script verifies the downloaded contents.
+00:00:16.000 --> 00:00:19.800
+Switch subnet
+Select 192.168.122.0/24 — the NAT VM network
 
-00:00:37.500 --> 00:00:44.460
-Now run the same Python service on Linux.
-This Mac connects through SSH over Tailscale.
+00:00:19.800 --> 00:00:21.760
+Subnet scan complete
+No SMB/NFS services replied on this VM subnet
 
-00:00:44.460 --> 00:00:50.580
-Browser on Mac → SSH over Tailscale → Python service on Linux
+00:00:21.760 --> 00:00:23.760
+Map a real SMB server
+SmartNAS at 192.168.0.107
 
-00:00:50.580 --> 00:01:03.870
-Scan the service host’s LAN, with DNS, NetBIOS and IP results
+00:00:23.760 --> 00:00:27.440
+Save SMB credentials
+Authenticate and list the server’s shares
 
-00:01:03.870 --> 00:01:16.810
-Select 192.168.122.0/24, the NAT VM subnet. No SMB/NFS services
-replied during this scan.
+00:00:27.440 --> 00:00:30.040
+SMB connected
+Open the dedicated remotefs-demo share
 
-00:01:16.810 --> 00:01:28.310
-Map a real SMB server and save credentials
+00:00:30.040 --> 00:00:35.120
+Save a network location
+Add the repository folder to your shortlist
 
-00:01:28.310 --> 00:01:33.380
-Save a network location to the shortlist
+00:00:35.120 --> 00:00:38.160
+Read files from the NAS
+Preview the remote repository’s README
 
-00:01:33.380 --> 00:01:36.360
-Browse repository files directly from the NAS
+00:00:38.160 --> 00:00:42.640
+Browse the Python source
+Open src/remote_fs_browser/cli.py over SMB
 
-00:01:36.360 --> 00:01:42.810
-Browse the Python source inside the repository
+00:00:42.640 --> 00:00:45.920
+Shift-click a range
+Select several files in one action
 
-00:01:42.810 --> 00:01:46.080
-Shift-click to select a range of files
+00:00:45.920 --> 00:00:49.040
+Right-click for file actions
+Choose Download from the context menu
 
-00:01:46.080 --> 00:01:54.540
-Right-click a file for actions and download it
+00:00:49.040 --> 00:00:52.320
+Download over SMB
+The file streams through the service to this Mac
 
-00:01:54.540 --> 00:01:57.490
-Reload and reopen the saved network location
+00:00:52.320 --> 00:00:56.120
+SMB proof
+Downloaded bytes matched the NAS source
 
-00:01:57.490 --> 00:02:08.280
-Map again using saved credentials
+00:00:56.120 --> 00:00:59.120
+Saved locations persist
+Reload and reopen the network folder
 
-00:02:08.280 --> 00:02:10.810
-Unmount disconnects the application session; no OS mount was
-created
+00:00:59.120 --> 00:01:02.800
+Reconnect with saved credentials
+Map the server without retyping the password
 
-00:02:12.980 --> 00:02:22.940
-One Python service. No OS mounts. No per-server agent.
-NFS uses libnfs; network permissions still apply.
+00:01:02.800 --> 00:01:05.320
+Unmount the connection
+Session deleted; no operating-system mount was created
+
+00:01:05.320 --> 00:01:10.320
+Open a browser from another device, from anywhere.
+One service, wherever your permitted connection can reach it

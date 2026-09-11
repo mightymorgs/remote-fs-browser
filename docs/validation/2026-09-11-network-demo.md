@@ -24,3 +24,5 @@ Validation: all 14 frontend tests pass, including a regression that constructs a
 Tailscale Serve was attempted, but certificate issuance failed on the host. The temporary Serve configuration was removed. The demo does not claim to have validated that HTTPS endpoint.
 
 The temporary NAS share and demo services are removed after recording. No personal file contents or passwords are included in the public recording.
+
+The published feature cut is 70.32 seconds. It removes idle waits, retains the real action/result shots, adds built-in feature labels and shows the verified SMB download hash. The full source recording remains separate from the edited movie.
