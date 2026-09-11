@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import time
+import textwrap
 import urllib.request
 import zipfile
 
@@ -105,7 +106,30 @@ def main():
             # Parse both scripts on the platform where they execute.
             run(['powershell.exe', '-NoProfile', '-Command',
                  "$errors=$null; Get-ChildItem scripts/windows/*.ps1 | ForEach-Object { [System.Management.Automation.Language.Parser]::ParseFile($_.FullName,[ref]$null,[ref]$errors) | Out-Null; if ($errors) { throw $errors } }"])
-            run(install)
+            # Execute the playbook's PowerShell logic with the same typed inputs
+            # it receives from win_powershell; WinRM transport is not exercised.
+            playbook = (REPO / 'playbooks/windows/install.yml').read_text()
+            script = workspace / 'windows-playbook.ps1'
+            script.write_text(textwrap.dedent(playbook.split('        script: |\n', 1)[1]))
+            parameters = workspace / 'windows-parameters.json'
+            parameters.write_text(json.dumps({'Source': str(REPO), 'ConfigJson': json.dumps(settings),
+                                              'Username': 'smoke', 'Python': sys.executable,
+                                              'PasswordFile': str(password_file), 'Script': str(script)}))
+            harness = workspace / 'windows-harness.ps1'
+            harness.write_text(r'''param([string]$Parameters)
+$ErrorActionPreference = 'Stop'
+$InputValues = Get-Content -Raw $Parameters | ConvertFrom-Json
+$Arguments = @{Source=$InputValues.Source; SourceChanged=$true; ConfigJson=$InputValues.ConfigJson;
+    Username=$InputValues.Username; Python=$InputValues.Python; WithoutNfs=$true; SkipDependencies=$true;
+    Password=(ConvertTo-SecureString ([IO.File]::ReadAllText($InputValues.PasswordFile)) -AsPlainText -Force)}
+$Ansible = [pscustomobject]@{Changed=$false}
+& $InputValues.Script @Arguments
+if (!$Ansible.Changed) { throw 'Initial Windows playbook apply did not register a change' }
+$Arguments.SourceChanged = $false
+& $InputValues.Script @Arguments
+if ($Ansible.Changed) { throw 'Windows playbook repeat was not idempotent' }
+''')
+            run(['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', harness, '-Parameters', parameters])
         login()
         assert any(c['id'] == credential for c in request('/api/credentials')['credentials'])
         password = secrets.token_urlsafe(32)

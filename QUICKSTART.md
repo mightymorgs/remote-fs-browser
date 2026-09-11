@@ -174,3 +174,7 @@ For the Windows portable edition, stop the app and extract the new ZIP into a fr
 | ZIP fails or staging is full | Ensure the configured staging directory is writable and has enough space; purge old staged jobs. |
 
 See the [full README](README.md), [security boundaries](SECURITY.md) and [tested environments](docs/validation/2026-09-11-dogfood.md) for details.
+
+## Automated or always-on deployment
+
+See the [deployment guide](docs/DEPLOYMENT.md) for unattended installers and Ansible on Linux, macOS and Windows, including password setup, service management and upgrades.
