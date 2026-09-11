@@ -14,6 +14,8 @@ Version 0.2.1 introduces password login, file write operations and staged multip
 - Direct file downloads or host-staged ZIP64 archives, optional byte splitting, HTTP Range support, packing pause/resume and explicit purge.
 - A Python SDK, authenticated HTTP API and embeddable directory picker with credential-free descriptors.
 
+[Documentation site](https://mightymorgs.github.io/remote-fs-browser/) · [Installation demo](https://mightymorgs.github.io/remote-fs-browser/#watch-it-install-and-run)
+
 ## Quick start
 
 Follow the [step-by-step quickstart](QUICKSTART.md) for first login, NAS connections, file operations and multipart downloads.
