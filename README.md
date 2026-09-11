@@ -194,6 +194,88 @@ These install into a private prefix, build the pinned libnfs (macOS uses Homebre
 
 For Ansible, use `playbooks/<platform>/install.yml` with the `filesystem_hosts` group, `remote_fs_source` (destination checkout directory) and `remote_fs_config` (private config path already on the host). macOS also needs `remote_fs_brew_user`; Windows needs `ansible.windows`. The playbooks copy only public source files. Matching uninstall scripts and playbooks stop and remove the service; `--purge` on Unix or `-Purge` on Windows also removes the private installation directory. Never store credentials or real host configurations in Git.
 
+## Terminal file manager
+
+Client commands are available from the current source checkout; the published 0.2.1 CLI has only `serve` and `account`. Install the checkout with `pipx install .` to use them before the next release.
+
+The CLI can use the same running service as the web UI. Commands share its roots,
+network policy, saved locations, encrypted credentials and download jobs. `serve`
+and `account` still work as before; client commands do not start another server.
+
+```bash
+export REMOTEFS_URL=http://127.0.0.1:8080
+remotefs login --username morgs        # prompts for the server password
+remotefs discover                    # roots and server-side network ranges
+remotefs scan                        # first page of the server's default ranges
+remotefs scan --ranges '192.168.1.0/24,10.10.0.0/24,10.20.0.5' --all
+remotefs shares nas.example --type smb --username morgs
+remotefs connect --type smb --host nas.example --share Media --username morgs
+```
+
+`connect` returns a session `id`. Use it in subsequent commands; paths are relative
+to that connection's root. Sessions expire after the server's configured idle
+timeout, or immediately with `disconnect`.
+
+```bash
+remotefs ls SESSION_ID /
+remotefs mkdir SESSION_ID /Movies
+remotefs select SESSION_ID /Movies    # directory descriptor for an installer
+remotefs stat SESSION_ID /Movies/example.mkv
+remotefs get SESSION_ID /Movies/example.mkv ./example.mkv
+remotefs put SESSION_ID /Movies/example.mkv ./example.mkv
+remotefs rename SESSION_ID /Movies/old.mkv /Movies/new.mkv
+remotefs copy SESSION_ID /Movies/new.mkv /Movies/copy.mkv
+remotefs remove SESSION_ID /Movies/copy.mkv
+remotefs disconnect SESSION_ID
+```
+
+`connect --type local --root /path/on/server` browses a permitted server directory.
+For NFS, use `--type nfs --host nas.example --export /media --nfs-version 4`.
+`copy --target-session OTHER_ID` copies between connections. Directory deletion
+requires `--recursive`; replacing uploaded or downloaded files requires
+`--overwrite`. Downloads stream to a temporary file before replacing their
+output; `get ... -` streams to stdout.
+
+```bash
+remotefs saved add --type smb --host nas.example --share Media --username morgs --label Media
+remotefs saved list
+remotefs connect --saved-id LOCATION_ID
+remotefs saved remove --id LOCATION_ID
+remotefs credentials add --host nas.example --username morgs
+remotefs credentials list
+remotefs shares nas.example --credential-id CREDENTIAL_ID
+remotefs credentials remove --id CREDENTIAL_ID
+```
+
+Saved locations and host credentials are stored by the server, and are immediately
+available in its web UI. Passwords are prompted without echo; `--password-stdin`
+is available for automation. Do not put passwords in command arguments. Client
+login cookies are kept in the per-user `remotefs/client.json` file (mode 0600 on
+Unix), keyed by server origin. Use `--auth-file` to isolate clients. `logout`
+invalidates that login and closes the account's active browsing sessions, including
+sessions opened in the web UI. Authentication expires after the server's login
+lifetime; sign in again when it returns HTTP 401. Use HTTPS or an encrypted tunnel
+for remote access, as with the web UI.
+
+```bash
+remotefs downloads list
+remotefs downloads estimate --session SESSION_ID --paths /Movies /Music
+remotefs downloads create --session SESSION_ID --paths /Movies --store Downloads
+remotefs downloads pause --id JOB_ID
+remotefs downloads resume --id JOB_ID
+remotefs downloads part --id JOB_ID --index 0 --file ./media.zip
+remotefs downloads purge --id JOB_ID
+remotefs downloads forget --id JOB_ID
+```
+
+All command results are JSON, except streamed file bytes. `scan --all` emits one
+JSON line per page; without it, use the returned `next_offset` with `--offset`.
+Custom ranges remain subject to the server's allowed networks. Every client
+command accepts `--url`, `--auth-file`, and `--timeout`; put options after the
+command. Use `remotefs COMMAND --help` for details. GUI layout, sorting and visual
+selection are presentation features; the CLI exposes their underlying directory
+listings and descriptors for shell tools.
+
 ## Python SDK
 
 ```python
@@ -227,7 +309,7 @@ For mutations, add the required operations to `Policy.operations`: `write`, `mkd
 
 The standalone service uses one configured username/password account. Sign-in issues an eight-hour HttpOnly, SameSite=Strict cookie scoped to `/api`; it is Secure when served over HTTPS. Mutations using a browser cookie require a matching Origin header. Login attempts and authenticated requests are rate-limited. Sign-out revokes the current login and closes filesystem sessions belonging to that principal; service restart ends all browser logins.
 
-Page assets are public; data endpoints require authentication. An embedded service may supply authentication hooks or a bearer token instead. Routes below use `/api`; older discovery, saved-location and read/session routes also retain their unprefixed aliases. New mutation, credential and archive routes require `/api`.
+Page assets are public; data endpoints require authentication. An embedded service may supply authentication hooks or a bearer token instead. Routes below use `/api`. The current source checkout also exposes unprefixed compatibility aliases for discovery, sessions, saved locations, mutations, credentials and archives. Login stays under `/api/login`; use the canonical prefix for cookie authentication.
 
 | Method / route | Purpose or body |
 |---|---|
@@ -278,11 +360,60 @@ Use `frontend/browser.js` directly or the packaged `/browser.js` asset. It defin
 ```javascript
 import { RemoteFsClient } from './browser.js'
 const picker = document.querySelector('remote-fs-browser')
-picker.client = new RemoteFsClient('/storage-api', () => ({ Authorization: `Bearer ${token}` }))
+picker.client = new RemoteFsClient('/storage-api/api', () => ({ Authorization: `Bearer ${token}` }))
 picker.addEventListener('path-selected', event => saveDescriptor(event.detail))
 // Optional: the embedding app saves credentials itself and returns an opaque reference.
 // picker.storeCredentials = async credentials => mySecretStore.save(credentials)
 ```
+
+When mounting the reference API inside another FastAPI application, include its lifespan in the host's lifespan so session expiry and worker/job cleanup run:
+
+```python
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from remote_fs_browser.http import create_app
+
+storage = create_app(policy, authenticate=authenticate_user)
+
+@asynccontextmanager
+async def lifespan(app):
+    async with storage.router.lifespan_context(storage):
+        yield
+
+app = FastAPI(lifespan=lifespan)
+app.mount('/storage-api', storage)
+```
+
+Here `policy` and `authenticate_user` are supplied by the embedding application as described above.
+
+For an API mounted with `app.mount('/storage-api', create_app(...))`, use `/storage-api/api` as the client base. The standalone service uses `/api`. Existing bearer-authenticated integrations using the legacy unprefixed routes continue to work, including file mutations, host credentials and staged downloads. Cookie login uses the canonical `/api` routes and is scoped to the mount path.
+
+The current source checkout adds the client helpers below alongside the terminal client; published 0.2.1 does not yet include all of these helpers.
+
+| Area | JavaScript methods |
+| --- | --- |
+| Login | `login(username, password)`, `loginStatus()`, `logout()` |
+| Discovery | `discover()`, `scan(ranges, offset)`, `shares(type, host, credentials?, credentialId?)` |
+| Sessions | `connect(descriptor, credentials?)`, `close(id)` |
+| Files | `list`, `stat`, `descriptor`, `file`, `upload`, `mkdir`, `rename`, `copy`, `remove` |
+| Saved locations | `saved()`, `save(descriptor, credentials, label)`, `forget(id)` |
+| Host credentials | `hostCredentials()`, `saveHostCredentials(host, credentials)`, `forgetHostCredentials(id)` |
+| Archives | `downloads()`, `estimateDownload(session, paths)`, `createDownload(session, paths, store, partSize)` |
+| Archive controls | `controlDownload(id, 'pause' | 'resume' | 'forget')`, `purgeDownload(id)`, `downloadPart(id, index, range?)` |
+
+```javascript
+const client = new RemoteFsClient('/api')
+await client.login(username, password) // HttpOnly session cookie; no JS password storage
+const { id } = await client.connect({ type: 'local', root: '/srv/files' })
+await client.mkdir(id, '/inbox')
+const estimate = await client.estimateDownload(id, ['/inbox'])
+// Choose an available staging store returned by the service before creating a job.
+await client.close(id)
+```
+
+`file()` and `downloadPart()` return a Fetch `Response`; check `response.ok` and stream the body for large downloads. Both accept a final `{ signal }` option. `upload()` accepts `{ overwrite, signal, progress }`. `copy(id, source, destination, targetSession?)` supports copying between owned sessions. `controlDownload(..., 'forget')` removes an already-purged job record; `purgeDownload()` removes staged bytes.
+
+Fetch and upload requests use same-origin credentials by default. A third constructor argument `{ credentials: 'include' }` enables credentialed cross-origin requests where the host's CORS/authentication policy permits them; it does not bypass same-origin mutation checks or SameSite cookies. Custom authentication headers remain supported. The embedding app owns its login screen, archive controls and credential-management UI; the custom element keeps its existing picker/browse interface and events.
 
 The element fills the box it is given. It renders the shortlist and the host's roots in a sidebar, network devices from an explicit scan, per-host share and export lists, credential entry, nested folders with formatted sizes and dates, in-place errors with retry, expiry reconnect, downloads in browse mode and a live descriptor preview with a Select button in select mode. The `signout` attribute adds a Sign out button that fires a `sign-out` event for the host page to act on. When the service offers `/api/saved` and no `storeCredentials` hook is set, "Save folder to shortlist" stores the current folder there. It closes its session on selection, disconnect or element removal. Keep the service on the same origin or configure a restrictive CORS policy when embedding across origins. The JS client's `file()` returns a Fetch `Response`; consume its `body` as a stream rather than calling `blob()` for large files.
 

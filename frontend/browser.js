@@ -8,25 +8,32 @@
  * Properties stay in memory; no stored credentials.
  */
 export class RemoteFsClient {
-  constructor(baseUrl, headers = () => ({})) { this.baseUrl = baseUrl.replace(/\/$/, ''); this.headers = headers }
+  constructor(baseUrl, headers = () => ({}), { credentials = 'same-origin' } = {}) { this.baseUrl = baseUrl.replace(/\/$/, ''); this.headers = headers; this.fetchCredentials = credentials }
   async request(path, { method = 'GET', body, signal, raw = false } = {}) {
-    const response = await fetch(this.baseUrl + path, { method, signal, headers: { ...this.headers(), ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) })
+    const response = await fetch(this.baseUrl + path, { method, signal, credentials: this.fetchCredentials, headers: { ...this.headers(), ...(body ? { 'Content-Type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) })
     if (!response.ok) { const error = new Error((await response.json().catch(() => ({}))).detail || `Request failed (${response.status})`); error.status = response.status; throw error }
     return raw ? response : response.json()
   }
+  login(username, password) { return this.request('/login', { method: 'POST', body: { username, password } }) }
+  loginStatus() { return this.request('/login') }
+  logout() { return this.request('/login', { method: 'DELETE' }) }
   discover(scan = false) { return this.request(`/discover?scan=${scan}`) }
   scan(ranges, offset = 0) { return this.request('/discover', { method: 'POST', body: { ranges, offset } }) }
-  shares(type, host, credentials) { return this.request('/discover', { method: 'POST', body: { type, host, credentials } }) }
+  shares(type, host, credentials, credentialId) { return this.request('/discover', { method: 'POST', body: { type, host, credentials, credential_id: credentialId } }) }
   connect(descriptor, credentials) { return this.request('/sessions', { method: 'POST', body: { descriptor, credentials } }) }
   list(id, path) { return this.request(`/sessions/${encodeURIComponent(id)}/list?${new URLSearchParams({ path })}`) }
   stat(id, path) { return this.request(`/sessions/${encodeURIComponent(id)}/stat?${new URLSearchParams({ path })}`) }
   descriptor(id, path) { return this.request(`/sessions/${encodeURIComponent(id)}/descriptor?${new URLSearchParams({ path })}`) }
-  file(id, path, range) { return fetch(`${this.baseUrl}/sessions/${encodeURIComponent(id)}/file?${new URLSearchParams({ path })}`, { headers: { ...this.headers(), ...(range ? { Range: range } : {}) } }) }
+  file(id, path, range, { signal } = {}) { return fetch(`${this.baseUrl}/sessions/${encodeURIComponent(id)}/file?${new URLSearchParams({ path })}`, { signal, credentials: this.fetchCredentials, headers: { ...this.headers(), ...(range ? { Range: range } : {}) } }) }
+  mkdir(id, path) { return this.mutate(id, 'mkdir', { path }) }
+  rename(id, source, destination) { return this.mutate(id, 'rename', { source, destination }) }
+  copy(id, source, destination, targetSession) { return this.mutate(id, 'copy', { source, destination, target_session: targetSession }) }
   mutate(id, operation, body) { return this.request(`/sessions/${encodeURIComponent(id)}/${operation}`, { method: 'POST', body }) }
   remove(id, path, recursive = false) { return this.request(`/sessions/${encodeURIComponent(id)}/entry?${new URLSearchParams({ path, recursive })}`, { method: 'DELETE' }) }
   upload(id, path, file, { overwrite = false, signal, progress } = {}) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest()
+      xhr.withCredentials = this.fetchCredentials === 'include'
       xhr.open('PUT', `${this.baseUrl}/sessions/${encodeURIComponent(id)}/file?${new URLSearchParams({ path, overwrite })}`)
       for (const [key, value] of Object.entries(this.headers())) xhr.setRequestHeader(key, value)
       xhr.setRequestHeader('Content-Type', 'application/octet-stream')
@@ -46,6 +53,17 @@ export class RemoteFsClient {
     })
   }
   close(id) { return this.request(`/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }) }
+  hostCredentials() { return this.request('/credentials') }
+  saveHostCredentials(host, credentials) { return this.request('/credentials', { method: 'POST', body: { host, credentials } }) }
+  forgetHostCredentials(id) { return this.request(`/credentials/${encodeURIComponent(id)}`, { method: 'DELETE' }) }
+  downloads() { return this.request('/downloads') }
+  estimateDownload(session, paths) { return this.request('/downloads/estimate', { method: 'POST', body: { session, paths } }) }
+  createDownload(session, paths, store, partSize = 0) { return this.request('/downloads', { method: 'POST', body: { session, paths, store, part_size: partSize } }) }
+  controlDownload(id, action) { return this.request(`/downloads/${encodeURIComponent(id)}`, { method: 'POST', body: { action } }) }
+  purgeDownload(id) { return this.request(`/downloads/${encodeURIComponent(id)}`, { method: 'DELETE' }) }
+  downloadPart(id, index, range, { signal } = {}) {
+    return fetch(`${this.baseUrl}/downloads/${encodeURIComponent(id)}/parts/${encodeURIComponent(index)}`, { signal, credentials: this.fetchCredentials, headers: { ...this.headers(), ...(range ? { Range: range } : {}) } })
+  }
   saved() { return this.request('/saved') }
   save(descriptor, credentials, label) { return this.request('/saved', { method: 'POST', body: { descriptor, credentials, label } }) }
   forget(id) { return this.request(`/saved/${encodeURIComponent(id)}`, { method: 'DELETE' }) }
