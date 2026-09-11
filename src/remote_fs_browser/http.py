@@ -80,7 +80,7 @@ class BodyLimit:
 
 
 def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
-               authorize: Callable | None = None, credential_resolver=None, root_kinds=None, saved_locations=None, account=None, staging_stores=None):
+               authorize: Callable | None = None, credential_resolver=None, root_kinds=None, saved_locations=None, account=None, staging_stores=None, staging_store_writer=None):
     if not account and not authenticate and (not token or len(token) < 32):
         raise ValueError('Configure an authentication hook or a token of at least 32 characters')
     if saved_locations is not None and credential_resolver is None:
@@ -318,7 +318,43 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
     @app.get('/downloads', include_in_schema=False)
     async def downloads(request: Request):
         await allowed(request, 'read')
-        return {'jobs': jobs.list(request.state.principal), 'stores': jobs.capacity()}
+        return {'jobs': jobs.list(request.state.principal), 'stores': jobs.capacity(),
+                'manage_stores': staging_store_writer is not None and 'write' in policy.operations}
+
+    @app.post('/api/downloads/stores')
+    async def choose_archive_store(request: Request):
+        if staging_store_writer is None:
+            raise PermissionError('ZIP folder changes are disabled by the service administrator')
+        data = await request.json()
+        session = get(request, data['session'])
+        descriptor = session.descriptor(data.get('path', '/'))
+        if descriptor['type'] != 'local':
+            raise ValueError('Choose a folder on the service computer')
+        await allowed(request, 'write', descriptor)
+        await allowed(request, 'stat', descriptor)
+        info = await session.stat(data.get('path', '/'))
+        if info['type'] != 'directory':
+            raise ValueError('Choose a folder')
+        from .policy import normalize
+        target = Path(descriptor['root']) / normalize(data.get('path', '/')).lstrip('/')
+        target = Path(policy.local_root(target))
+        # Verify write access now, including any system-service sandbox restrictions.
+        import tempfile
+        with tempfile.TemporaryFile(dir=target):
+            pass
+        key = next((key for key, folder in jobs.stores.items() if folder == target), None)
+        if key is None:
+            if len(jobs.stores) >= 64:
+                raise ValueError('The service already has 64 ZIP preparation folders')
+            label = target.name or 'Downloads'
+            key, number = label, 2
+            while key in jobs.stores:
+                key, number = f'{label} ({number})', number + 1
+        # First store is the default for the next ZIP, including after a restart.
+        stores = {key: target, **{k: v for k, v in jobs.stores.items() if k != key}}
+        staging_store_writer({k: str(v) for k, v in stores.items()})
+        jobs.stores = stores
+        return {'id': key, 'stores': jobs.capacity()}
 
     @app.post('/api/downloads/estimate')
     @app.post('/downloads/estimate', include_in_schema=False)

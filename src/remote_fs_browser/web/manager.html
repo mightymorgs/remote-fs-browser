@@ -579,6 +579,7 @@
 
           <div style="display:flex;flex-direction:column;gap:7px">
             <span style="font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.08em;text-transform:uppercase;color:#6a727c">Build the zip on</span>
+            <sc-if value="{{ canChooseZipFolder }}"><button type="button" onClick="{{ chooseZipFolder }}" style="padding:9px 12px;border:1px solid #c8ccd3;border-radius:8px;background:#fff;cursor:pointer">Choose folder…</button></sc-if>
             <sc-for list="{{ zipStores }}" as="store" hint-placeholder-count="4">
               <button type="button" onClick="{{ store.pick }}" style="display:flex;align-items:flex-start;gap:10px;width:100%;padding:10px 11px;border:1px solid {{ store.line }};border-radius:9px;background:{{ store.bg }};text-align:left;cursor:pointer" style-hover="border-color:#b6c6e8">
                 <span style="display:grid;place-items:center;width:15px;height:15px;flex:none;margin-top:2px;border:1px solid {{ store.tickLine }};border-radius:50%;background:{{ store.tickBg }};color:{{ store.tickInk }};font-size:9px;line-height:1;font-weight:700">✓</span>

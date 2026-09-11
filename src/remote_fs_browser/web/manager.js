@@ -159,6 +159,52 @@ class Component extends DCLogic {
     if(!estimate.stores.length)return this.say('No staging stores configured on this service')
     this.setState({stores:estimate.stores,menu:null,zip:{picked,session:this.state.session.id,split:'2',store:0,custom:'40',unit:'MB',...estimate}})
   }
+  async chooseZipFolder() {
+    const roots=this.state.roots.filter(root=>root.type==='local')
+    if(!roots.length)return this.say('No local folders are available on the service computer')
+    const dialog=document.createElement('dialog');dialog.className='manager-dialog'
+    const heading=document.createElement('h2');heading.textContent='Choose ZIP preparation folder'
+    const note=document.createElement('p');note.textContent='Choose a folder on the computer running remotefs. ZIPs are prepared here before the browser downloads them.'
+    const select=document.createElement('select');select.setAttribute('aria-label','Local root');select.style.cssText='width:100%;padding:9px;border:1px solid #c8ccd3;border-radius:8px;background:#fff'
+    roots.forEach((root,index)=>{const option=document.createElement('option');option.value=String(index);option.textContent=root.root;select.append(option)})
+    const location=document.createElement('p');location.setAttribute('aria-live','polite');location.style.overflowWrap='anywhere'
+    const list=document.createElement('div');list.style.cssText='display:flex;flex-direction:column;gap:6px;max-height:35vh;overflow:auto'
+    const error=document.createElement('p');error.setAttribute('role','alert')
+    const buttons=document.createElement('div');buttons.className='dialog-buttons'
+    const button=(label,handler)=>{const node=document.createElement('button');node.type='button';node.textContent=label;node.style.cssText='padding:8px 12px;border:1px solid #c8ccd3;border-radius:8px;background:#fff;cursor:pointer';node.onclick=handler;return node}
+    let session=null,path='/',generation=0;const sessions=[]
+    const safely=fn=>async()=>{try{error.textContent='';await fn()}catch(e){error.textContent=e.message;select.disabled=false}}
+    const load=async(next,changeRoot=false)=>{
+      const current=++generation;use.disabled=true;mkdir.disabled=true;select.disabled=true;list.replaceChildren()
+      if(changeRoot){session=await this.api('/sessions',{descriptor:roots[Number(select.value)]});sessions.push(session.id)}
+      const data=await this.api(`/sessions/${session.id}/list?${new URLSearchParams({path:next})}`)
+      if(current!==generation||!dialog.open)return
+      path=next;location.textContent=roots[Number(select.value)].root+' · '+path
+      if(path!=='/')list.append(button('↑ Parent folder',safely(()=>load(path.slice(0,path.lastIndexOf('/'))||'/'))))
+      data.entries.filter(e=>e.type==='directory').forEach(entry=>list.append(button('📁 '+entry.name,safely(()=>load(entry.path)))))
+      if(data.truncated)error.textContent='This folder has more entries than the service listing limit.'
+      use.disabled=false;select.disabled=false;mkdir.disabled=!session.operations.includes('mkdir')
+    }
+    const mkdir=button('New folder',safely(async()=>{
+      const name=await this.dialog('New folder','Folder name','ZIP downloads','Create')
+      if(!name)return;this.validName(name)
+      const next=(path==='/'?'':path)+'/'+name
+      await this.api(`/sessions/${session.id}/mkdir`,{path:next});await load(next)
+    }))
+    const use=button('Use this folder',safely(async()=>{
+      use.disabled=true
+      try {
+        const result=await this.api('/downloads/stores',{session:session.id,path})
+        this.setState({stores:result.stores,zip:{...this.state.zip,store:result.stores.findIndex(s=>s.id===result.id)}})
+        dialog.close();this.say('ZIP preparation folder saved')
+      }finally{use.disabled=false}
+    }))
+    buttons.append(mkdir,button('Cancel',()=>dialog.close()),use)
+    dialog.append(heading,note,select,location,list,error,buttons)
+    select.onchange=safely(()=>load('/',true))
+    dialog.onclose=()=>{generation++;dialog.remove();sessions.forEach(id=>this.api(`/sessions/${id}`,undefined,'DELETE').catch(()=>{}))}
+    document.body.append(dialog);dialog.showModal();await safely(()=>load('/',true))()
+  }
   zipTotal() {return this.state.zip?.total||0}
   zipName(picked) {
     if (picked.length === 1) return `${picked[0].name}.zip`
@@ -758,6 +804,8 @@ class Component extends DCLogic {
       submitPrompt: event => { if (event && event.preventDefault) event.preventDefault(); this.submitPrompt() },
 
       zipOpen: !!this.state.zip,
+      canChooseZipFolder: !!this.state.manageStores,
+      chooseZipFolder: () => this.chooseZipFolder(),
       zipName: this.state.zip ? this.zipName(this.state.zip.picked) : '',
       zipSize: this.state.zip ? this.bytes(this.zipTotal(this.state.zip.picked)) : '',
       zipContents: this.state.zip
@@ -1132,7 +1180,7 @@ class Component extends DCLogic {
     this.polling=true
     try {
       const data=await this.api('/downloads')
-      this.setState({stores:data.stores, transfers:[...this.state.transfers.filter(j=>j.kind==='files'),...data.jobs.map(job=>({...job,open:this.state.transfers.find(j=>j.id===job.id)?.open??true}))]})
+      this.setState({stores:data.stores, manageStores:data.manage_stores, transfers:[...this.state.transfers.filter(j=>j.kind==='files'),...data.jobs.map(job=>({...job,open:this.state.transfers.find(j=>j.id===job.id)?.open??true}))]})
     }finally{this.polling=false}
   }
   async disconnect() {

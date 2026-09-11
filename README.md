@@ -13,7 +13,7 @@ Install one Python service on a computer that can reach your shares, then use it
 - Local, SMB and NFS browsing, metadata, uploads, downloads, new files/folders, text editing, copy, move, rename and recursive deletion, subject to policy and filesystem permissions.
 - CIDR scanning with DNS names, NetBIOS names and IP addresses shown together; manual connections, mapped hosts, encrypted saved SMB credentials and folder shortlists.
 - A responsive manager with filtering, sorting, breadcrumbs, checkbox/range selection, context menus and keyboard shortcuts.
-- Direct file downloads or host-staged ZIP64 archives, optional byte splitting, HTTP Range support, packing pause/resume and explicit purge.
+- Direct file downloads or host-staged ZIP64 archives, optional byte splitting, HTTP Range support, packing pause/resume and explicit purge. In the current source, choose ZIP preparation folders and create new ones from the browser.
 - A Python SDK, authenticated HTTP API and embeddable directory picker with credential-free descriptors.
 
 [Documentation site](https://mightymorgs.github.io/remote-fs-browser/) · [Product demo](https://mightymorgs.github.io/remote-fs-browser/#watch-it-install-and-run)
@@ -22,7 +22,7 @@ Install one Python service on a computer that can reach your shares, then use it
 
 Follow the [step-by-step quickstart](QUICKSTART.md) for first login, NAS connections, file operations and multipart downloads.
 
-To install from a source checkout, use `pipx install .` (or `pip install -e .` in a virtual environment).
+To install from a source checkout, use `pipx install .` (or `pip install -e .` in a virtual environment). Then run `remotefs`: first-run setup detects network details and guides you through access and login with no configuration file to prepare. `remotefs setup` revisits these choices. The full setup wizard and ZIP preparation folder picker are available in source ahead of the next release.
 
 ### Homebrew (macOS)
 
@@ -335,7 +335,8 @@ Page assets are public; data endpoints require authentication. An embedded servi
 | `POST /api/sessions/{id}/rename` | `{source, destination}` |
 | `POST /api/sessions/{id}/copy` | `{source, destination, target_session?}` |
 | `DELETE /api/sessions/{id}/entry?path=/folder&recursive=true` | Remove file or directory tree |
-| `GET /api/downloads` | Owned archive jobs and configured store capacity |
+| `GET /api/downloads` | Owned archive jobs, store capacity and `manage_stores` capability |
+| `POST /api/downloads/stores` | `{session, path}`; choose an allowed local folder and persist it as the ZIP preparation default (when enabled) |
 | `POST /api/downloads/estimate` | `{session, paths}`; returns entry/byte estimate and stores |
 | `POST /api/downloads` | `{session, paths, store, part_size?}`; zero means a single ZIP |
 | `POST /api/downloads/{id}` | `{action: "pause"}`, `"resume"` or `"forget"` (after purge) |

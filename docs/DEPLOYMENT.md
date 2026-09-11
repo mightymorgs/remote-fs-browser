@@ -4,7 +4,29 @@ The installer scripts and Ansible playbooks install **the source checkout you ru
 
 The service runs as root on Linux/macOS or SYSTEM on Windows. It uses Python to access local folders, SMB shares and NFS exports; connecting a share does not create an operating-system mount. Clients only need a browser. Set the policy to the directories and network ranges the service should expose.
 
-## Prepare configuration
+## Start with defaults — no configuration file needed
+
+For a normal installation, run:
+
+```sh
+remotefs
+```
+
+The first-run setup shows this computer's addresses and detected scan ranges. Press Enter to accept the defaults, choose whether other devices can connect, and create your username and password. Your home folder and mounted volumes are available automatically. Network discovery starts with detected private LAN subnets, bounded to a /24 per interface; you can choose a different CIDR in setup or in the scanner, within the service's allowed ranges.
+
+To change the setup later, stop the service and run `remotefs setup`, then start it again with `remotefs`. The interactive network choices and ZIP folder picker described here are in the current source checkout and will ship in the next package release. Published 0.2.1 already creates your login interactively and detects local roots and networks.
+
+### Choose where ZIPs are prepared
+
+Select files or folders, choose **Download as ZIP**, then **Choose folder…**. Browse the local folders on the service computer, use **New folder** if needed, and click **Use this folder**. The choice is saved and available immediately, including after a restart. Until you choose another folder, ZIP preparation uses the built-in default.
+
+These are preparation folders on the computer running remotefs. The browser chooses where the downloaded ZIP is saved on the viewing device, using its normal download settings. Downloaded ZIPs are not automatically extracted; open them with your archive application after downloading (join multipart files first).
+
+Folder selection respects the service's allowed local roots, write permissions and any system-service restrictions. Managed deployments can disable archive preparation with an empty staging-store map. Embedding applications opt into persistent folder changes with `staging_store_writer`.
+
+## Advanced: prepare a custom configuration
+
+Use this section for a managed system service or a custom access policy. Ordinary interactive use does not require creating or editing JSON.
 
 Start with `examples/config.example.json`. For example, on Linux:
 
