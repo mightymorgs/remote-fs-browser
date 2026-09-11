@@ -1,21 +1,10 @@
 ---
-- name: Install remote filesystem browser on linux
+- name: Deploy remotefs on Linux
   hosts: filesystem_hosts
   gather_facts: false
+  become: true
+  vars:
+    remote_fs_platform: linux
   tasks:
-    - name: Create source directory
-      become: true
-      ansible.builtin.file:
-        path: '{{ remote_fs_source }}'
-        state: directory
-        mode: '0755'
-    - name: Copy public source files
-      become: true
-      ansible.builtin.copy:
-        src: '../../{{ item }}'
-        dest: '{{ remote_fs_source }}/'
-      loop: [src, scripts, pyproject.toml, README.md, LICENSE]
-    - name: Run installer
-      become: true
-      ansible.builtin.command:
-        argv: [bash, '{{ remote_fs_source }}/scripts/linux/install.sh', '{{ remote_fs_config }}']
+    - name: Install and configure remotefs
+      ansible.builtin.import_tasks: ../tasks/unix-install.yml
