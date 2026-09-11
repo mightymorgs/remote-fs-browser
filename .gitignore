@@ -9,3 +9,6 @@ config.json
 credentials.json
 .env
 node_modules/
+
+# Generated documentation site
+_site/
