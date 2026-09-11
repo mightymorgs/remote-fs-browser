@@ -9,7 +9,7 @@ from remote_fs_browser.cli import main, addresses, build_policy, load_or_create
 @pytest.fixture(autouse=True)
 def account_prompt(monkeypatch):
     monkeypatch.setattr('sys.stdin.isatty', lambda: True)
-    monkeypatch.setattr('builtins.input', lambda _: 'tester')
+    monkeypatch.setattr('builtins.input', lambda prompt: 'tester' if prompt == 'Username: ' else '')
     monkeypatch.setattr('getpass.getpass', lambda _: 'test-password-for-account')
 
 

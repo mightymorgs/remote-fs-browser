@@ -99,7 +99,7 @@ def main(argv=None):
         return client_main(arguments)
     from . import __version__
     parser = argparse.ArgumentParser(prog='remotefs', description='Serve a remote filesystem manager and API on one port.', epilog='Client commands: ' + ', '.join(COMMANDS) + '. Run remotefs COMMAND --help for usage.')
-    parser.add_argument('command', nargs='?', choices=['serve', 'account'], default='serve')
+    parser.add_argument('command', nargs='?', choices=['serve', 'account', 'setup'], default='serve')
     parser.add_argument('--version', action='version', version=f'remotefs {__version__}')
     parser.add_argument('--config', help='Private JSON configuration; defaults to the per-user config, created on first run')
     parser.add_argument('--bind', help='Listen address; defaults to 127.0.0.1. Any other address is reachable from the network')
@@ -124,7 +124,14 @@ def main(argv=None):
     if library:
         os.environ.setdefault('LIBNFS_LIBRARY', library)
     path = Path(args.config) if args.config else config_home() / 'config.json'
-    config, created = load_or_create(path, explicit=bool(args.config) and args.command != 'account')
+    config, created = load_or_create(path, explicit=bool(args.config) and args.command not in ('account', 'setup'))
+    wizard = args.command == 'setup' or (args.command == 'serve' and not args.config and not args.no_defaults
+                                        and not args.password_stdin and 'bind' not in config and sys.stdin.isatty())
+    if wizard:
+        if not sys.stdin.isatty():
+            raise SystemExit('Run remotefs setup in an interactive terminal.')
+        from .setup import configure
+        config = configure(args, config)
     if args.command == 'account' or not config.get('account'):
         import getpass
         from .auth import make_account
@@ -151,6 +158,13 @@ def main(argv=None):
             print('Account saved. Restart the service to apply the change and end existing logins.')
             return
 
+    if wizard:
+        from .store import write_private
+        write_private(path, json.dumps(config, indent=2) + '\n')
+        if args.command == 'setup':
+            print('Setup saved. Run remotefs to open the service.')
+            return
+
     from .http import create_app
     from .store import SavedLocations, StoreLocked
     import uvicorn
@@ -160,8 +174,15 @@ def main(argv=None):
         saved = SavedLocations(path.with_name('saved.json'), config['storage_key'])
     except StoreLocked:
         saved_note = 'saved locations use a different storage key; restore the matching config to unlock them'
+    def save_staging_stores(stores):
+        from .store import write_private
+        latest = json.loads(path.read_text())
+        latest['staging_stores'] = stores
+        write_private(path, json.dumps(latest, indent=2) + '\n')
+
     app = create_app(policy, account=config['account'], root_kinds=kinds, saved_locations=saved,
-                     staging_stores=config.get('staging_stores', {'Downloads': str(path.parent / 'staging')}))
+                     staging_stores=config.get('staging_stores', {'Downloads': str(path.parent / 'staging')}),
+                     staging_store_writer=save_staging_stores if config.get('staging_stores') != {} else None)
     bind = args.bind or config.get('bind', '127.0.0.1')
     port = args.port if args.port is not None else config.get('port', 8080)
     if not 1 <= port <= 65535:

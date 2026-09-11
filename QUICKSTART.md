@@ -178,3 +178,11 @@ See the [full README](README.md), [security boundaries](SECURITY.md) and [tested
 ## Automated or always-on deployment
 
 See the [deployment guide](docs/DEPLOYMENT.md) for unattended installers and Ansible on Linux, macOS and Windows, including password setup, service management and upgrades.
+
+## First-run setup and ZIP folders (current source)
+
+Run `remotefs` without flags or configuration files. The first-run wizard shows detected network addresses and scan ranges, lets you choose browser access, and creates your login. Press Enter to accept the defaults. Run `remotefs setup` to revisit those choices after stopping the service.
+
+In the ZIP download dialog, use **Choose folder…**, browse a local folder on the service computer, optionally create one with **New folder**, then select **Use this folder**. ZIP preparation locations are saved automatically. Your browser controls the downloaded file's destination; extraction is handled by your archive application.
+
+These additions are available from the source checkout ahead of the next package release. See the [deployment guide](docs/DEPLOYMENT.md) for managed service installs and advanced configuration.
