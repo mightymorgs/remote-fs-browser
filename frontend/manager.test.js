@@ -76,3 +76,18 @@ test('narrow viewport sidebar overlays the list and closes when navigating',()=>
  m.state.collapsed=false;m.goTo(m.fromDescriptor({type:'local',root:'/tmp/files'}))
  assert.equal(m.state.collapsed,true)
 })
+
+
+test('direct downloads work on HTTP origins without crypto.randomUUID',async()=>{
+ const httpScope={...scope,window:{innerWidth:1280},crypto:{getRandomValues:globalThis.crypto.getRandomValues.bind(globalThis.crypto)}}
+ vm.runInNewContext(readFileSync(new URL('../src/remote_fs_browser/web/manager.js',import.meta.url),'utf8'),httpScope)
+ const HttpManager=httpScope.window.createRemoteFsManager(Logic,{createRef:()=>({})})
+ const m=new HttpManager();m.state.place=m.fromDescriptor({type:'smb',host:'nas',share:'files',path:'/repo'})
+ m.sessionFor=async()=>({id:'session'})
+ await m.startBatch([{name:'README.md',path:'/repo/README.md',size:42}])
+ assert.equal(m.state.view,'transfers')
+ assert.equal(m.state.transfers.length,1)
+ assert.match(m.state.transfers[0].id,/^[0-9a-f]{32}$/)
+ assert.equal(m.state.transfers[0].parts[0].relative,'/repo/README.md')
+ assert.equal(m.state.transfers[0].status,'ready')
+})

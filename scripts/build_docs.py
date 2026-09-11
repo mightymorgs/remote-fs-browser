@@ -8,10 +8,10 @@ root = Path(__file__).resolve().parents[1]
 out = root / '_site'
 out.mkdir(exist_ok=True)
 style = '''body{margin:0;background:#10171e;color:#e4eaf0;font:17px/1.7 system-ui,sans-serif}main{max-width:920px;margin:auto;padding:48px 24px}a{color:#69ddd0}nav{display:flex;gap:24px;flex-wrap:wrap;margin-bottom:48px}h1{font-size:clamp(36px,6vw,60px);line-height:1.15}h2{margin-top:48px}pre{padding:20px;background:#1c2934;overflow:auto;border-radius:10px}code{font-size:.9em}table{display:block;overflow:auto;border-collapse:collapse}td,th{border:1px solid #42525f;padding:10px;text-align:left}video{width:100%;border-radius:12px;background:#000}blockquote{border-left:3px solid #69ddd0;padding-left:20px}footer{margin-top:60px;color:#aab8c5}img{max-width:100%}'''
-video = 'https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.1/remotefs-demo.mp4'
+video = 'https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.1/remotefs-network-demo.mp4'
 home = f'''# Your files. In your browser.
 
-remotefs is an open source file manager for local folders, SMB shares and NFS exports. Browse, edit, upload and download through a browser, with a Python API for integration.
+Install one Python service on a computer that can reach your shares. Browse local folders, SMB shares and NFS exports from another device—including over Tailscale. No operating-system mounts or remotefs agents on each file server are required.
 
 [Get started →](quickstart.html) · [Full features and API reference](reference.html)
 
@@ -21,7 +21,7 @@ remotefs is an open source file manager for local folders, SMB shares and NFS ex
 
 [Download the video]({video}) · [Read the demonstration transcript](demo.html)
 
-The recording uses the published 0.2.1 package on macOS, with Python and pipx already installed. It shows local demo files; SMB and NFS setup are covered in the quickstart.
+The recording uses published 0.2.1: installation and local files on macOS, then real LAN discovery and SMB browsing through a Linux service over Tailscale. It includes subnet selection, saved locations, repo files, right-click actions, Shift-click selection and Unmount. NFS uses libnfs 6+; access depends on the service host’s routes and permissions.
 
 ## Install
 

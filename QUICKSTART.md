@@ -109,6 +109,32 @@ Open http://127.0.0.1:8080/ on the viewing computer. Keep the SSH connection ope
 
 For a trusted network or encrypted VPN, you can bind the service to a specific interface with `remotefs serve --bind YOUR_SERVER_IP`. Plain HTTP does not encrypt the login or file contents; use an encrypted tunnel or HTTPS when crossing an untrusted network. No firewall rules are created automatically.
 
+### One service, network access through Tailscale
+
+Install remotefs on one computer that can reach your shares. Connect your viewing computer and the service host to Tailscale. On the service host, start remotefs with the networks it should expose:
+
+```sh
+remotefs serve --allow-network 192.168.0.0/24 --allow-network 192.168.122.0/24
+```
+
+On the viewing computer, open an SSH tunnel to that host’s Tailscale hostname or address:
+
+```sh
+ssh -N -L 8080:127.0.0.1:8080 YOUR_USER@YOUR_SERVER_TAILSCALE_NAME
+```
+
+Open `http://127.0.0.1:8080/` in your browser and sign in. Keep the SSH connection open. This is the arrangement used in the network demonstration: a Mac browser, an SSH connection over Tailscale, and a Linux service reaching the LAN and VM subnet. SSH must be available and permitted on the service host.
+
+For a browser HTTPS URL without an SSH tunnel, keep remotefs on loopback and configure [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve). Your tailnet access rules must permit the connection. Use HTTPS or the localhost tunnel for published 0.2.1: its download queue depends on a browser API unavailable on plain-HTTP network origins. The current source checkout fixes that compatibility issue.
+
+The service host connects to SMB/NFS servers on your behalf. Those file servers do not need remotefs or Tailscale installed if the service host can already reach them over the LAN. A subnet router is not needed for this browser-to-service arrangement; it is needed only if your chosen network path requires routing through one. Remotefs does not create routes or bypass server permissions.
+
+Open **Scan network** and change **Ranges to probe** to select a permitted subnet. For example, `192.168.122.0/24` is commonly a hypervisor’s NAT VM network. The service must run on a machine with a route to that subnet. VM and VPN networks are excluded from automatic discovery defaults, so permit them explicitly with `--allow-network`.
+
+**Map** creates an application connection. **Unmount** closes it; neither action mounts a filesystem in the operating system on the service host or viewing computer. Save host credentials and add a network folder to the shortlist to reopen it after a page reload. Sidebar mappings themselves last only for the current page.
+
+Remotefs runs as a Python service with a browser-based JavaScript interface. Local access and SMB use Python packages; NFS additionally uses libnfs 6+. No kernel SMB/NFS mount or drive mapping is required.
+
 ## Background operation and updates
 
 On macOS, create your account first, stop the foreground service, then run:

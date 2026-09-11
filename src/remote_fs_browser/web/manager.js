@@ -200,7 +200,7 @@ class Component extends DCLogic {
     const fresh=parts.filter(p=>!this.alreadyGrabbed(p.path,true))
     if(!fresh.length){this.setState({view:'transfers'});return}
     const total=fresh.reduce((n,p)=>n+p.size,0)
-    this.setState({transfers:[{id:crypto.randomUUID(),kind:'files',name:fresh.length===1?fresh[0].name:`${fresh.length} files`,parts:fresh,total,packed:total,stage:'ready',status:'ready',open:true,purged:false,store:'Streamed from source'},...this.state.transfers],view:'transfers',confirm:null})
+    this.setState({transfers:[{id:Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join(''),kind:'files',name:fresh.length===1?fresh[0].name:`${fresh.length} files`,parts:fresh,total,packed:total,stage:'ready',status:'ready',open:true,purged:false,store:'Streamed from source'},...this.state.transfers],view:'transfers',confirm:null})
   }
   componentDidUpdate() {
     if (this.state.place !== this.loadedPlace) {

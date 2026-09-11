@@ -1,29 +1,71 @@
 WEBVTT
 
-00:00.000 --> 00:07.000
+00:00:00.000 --> 00:00:07.000
 Install the published package with pipx.
 Python and pipx are already installed.
 
-00:07.000 --> 00:13.000
+00:00:07.000 --> 00:00:13.000
 Create a demo login and start remotefs.
 Only the isolated demo folder is exposed.
 
-00:13.000 --> 00:18.000
+00:00:13.000 --> 00:00:18.000
 Open the browser interface and sign in.
 
-00:18.000 --> 00:24.000
+00:00:18.000 --> 00:00:24.000
 Open a text file, edit its contents and save.
 
-00:24.000 --> 00:29.000
+00:00:24.000 --> 00:00:29.000
 Create a folder and add it to favourites.
 
-00:29.000 --> 00:33.000
+00:00:29.000 --> 00:00:33.000
 Browse the favourite folder and return.
 
-00:33.000 --> 00:40.000
+00:00:33.000 --> 00:00:37.500
 Download the edited file.
 The script verifies the downloaded contents.
 
-00:40.000 --> 00:46.240
-Ready to use. See the quickstart for SMB,
-NFS, multipart downloads and other platforms.
+00:00:37.500 --> 00:00:44.460
+Now run the same Python service on Linux.
+This Mac connects through SSH over Tailscale.
+
+00:00:44.460 --> 00:00:50.580
+Browser on Mac → SSH over Tailscale → Python service on Linux
+
+00:00:50.580 --> 00:01:03.870
+Scan the service host’s LAN, with DNS, NetBIOS and IP results
+
+00:01:03.870 --> 00:01:16.810
+Select 192.168.122.0/24, the NAT VM subnet. No SMB/NFS services
+replied during this scan.
+
+00:01:16.810 --> 00:01:28.310
+Map a real SMB server and save credentials
+
+00:01:28.310 --> 00:01:33.380
+Save a network location to the shortlist
+
+00:01:33.380 --> 00:01:36.360
+Browse repository files directly from the NAS
+
+00:01:36.360 --> 00:01:42.810
+Browse the Python source inside the repository
+
+00:01:42.810 --> 00:01:46.080
+Shift-click to select a range of files
+
+00:01:46.080 --> 00:01:54.540
+Right-click a file for actions and download it
+
+00:01:54.540 --> 00:01:57.490
+Reload and reopen the saved network location
+
+00:01:57.490 --> 00:02:08.280
+Map again using saved credentials
+
+00:02:08.280 --> 00:02:10.810
+Unmount disconnects the application session; no OS mount was
+created
+
+00:02:12.980 --> 00:02:22.940
+One Python service. No OS mounts. No per-server agent.
+NFS uses libnfs; network permissions still apply.
