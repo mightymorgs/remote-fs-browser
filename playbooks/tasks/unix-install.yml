@@ -1,0 +1,146 @@
+- name: Validate deployment inputs
+  ansible.builtin.assert:
+    that:
+      - remote_fs_source is defined
+      - remote_fs_settings is defined or remote_fs_config is defined
+      - remote_fs_password is not defined or remote_fs_username is defined
+    fail_msg: Supply remote_fs_source, remote_fs_settings (or a remote_fs_config path), and a username with any password.
+
+- name: Create public source directory
+  ansible.builtin.file:
+    path: '{{ remote_fs_source }}'
+    state: directory
+    owner: root
+    mode: '0755'
+
+- name: Copy package, installer and licence files
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/../../{{ item }}'
+    dest: '{{ remote_fs_source }}/'
+  loop: [src, scripts, pyproject.toml, MANIFEST.in, README.md, LICENSE, THIRD_PARTY_NOTICES.md, licenses]
+  register: remote_fs_source_copy
+
+- name: Record requested installation options
+  ansible.builtin.copy:
+    content: '{{ {"without_nfs": remote_fs_without_nfs | default(false) | bool, "skip_dependencies": remote_fs_skip_dependencies | default(false) | bool, "python": remote_fs_python | default("python3"), "libnfs_library": remote_fs_libnfs_library | default(""), "brew_user": remote_fs_brew_user | default("")} | to_json }}'
+    dest: '{{ remote_fs_source }}/.deployment-options.json'
+    mode: '0600'
+  register: remote_fs_options_copy
+
+- name: Invalidate previous deployment when source or options change
+  ansible.builtin.file:
+    path: /opt/remote-fs-browser/.deployment-success
+    state: absent
+  when: remote_fs_source_copy.changed or remote_fs_options_copy.changed
+
+- name: Inspect existing installation
+  ansible.builtin.stat:
+    path: /opt/remote-fs-browser/venv/bin/python
+  register: remote_fs_python_stat
+
+- name: Inspect last successful deployment
+  ansible.builtin.stat:
+    path: /opt/remote-fs-browser/.deployment-success
+  register: remote_fs_success_stat
+
+- name: Configure and install with temporary private inputs
+  when: not ansible_check_mode
+  block:
+    - name: Create private input directory
+      ansible.builtin.tempfile:
+        state: directory
+        prefix: remotefs-deployment-
+      register: remote_fs_inputs
+      changed_when: false
+
+    - name: Stage requested configuration
+      ansible.builtin.copy:
+        content: '{{ remote_fs_settings | to_nice_json }}'
+        dest: '{{ remote_fs_inputs.path }}/config.json'
+        mode: '0600'
+      when: remote_fs_settings is defined
+      no_log: true
+      diff: false
+      changed_when: false
+
+    - name: Stage account password
+      ansible.builtin.copy:
+        content: '{{ remote_fs_password }}'
+        dest: '{{ remote_fs_inputs.path }}/password'
+        mode: '0600'
+      when: remote_fs_password is defined
+      no_log: true
+      diff: false
+      changed_when: false
+
+    - name: Assemble arguments without shell interpolation
+      ansible.builtin.set_fact:
+        remote_fs_input_config: '{{ remote_fs_inputs.path + "/config.json" if remote_fs_settings is defined else remote_fs_config }}'
+        remote_fs_account_args: '{{ ["--username", remote_fs_username, "--password-file", remote_fs_inputs.path + "/password"] if remote_fs_password is defined else [] }}'
+        remote_fs_option_args: '{{ (["--without-nfs"] if remote_fs_without_nfs | default(false) | bool else []) + (["--skip-dependencies"] if remote_fs_skip_dependencies | default(false) | bool else []) }}'
+      no_log: true
+
+    - name: Check configuration and account for changes
+      ansible.builtin.command:
+        argv: '{{ ["/opt/remote-fs-browser/venv/bin/python", remote_fs_source + "/scripts/deployment.py", "--config", remote_fs_input_config, "--destination", "/opt/remote-fs-browser/config.json", "--check"] + remote_fs_account_args }}'
+      when: remote_fs_python_stat.stat.exists
+      register: remote_fs_config_check
+      changed_when: false
+      failed_when: remote_fs_config_check.rc not in [0, 2]
+      no_log: true
+
+    - name: Apply changed deployment
+      when: remote_fs_source_copy.changed or remote_fs_options_copy.changed or not remote_fs_python_stat.stat.exists or not remote_fs_success_stat.stat.exists or remote_fs_config_check.rc | default(2) == 2 or remote_fs_force | default(false) | bool
+      block:
+        - name: Clear successful-deployment marker before updating
+          ansible.builtin.file:
+            path: /opt/remote-fs-browser/.deployment-success
+            state: absent
+
+        - name: Run platform installer
+          ansible.builtin.command:
+            argv: '{{ ["bash", remote_fs_source + "/scripts/" + remote_fs_platform + "/install.sh", remote_fs_input_config] + remote_fs_account_args + remote_fs_option_args }}'
+          environment:
+            SUDO_USER: '{{ remote_fs_brew_user | default("") }}'
+            REMOTE_FS_PYTHON: '{{ remote_fs_python | default("python3") }}'
+            LIBNFS_LIBRARY: '{{ remote_fs_libnfs_library | default("") }}'
+          no_log: true
+
+        - name: Mark successful deployment
+          ansible.builtin.copy:
+            content: 'ready'
+            dest: /opt/remote-fs-browser/.deployment-success
+            mode: '0600'
+
+    - name: Ensure Linux service is enabled and started
+      ansible.builtin.systemd_service:
+        name: remote-fs-browser
+        enabled: true
+        state: started
+      when: remote_fs_platform == 'linux'
+
+    - name: Check macOS launchd registration
+      ansible.builtin.command:
+        argv: [launchctl, print, system/org.remote-fs-browser]
+      when: remote_fs_platform == 'macos'
+      register: remote_fs_launchd
+      changed_when: false
+      failed_when: false
+
+    - name: Load macOS service if needed
+      ansible.builtin.command:
+        argv: [launchctl, bootstrap, system, /Library/LaunchDaemons/org.remote-fs-browser.plist]
+      when: remote_fs_platform == 'macos' and remote_fs_launchd.rc != 0
+
+    - name: Verify service readiness
+      ansible.builtin.command:
+        argv: [/opt/remote-fs-browser/venv/bin/python, '{{ remote_fs_source }}/scripts/deployment.py', --config, /opt/remote-fs-browser/config.json, --health-check]
+      changed_when: false
+  always:
+    - name: Remove temporary private deployment inputs
+      ansible.builtin.file:
+        path: '{{ remote_fs_inputs.path }}'
+        state: absent
+      when: remote_fs_inputs.path is defined
+      changed_when: false
+      no_log: true

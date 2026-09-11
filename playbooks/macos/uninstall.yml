@@ -3,7 +3,7 @@
   hosts: filesystem_hosts
   gather_facts: false
   tasks:
-    - name: Stop and remove service (preserve configuration)
+    - name: Stop and remove service (preserve configuration unless purge is requested)
       become: true
       ansible.builtin.command:
-        argv: [bash, '{{ remote_fs_source }}/scripts/macos/uninstall.sh']
+        argv: '{{ ["bash", remote_fs_source + "/scripts/macos/uninstall.sh"] + (["--purge"] if remote_fs_purge | default(false) | bool else []) }}'

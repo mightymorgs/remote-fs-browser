@@ -1,23 +1,13 @@
 ---
-- name: Install remote filesystem browser on macos
+- name: Deploy remotefs on macOS
   hosts: filesystem_hosts
   gather_facts: false
+  become: true
+  vars:
+    remote_fs_platform: macos
   tasks:
-    - name: Create source directory
-      become: true
-      ansible.builtin.file:
-        path: '{{ remote_fs_source }}'
-        state: directory
-        mode: '0755'
-    - name: Copy public source files
-      become: true
-      ansible.builtin.copy:
-        src: '../../{{ item }}'
-        dest: '{{ remote_fs_source }}/'
-      loop: [src, scripts, pyproject.toml, README.md, LICENSE]
-    - name: Run installer
-      become: true
-      ansible.builtin.command:
-        argv: [bash, '{{ remote_fs_source }}/scripts/macos/install.sh', '{{ remote_fs_config }}']
-      environment:
-        SUDO_USER: '{{ remote_fs_brew_user }}'
+    - name: Require the Homebrew owner for dependency installation
+      ansible.builtin.assert:
+        that: remote_fs_brew_user is defined or remote_fs_skip_dependencies | default(false) | bool
+    - name: Install and configure remotefs
+      ansible.builtin.import_tasks: ../tasks/unix-install.yml

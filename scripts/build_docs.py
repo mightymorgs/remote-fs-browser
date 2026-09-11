@@ -33,16 +33,16 @@ remotefs serve
 
 Open **http://127.0.0.1:8080/** and sign in. Homebrew and Windows installation instructions are in the [quickstart](quickstart.html).
 '''
-for filename, title, source in [('index.html','remotefs',home),('quickstart.html','Quickstart',(root/'QUICKSTART.md').read_text()),('reference.html','Features and API',(root/'README.md').read_text()),('demo.html','Demo transcript',(root/'docs/site/demo.md').read_text())]:
+for filename, title, source in [('index.html','remotefs',home),('quickstart.html','Quickstart',(root/'QUICKSTART.md').read_text()),('reference.html','Features and API',(root/'README.md').read_text()),('deployment.html','Automated deployments',(root/'docs/DEPLOYMENT.md').read_text()),('demo.html','Demo transcript',(root/'docs/site/demo.md').read_text())]:
     body=markdown.markdown(source,extensions=['fenced_code','tables','toc'])
-    body=body.replace('href="README.md','href="reference.html').replace('href="QUICKSTART.md','href="quickstart.html')
+    body=body.replace('href="README.md','href="reference.html').replace('href="QUICKSTART.md','href="quickstart.html').replace('href="docs/DEPLOYMENT.md','href="deployment.html')
     def link(match):
         url = match.group(1)
-        if url.startswith(('https:', 'http:', '#', 'mailto:')) or url.split('#')[0] in {'index.html', 'quickstart.html', 'reference.html', 'demo.html'}:
+        if url.startswith(('https:', 'http:', '#', 'mailto:')) or url.split('#')[0] in {'index.html', 'quickstart.html', 'reference.html', 'demo.html', 'deployment.html'}:
             return match.group(0)
         return 'href="https://github.com/mightymorgs/remote-fs-browser/blob/main/' + url + '"'
     body = re.sub(r'href="([^"]+)"', link, body)
-    (out/filename).write_text(f'<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="remotefs: browser file management for local folders, SMB and NFS. Installation, quickstart and API documentation."><title>{title} — remotefs</title><style>{style}</style></head><body><main><nav><a href="index.html">remotefs</a><a href="quickstart.html">Quickstart</a><a href="reference.html">Reference</a><a href="https://github.com/mightymorgs/remote-fs-browser">GitHub</a></nav>{body}<footer>MIT licensed · Built from the repository documentation.</footer></main></body></html>')
+    (out/filename).write_text(f'<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="remotefs: browser file management for local folders, SMB and NFS. Installation, quickstart and API documentation."><title>{title} — remotefs</title><style>{style}</style></head><body><main><nav><a href="index.html">remotefs</a><a href="quickstart.html">Quickstart</a><a href="reference.html">Reference</a><a href="deployment.html">Deploy</a><a href="https://github.com/mightymorgs/remote-fs-browser">GitHub</a></nav>{body}<footer>MIT licensed · Built from the repository documentation.</footer></main></body></html>')
 (out/'.nojekyll').touch()
 
 for asset in ("demo-poster.jpg", "demo.vtt"):

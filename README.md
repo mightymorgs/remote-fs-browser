@@ -188,15 +188,16 @@ Use dedicated directories writable by the service account. These are administrat
 
 ## System service installs
 
-For an always-on service run as root or SYSTEM, from a checkout on the target host:
+Use the [automated deployment guide](docs/DEPLOYMENT.md) for systemd, launchd and Windows startup services, or the Ansible playbooks in `playbooks/<platform>/`. They support unattended username/password setup, password rotation, managed policy and staging configuration, and readiness checks. Redeployments preserve saved network credentials.
 
-- Linux: `sudo scripts/linux/install.sh /path/to/private-config.json`
-- macOS: `sudo scripts/macos/install.sh /path/to/private-config.json`
-- Windows, elevated PowerShell: `scripts/windows/install.ps1 -Config C:\path\private-config.json`
+From the source checkout, for example:
 
-These install into a private prefix, build the pinned libnfs (macOS uses Homebrew's), and register a systemd unit, launchd daemon or Windows startup task running `remotefs serve --no-defaults --config …`, so only the roots and networks in the private config are exposed. Start from `examples/config.example.json`: set `local_roots`, `network_ranges` and `operations`, then run `remotefs account --config /path/to/private-config.json --username YOUR_NAME` before installing the service. Keep the file private. An empty list denies that class of access.
+```bash
+sudo bash scripts/linux/install.sh /private/config.json \
+  --username admin --password-file /private/password
+```
 
-For Ansible, use `playbooks/<platform>/install.yml` with the `filesystem_hosts` group, `remote_fs_source` (destination checkout directory) and `remote_fs_config` (private config path already on the host). macOS also needs `remote_fs_brew_user`; Windows needs `ansible.windows`. The playbooks copy only public source files. Matching uninstall scripts and playbooks stop and remove the service; `--purge` on Unix or `-Purge` on Windows also removes the private installation directory. Never store credentials or real host configurations in Git.
+The guide covers all three platforms, Ansible Vault, preinstalled dependencies, logs and uninstall options. Services run as root or SYSTEM with `--no-defaults`, so configure the allowed roots, network ranges and operations explicitly. Keep configuration and password inputs private.
 
 ## Terminal file manager
 

@@ -3,6 +3,12 @@
   hosts: filesystem_hosts
   gather_facts: false
   tasks:
-    - name: Stop and remove service (preserve configuration)
+    - name: Stop and remove service (preserve configuration unless purge is requested)
       ansible.windows.win_powershell:
-        script: "& '{{ remote_fs_source }}/scripts/windows/uninstall.ps1'"
+        error_action: stop
+        parameters:
+          Source: '{{ remote_fs_source }}'
+          Purge: '{{ remote_fs_purge | default(false) | bool }}'
+        script: |
+          param([string]$Source, [bool]$Purge)
+          & "$Source/scripts/windows/uninstall.ps1" -Purge:$Purge

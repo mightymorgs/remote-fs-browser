@@ -1,17 +1,93 @@
 ---
-- name: Install remote filesystem browser on Windows
+- name: Deploy remotefs on Windows
   hosts: filesystem_hosts
   gather_facts: false
   tasks:
-    - name: Create source directory
+    - name: Validate deployment inputs
+      ansible.builtin.assert:
+        that:
+          - remote_fs_source is defined
+          - remote_fs_settings is defined or remote_fs_config is defined
+          - remote_fs_password is not defined or remote_fs_username is defined
+
+    - name: Create public source directory
       ansible.windows.win_file:
         path: '{{ remote_fs_source }}'
         state: directory
-    - name: Copy public source files
+
+    - name: Copy package, installer and licence files
       ansible.windows.win_copy:
-        src: '../../{{ item }}'
+        src: '{{ playbook_dir }}/../../{{ item }}'
         dest: '{{ remote_fs_source }}/'
-      loop: [src, scripts, pyproject.toml, README.md, LICENSE]
-    - name: Install service from checkout
+      loop: [src, scripts, pyproject.toml, MANIFEST.in, README.md, LICENSE, THIRD_PARTY_NOTICES.md, licenses]
+      register: remote_fs_source_copy
+
+    - name: Configure and update service with private inputs
+      when: not ansible_check_mode
+      no_log: true
       ansible.windows.win_powershell:
-        script: "& '{{ remote_fs_source }}/scripts/windows/install.ps1' -Config '{{ remote_fs_config }}'"
+        error_action: stop
+        parameters:
+          Source: '{{ remote_fs_source }}'
+          SourceChanged: '{{ remote_fs_source_copy.changed }}'
+          ConfigJson: '{{ remote_fs_settings | to_json if remote_fs_settings is defined else "" }}'
+          ConfigPath: '{{ remote_fs_config | default("") }}'
+          Username: '{{ remote_fs_username | default("") }}'
+          WithoutNfs: '{{ remote_fs_without_nfs | default(false) | bool }}'
+          SkipDependencies: '{{ remote_fs_skip_dependencies | default(false) | bool }}'
+          Python: '{{ remote_fs_python | default("python") }}'
+          Force: '{{ remote_fs_force | default(false) | bool }}'
+        sensitive_parameters: '{{ [{"name": "Password", "value": remote_fs_password}] if remote_fs_password is defined else [] }}'
+        script: |
+          param([string]$Source, [bool]$SourceChanged, [string]$ConfigJson,
+                [string]$ConfigPath, [string]$Username, [SecureString]$Password,
+                [bool]$WithoutNfs, [bool]$SkipDependencies, [string]$Python, [bool]$Force)
+          $Ansible.Changed = $false
+          $Prefix = 'C:\ProgramData\remote-fs-browser'
+          New-Item -ItemType Directory -Force $Prefix | Out-Null
+          & icacls $Prefix /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot protect private configuration directory' }
+          if ($SourceChanged) { Remove-Item "$Prefix/.deployment-success" -ErrorAction SilentlyContinue }
+          $Inputs = Join-Path $Prefix ('.deployment-' + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory $Inputs | Out-Null
+          try {
+              if ($ConfigJson) {
+                  $ConfigPath = Join-Path $Inputs 'config.json'
+                  [IO.File]::WriteAllText($ConfigPath, $ConfigJson)
+              }
+              $AccountArgs = @()
+              $InstallerArgs = @{Config=$ConfigPath; WithoutNfs=$WithoutNfs; SkipDependencies=$SkipDependencies; Python=$Python}
+              if ($null -ne $Password) {
+                  $PasswordFile = Join-Path $Inputs 'password'
+                  [IO.File]::WriteAllText($PasswordFile, [Net.NetworkCredential]::new('', $Password).Password)
+                  $AccountArgs = @('--username', $Username, '--password-file', $PasswordFile)
+                  $InstallerArgs.Username = $Username
+                  $InstallerArgs.PasswordFile = $PasswordFile
+              }
+              $ServicePython = "$Prefix/venv/Scripts/python.exe"
+              $ChangedConfig = $true
+              if (Test-Path $ServicePython) {
+                  & $ServicePython "$Source/scripts/deployment.py" --config $ConfigPath --destination "$Prefix/config.json" @AccountArgs --check
+                  if ($LASTEXITCODE -notin @(0,2)) { throw 'Invalid deployment configuration' }
+                  $ChangedConfig = $LASTEXITCODE -eq 2
+              }
+              $Options = [ordered]@{without_nfs=$WithoutNfs; skip_dependencies=$SkipDependencies; python=$Python} | ConvertTo-Json -Compress
+              $OptionsPath = "$Prefix/.deployment-options.json"
+              $OldOptions = if (Test-Path $OptionsPath) { [IO.File]::ReadAllText($OptionsPath) } else { '' }
+              $Marker = "$Prefix/.deployment-success"
+              if ($Force -or $SourceChanged -or $ChangedConfig -or $OldOptions -ne $Options -or !(Test-Path $Marker)) {
+                  Remove-Item $Marker -ErrorAction SilentlyContinue
+                  & "$Source/scripts/windows/install.ps1" @InstallerArgs
+                  [IO.File]::WriteAllText($OptionsPath, $Options)
+                  [IO.File]::WriteAllText($Marker, 'ready')
+                  $Ansible.Changed = $true
+              }
+              if ((Get-ScheduledTask -TaskName 'Remote filesystem browser').State -ne 'Running') {
+                  Start-ScheduledTask -TaskName 'Remote filesystem browser'
+                  $Ansible.Changed = $true
+              }
+              & $ServicePython "$Source/scripts/deployment.py" --config "$Prefix/config.json" --health-check
+              if ($LASTEXITCODE -ne 0) { throw 'Service readiness check failed' }
+          } finally {
+              Remove-Item $Inputs -Recurse -Force
+          }
