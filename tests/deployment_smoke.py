@@ -121,7 +121,7 @@ $ErrorActionPreference = 'Stop'
 $InputValues = Get-Content -Raw $Parameters | ConvertFrom-Json
 $Arguments = @{Source=$InputValues.Source; SourceChanged=$true; ConfigJson=$InputValues.ConfigJson;
     Username=$InputValues.Username; Python=$InputValues.Python; WithoutNfs=$true; SkipDependencies=$true;
-    Password=(ConvertTo-SecureString ([IO.File]::ReadAllText($InputValues.PasswordFile)) -AsPlainText -Force)}
+    Password=([Net.NetworkCredential]::new('', [IO.File]::ReadAllText($InputValues.PasswordFile)).SecurePassword)}
 $Ansible = [pscustomobject]@{Changed=$false}
 & $InputValues.Script @Arguments
 if (!$Ansible.Changed) { throw 'Initial Windows playbook apply did not register a change' }
