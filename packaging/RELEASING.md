@@ -2,7 +2,7 @@
 
 Ordered checklist for cutting a release. Steps 1-3 are one-time setup; the
 rest repeat per version. Commands assume the repo root as the working
-directory and `v0.2.1` as the version being released.
+directory and use `v0.2.2` as an example. That version is already published: substitute a new version before executing publishing commands.
 
 ## 0. Required release contents
 
@@ -56,10 +56,10 @@ approval before anything is uploaded.
 ## 4. Bump the version
 
 ```sh
-sed -i '' 's/^version = ".*"/version = "0.2.1"/' pyproject.toml   # macOS sed
-git switch -c codex/release-v0.2.1
-git commit -am "Bump version to 0.2.1"
-git push -u origin release/v0.2.1
+sed -i '' 's/^version = ".*"/version = "0.2.2"/' pyproject.toml   # macOS sed
+git switch -c codex/release-v0.2.2
+git commit -am "Bump version to 0.2.2"
+git push -u origin codex/release-v0.2.2
 ```
 
 Open a PR, wait for CI, merge it. Then:
@@ -68,14 +68,18 @@ Open a PR, wait for CI, merge it. Then:
 git switch main && git pull
 ```
 
-## 5. Optional release-candidate rehearsal
+## 5. Build rehearsal
+
+Run the Release workflow manually on the release branch to build the Python distributions and Windows portable ZIP without publishing. The frozen Windows smoke test runs automatically.
+
+### Optional published release candidate
 
 ```sh
-git tag v0.2.1-rc1
-git push --tags
+git tag v0.2.2rc1
+git push origin v0.2.2rc1
 ```
 
-For a rehearsal, the Python project version must also be a distinct PEP 440 prerelease (for example `0.2.1rc1`); a tag alone does not change package metadata. Do not upload the final version as a rehearsal.
+For a rehearsal, the Python project version must also be a distinct PEP 440 prerelease (for example `0.2.2rc1`); a tag alone does not change package metadata. Do not upload the final version as a rehearsal.
 
 Watch the **Release** workflow. When it finishes, verify from a clean machine
 or venv (TestPyPI does not host the dependencies, hence the extra index):
@@ -88,17 +92,17 @@ remotefs serve --help
 pipx uninstall remote-fs-browser
 ```
 
-Download the `remotefs-0.2.1-rc1-windows-x64.zip` asset from the pre-release
+Download the `remotefs-0.2.2rc1-windows-x64.zip` asset from the pre-release
 and run `remotefs\remotefs.exe --version` on a Windows box if one is handy.
 
 ## 6. Tag the real release
 
 ```sh
-git tag v0.2.1
-git push --tags
+git tag v0.2.2
+git push origin v0.2.2
 ```
 
-Confirm https://pypi.org/project/remote-fs-browser/0.2.1/ exists and the
+Confirm https://pypi.org/project/remote-fs-browser/0.2.2/ exists and the
 GitHub release lists the sdist, wheel and Windows zip.
 
 ## 7. Homebrew tap
@@ -109,15 +113,16 @@ The tap is published at `mightymorgs/homebrew-tap` with a `Formula/` directory.
 git clone git@github.com:mightymorgs/homebrew-tap.git
 cp packaging/homebrew/remotefs.rb homebrew-tap/Formula/remotefs.rb
 cd homebrew-tap
+git switch -c codex/remotefs-0.2.2
 ```
 
 Use the sdist attached to the GitHub release as the formula URL and checksum.
 This lets Homebrew install the release independently of PyPI publication:
 
 ```sh
-curl -fL -o /tmp/remote_fs_browser-0.2.1.tar.gz \
-  https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.1/remote_fs_browser-0.2.1.tar.gz
-shasum -a 256 /tmp/remote_fs_browser-0.2.1.tar.gz
+curl -fL -o /tmp/remote_fs_browser-0.2.2.tar.gz \
+  https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.2/remote_fs_browser-0.2.2.tar.gz
+shasum -a 256 /tmp/remote_fs_browser-0.2.2.tar.gz
 # Update url and sha256 in Formula/remotefs.rb for each release.
 ```
 
@@ -125,42 +130,48 @@ Generate the dependency resource blocks, then build and test:
 
 ```sh
 brew tap mightymorgs/tap "$PWD"          # or: brew tap mightymorgs/tap once pushed
-brew update-python-resources remotefs    # rewrites Formula/remotefs.rb in place
+brew update-python-resources mightymorgs/tap/remotefs --package-name=remote-fs-browser --version=0.2.2 --ignore-main-package-cooldown
+# This edits the formula in the installed tap; copy it back to this checkout if different.
 brew install --build-from-source mightymorgs/tap/remotefs
 brew test remotefs
 brew audit --strict --online remotefs
-git commit -am "remotefs 0.2.1" && git push
+git commit -am "remotefs 0.2.2"
+git push -u origin codex/remotefs-0.2.2
 ```
+
+Open a tap PR and wait for its clean source installation and smoke test before merging. Copy the final formula back to `packaging/homebrew/remotefs.rb` in the app repository through a separate PR.
 
 Optional: run it as a background service (uses `HOMEBREW_PREFIX/lib/libnfs.dylib`
 and logs to `$(brew --prefix)/var/log/remotefs.log`):
 
 ```sh
-remotefs account --username YOUR_NAME
+remotefs setup
 brew services start remotefs
 ```
 
 ## 8. winget
 
+Return to the application repository root before running these commands.
+
 Get the checksum of the Windows zip attached to the GitHub release:
 
 ```sh
-curl -sLo /tmp/remotefs-0.2.1-windows-x64.zip \
-  https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.1/remotefs-0.2.1-windows-x64.zip
-sha256sum /tmp/remotefs-0.2.1-windows-x64.zip          # Linux/macOS (shasum -a 256 on macOS)
+curl -sLo /tmp/remotefs-0.2.2-windows-x64.zip \
+  https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.2/remotefs-0.2.2-windows-x64.zip
+sha256sum /tmp/remotefs-0.2.2-windows-x64.zip          # Linux/macOS (shasum -a 256 on macOS)
 ```
 
 ```powershell
-Get-FileHash -Algorithm SHA256 remotefs-0.2.1-windows-x64.zip   # Windows
+Get-FileHash -Algorithm SHA256 remotefs-0.2.2-windows-x64.zip   # Windows
 ```
 
 Paste the hash into `InstallerSha256` in
-`packaging/winget/manifests/m/mightymorgs/remotefs/0.2.1/mightymorgs.remotefs.installer.yaml`
-and remove the TODO comment. Validate and test-install on Windows:
+`packaging/winget/manifests/m/mightymorgs/remotefs/0.2.2/mightymorgs.remotefs.installer.yaml`
+and verify the installer URL and all three manifest version fields. Validate and test-install on Windows:
 
 ```powershell
-winget validate --manifest packaging/winget/manifests/m/mightymorgs/remotefs/0.2.1
-winget install --manifest packaging/winget/manifests/m/mightymorgs/remotefs/0.2.1
+winget validate --manifest packaging/winget/manifests/m/mightymorgs/remotefs/0.2.2
+winget install --manifest packaging/winget/manifests/m/mightymorgs/remotefs/0.2.2
 remotefs --version
 ```
 
@@ -169,14 +180,13 @@ For the initial publication, update the [existing submission](https://github.com
 Submit, either with wingetcreate (prompts for a GitHub token):
 
 ```powershell
-wingetcreate submit packaging/winget/manifests/m/mightymorgs/remotefs/0.2.1
+wingetcreate submit packaging/winget/manifests/m/mightymorgs/remotefs/0.2.2
 ```
 
 or by forking https://github.com/microsoft/winget-pkgs and opening a PR that
-adds the same three files under `manifests/m/mightymorgs/remotefs/0.2.1/`.
+adds the same three files under `manifests/m/mightymorgs/remotefs/0.2.2/`.
 
-A first-time package goes through manual review and typically takes several
-days to land; subsequent version bumps are usually merged within a day.
+Acceptance depends on Microsoft validation and review. Report an open submission as pending, not available in the WinGet catalogue.
 
 ## 9. After the release
 

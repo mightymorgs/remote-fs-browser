@@ -14,7 +14,7 @@ remotefs
 
 The first-run setup shows this computer's addresses and detected scan ranges. Press Enter to accept the defaults, choose whether other devices can connect, and create your username and password. Your home folder and mounted volumes are available automatically. Network discovery starts with detected private LAN subnets, bounded to a /24 per interface; you can choose a different CIDR in setup or in the scanner, within the service's allowed ranges.
 
-To change the setup later, stop the service and run `remotefs setup`, then start it again with `remotefs`. The interactive network choices and ZIP folder picker require version 0.2.2 or newer. Version 0.2.1 creates your login interactively and detects local roots and networks, but lacks these additional controls.
+To change the setup later, stop the service and run `remotefs setup`, then start it again with `remotefs`. Use version 0.2.2 or newer for the interactive network choices and ZIP folder picker.
 
 ### Choose where ZIPs are prepared
 

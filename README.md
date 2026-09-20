@@ -4,7 +4,7 @@
 
 Run remotefs on a workstation, server or homelab node to access the storage that machine can reach. Its home directory, mounted volumes and permitted network servers appear in one interface. The viewing computer needs only access to the service’s HTTP port; SMB and NFS connections run from the service host.
 
-Version 0.2.1 introduces password login, file write operations and staged multipart downloads. The [cross-host dogfood report](docs/validation/2026-09-11-dogfood.md) records the completed browser workflows and network download checks. See [validation](VALIDATION.md) for scope and limitations.
+Version 0.2.2 adds guided first-run setup, a browser picker for ZIP preparation folders, and client CLI commands alongside password login, file write operations and staged multipart downloads. The [cross-host dogfood report](docs/validation/2026-09-11-dogfood.md) records the completed browser workflows and network download checks. See [validation](VALIDATION.md) for scope and limitations.
 
 Install one Python service on a computer that can reach your shares, then use it from a browser—including over Tailscale. File servers need no remotefs agent. SMB/NFS connections stay inside the app: no operating-system mounts are created on the service host or viewing computer. Access is limited to reachable, permitted networks and valid server credentials. NFS requires libnfs 6+; see the [Tailscale quickstart](QUICKSTART.md#one-service-network-access-through-tailscale).
 
@@ -31,13 +31,13 @@ Install from the [Homebrew tap](https://github.com/mightymorgs/homebrew-tap) wit
 ```sh
 brew tap mightymorgs/tap
 brew install mightymorgs/tap/remotefs
-remotefs serve
+remotefs
 ```
 
 The formula installs Python and libnfs as dependencies. To run a published release in the background:
 
 ```sh
-remotefs account --username YOUR_NAME  # set up the account before starting the service
+remotefs setup  # choose access, network ranges and login before starting the service
 brew services start remotefs
 ```
 
@@ -49,10 +49,10 @@ The WinGet package has been [submitted for review](https://github.com/microsoft/
 
 ```powershell
 winget install --id mightymorgs.remotefs --exact --source winget
-remotefs serve
+remotefs
 ```
 
-Until WinGet accepts the package, download the [Windows x64 ZIP](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.1/remotefs-0.2.1-windows-x64.zip), extract it, and run `remotefs\remotefs.exe serve` from PowerShell. The portable executable includes libnfs and does not require a separate Python installation. If `remotefs` is not found after installation, open a new terminal. To update:
+Until WinGet accepts the package, download the [Windows x64 ZIP](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.2/remotefs-0.2.2-windows-x64.zip), extract it, and run `remotefs\remotefs.exe` from PowerShell. The portable executable includes libnfs and does not require a separate Python installation. If `remotefs` is not found after installation, open a new terminal. To update:
 
 ```powershell
 winget upgrade --id mightymorgs.remotefs --exact --source winget
@@ -66,14 +66,14 @@ Requires Python 3.11+ and pipx. Install from [PyPI](https://pypi.org/project/rem
 
 ```sh
 pipx install remote-fs-browser
-remotefs serve
+remotefs
 ```
 
 You can also install directly from a checkout of this repository:
 
 ```sh
 pipx install .
-remotefs serve
+remotefs
 ```
 
 ## Account and service configuration
@@ -314,7 +314,7 @@ For mutations, add the required operations to `Policy.operations`: `write`, `mkd
 
 The standalone service uses one configured username/password account. Sign-in issues an eight-hour HttpOnly, SameSite=Strict cookie scoped to `/api`; it is Secure when served over HTTPS. Mutations using a browser cookie require a matching Origin header. Login attempts and authenticated requests are rate-limited. Sign-out revokes the current login and closes filesystem sessions belonging to that principal; service restart ends all browser logins.
 
-Page assets are public; data endpoints require authentication. An embedded service may supply authentication hooks or a bearer token instead. Routes below use `/api`. The current source checkout also exposes unprefixed compatibility aliases for discovery, sessions, saved locations, mutations, credentials and archives. Login stays under `/api/login`; use the canonical prefix for cookie authentication.
+Page assets are public; data endpoints require authentication. An embedded service may supply authentication hooks or a bearer token instead. Routes below use `/api`. Version 0.2.2 also exposes unprefixed compatibility aliases for discovery, sessions, saved locations, mutations, credentials and archives. Login stays under `/api/login`; use the canonical prefix for cookie authentication.
 
 | Method / route | Purpose or body |
 |---|---|

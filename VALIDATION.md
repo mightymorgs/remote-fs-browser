@@ -14,7 +14,7 @@ Known limits:
 - NDJSON is emitted after a bounded native listing completes. Very large/slow directories may hit the configured entry or operation limit; truncation is reported.
 - Windows directories are browsed through native pathname APIs. File handles are checked after opening, but directory metadata is not a sandbox against concurrent hostile namespace changes. See SECURITY.md.
 - SDK worker processes require the usual Python `if __name__ == '__main__'` guard. File streams, metadata and session operations share the same backend context; no per-click CLI subprocess is used.
-- The system installers are provided for review and testing. Public CI checks libraries and API behavior, not complete host service installation/uninstallation. macOS may need Apple's command-line-tools/license setup before unattended Homebrew bootstrap can finish.
+- Automated deployment CI installs and removes real system services on disposable Linux, macOS and Windows runners, including authenticated file writes, staged downloads, redeployment and password rotation. Unix jobs check Ansible idempotence; Windows tests the PowerShell playbook body rather than WinRM transport. macOS may need Apple's command-line-tools/license setup before unattended Homebrew bootstrap can finish.
 - This is an initial open-source release, not a signed binary distribution or a blanket compatibility guarantee for all NAS servers and authentication modes.
 
 ## Filesystem manager checks
@@ -36,3 +36,11 @@ The [0.2.1 release](https://github.com/mightymorgs/remote-fs-browser/releases/ta
 The [WinGet submission](https://github.com/microsoft/winget-pkgs/pull/432620) was updated to 0.2.1. Local manifest validation and download hash verification passed; the SSH-driven installation exited during Windows attachment handling, so a completed WinGet installation on that VM is not claimed. Microsoft review and installer checks are separate from the portable-executable tests.
 
 The Homebrew tap published 0.2.1 and its [clean macOS installation check](https://github.com/mightymorgs/homebrew-tap/actions/runs/34517082227) passed, including `brew test`, version and CLI help checks. This Mac could not run a source installation or strict audit because its Command Line Tools were outdated; the clean runner supplied the installation evidence.
+
+## Published 0.2.2 artifacts
+
+The [0.2.2 release](https://github.com/mightymorgs/remote-fs-browser/releases/tag/v0.2.2) includes guided setup, persistent ZIP preparation folder selection, client CLI commands and the HTTP-origin download queue fix. [Cross-platform CI](https://github.com/mightymorgs/remote-fs-browser/actions/runs/35499511725) and the [release workflow](https://github.com/mightymorgs/remote-fs-browser/actions/runs/35499776365) passed. The frozen Windows executable passed account setup, login, local session creation, folder creation and ZIP preparation store persistence on Windows Server 2022. The published ZIP checksum, bundled licences and libnfs DLL/source hashes were verified. This does not claim a new Windows 11 WinGet installation or repeat of every historical cross-host browser check.
+
+PyPI publishes 0.2.2. The Homebrew tap's [clean macOS source installation and smoke test](https://github.com/mightymorgs/homebrew-tap/actions/runs/35500967873) passed before its 0.2.2 formula was merged. The checked-in formula matches the tap.
+
+The [WinGet submission](https://github.com/microsoft/winget-pkgs/pull/432620) now targets 0.2.2 with the verified published Windows ZIP checksum. As of 20 September 2026, it remains open; Microsoft acceptance is separate from release publication.

@@ -16,7 +16,7 @@ Homebrew installs Python and libnfs for you.
 
 ### Windows x64
 
-Download the [0.2.1 portable ZIP](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.1/remotefs-0.2.1-windows-x64.zip) and extract it. Open PowerShell inside the extracted `remotefs` folder. Use `.\remotefs.exe` in place of `remotefs` in the commands below. Python and libnfs are bundled.
+Download the [0.2.2 portable ZIP](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.2/remotefs-0.2.2-windows-x64.zip) and extract it. Open PowerShell inside the extracted `remotefs` folder. Use `.\remotefs.exe` in place of `remotefs` in the commands below. Python and libnfs are bundled.
 
 The [WinGet submission](https://github.com/microsoft/winget-pkgs/pull/432620) is awaiting review. Once accepted, install with:
 
@@ -39,13 +39,14 @@ Local files and SMB work without a native library. NFS additionally requires **l
 ## 2. Create your login and start
 
 ```sh
-remotefs account --username admin
-remotefs serve
+remotefs
 ```
 
-Choose a password of at least 12 characters when prompted. Open **http://127.0.0.1:8080/** and sign in. Keep the terminal open while using the app; press Ctrl+C there to stop it.
+The first-run wizard shows detected network addresses and scan ranges, lets you choose browser access, and creates your login. Press Enter to accept the defaults and choose a password of at least 12 characters. Open the address printed at startup (by default **http://127.0.0.1:8080/**) and sign in. Keep the terminal open while using the app; press Ctrl+C there to stop it.
 
-The default service listens only on this computer. It exposes your home directory, detected mounted volumes and local private network ranges, with read/write access subject to your operating-system permissions. The startup banner lists the exact roots and networks. To try it without changing files:
+To revisit setup, stop the service and run `remotefs setup`. No configuration file is needed.
+
+With the default setup choices, the service listens only on this computer. It exposes your home directory, detected mounted volumes and local private network ranges, with read/write access subject to your operating-system permissions. The startup banner lists the exact roots and networks. To try it without changing files:
 
 ```sh
 remotefs serve --read-only
@@ -76,7 +77,7 @@ Use the folder toolbar or **…** menu to create folders/files and upload files.
 For a direct download, use a file's **Download** action. For several files or a folder:
 
 1. Select the items and choose ZIP.
-2. Choose staging storage and a single ZIP or multipart size; start packing.
+2. Choose a ZIP preparation folder and a single ZIP or multipart size. To change the folder, use **Choose folder…**, browse local folders on the service computer, optionally use **New folder**, and select **Use this folder**. The choice is saved automatically. Start packing.
 3. Open **Downloads**, wait for completion and save every part through the browser.
 4. Join split parts in numeric order, then extract the resulting ZIP.
 
@@ -95,7 +96,7 @@ cmd /c "copy /b selection.zip.001+selection.zip.002+selection.zip.003 selection.
 Expand-Archive -LiteralPath .\selection.zip -DestinationPath .\extracted
 ```
 
-Substitute the actual filenames and include **every** numbered part. Each part is a slice of one ZIP, not a separate archive. Once your downloads are complete, **Purge** removes the staged copies from the service host; it does not delete the original files. Packing pause/resume controls archive creation, not your browser's transfer.
+Substitute the actual filenames and include **every** numbered part. Each part is a slice of one ZIP, not a separate archive. Once your downloads are complete, **Purge** removes the staged copies from the service host; it does not delete the original files. Packing pause/resume controls archive creation, not your browser's transfer. Your browser controls where downloads are saved on the viewing device; choose the extraction folder in your archive application.
 
 ## 5. Reach it from another computer
 
@@ -125,7 +126,7 @@ ssh -N -L 8080:127.0.0.1:8080 YOUR_USER@YOUR_SERVER_TAILSCALE_NAME
 
 Open `http://127.0.0.1:8080/` in your browser and sign in. Keep the SSH connection open. This is the arrangement used in the network demonstration: a Mac browser, an SSH connection over Tailscale, and a Linux service reaching the LAN and VM subnet. SSH must be available and permitted on the service host.
 
-For a browser HTTPS URL without an SSH tunnel, keep remotefs on loopback and configure [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve). Your tailnet access rules must permit the connection. Use HTTPS or the localhost tunnel for published 0.2.1: its download queue depends on a browser API unavailable on plain-HTTP network origins. Version 0.2.2 fixes that compatibility issue.
+For a browser HTTPS URL without an SSH tunnel, keep remotefs on loopback and configure [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve). Your tailnet access rules must permit the connection. Version 0.2.2 also supports the download queue on plain-HTTP network origins; HTTP itself does not encrypt traffic.
 
 The service host connects to SMB/NFS servers on your behalf. Those file servers do not need remotefs or Tailscale installed if the service host can already reach them over the LAN. A subnet router is not needed for this browser-to-service arrangement; it is needed only if your chosen network path requires routing through one. Remotefs does not create routes or bypass server permissions.
 
@@ -178,11 +179,3 @@ See the [full README](README.md), [security boundaries](SECURITY.md) and [tested
 ## Automated or always-on deployment
 
 See the [deployment guide](docs/DEPLOYMENT.md) for unattended installers and Ansible on Linux, macOS and Windows, including password setup, service management and upgrades.
-
-## First-run setup and ZIP folders (0.2.2+)
-
-Run `remotefs` without flags or configuration files. The first-run wizard shows detected network addresses and scan ranges, lets you choose browser access, and creates your login. Press Enter to accept the defaults. Run `remotefs setup` to revisit those choices after stopping the service.
-
-In the ZIP download dialog, use **Choose folder…**, browse a local folder on the service computer, optionally create one with **New folder**, then select **Use this folder**. ZIP preparation locations are saved automatically. Your browser controls the downloaded file's destination; extraction is handled by your archive application.
-
-These additions require version 0.2.2 or newer. See the [deployment guide](docs/DEPLOYMENT.md) for managed service installs and advanced configuration.
