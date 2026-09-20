@@ -1,6 +1,6 @@
 # Automated deployments
 
-The installer scripts and Ansible playbooks install **the source checkout you run them from**. Check out the commit or tag you intend to deploy first. These updated automation options are available on main; they are not part of the older v0.2.1 tag.
+The installer scripts and Ansible playbooks install **the source checkout you run them from**. Check out the commit or tag you intend to deploy first. These updated automation options are included in v0.2.2 and newer.
 
 The service runs as root on Linux/macOS or SYSTEM on Windows. It uses Python to access local folders, SMB shares and NFS exports; connecting a share does not create an operating-system mount. Clients only need a browser. Set the policy to the directories and network ranges the service should expose.
 
@@ -14,7 +14,7 @@ remotefs
 
 The first-run setup shows this computer's addresses and detected scan ranges. Press Enter to accept the defaults, choose whether other devices can connect, and create your username and password. Your home folder and mounted volumes are available automatically. Network discovery starts with detected private LAN subnets, bounded to a /24 per interface; you can choose a different CIDR in setup or in the scanner, within the service's allowed ranges.
 
-To change the setup later, stop the service and run `remotefs setup`, then start it again with `remotefs`. The interactive network choices and ZIP folder picker described here are in the current source checkout and will ship in the next package release. Published 0.2.1 already creates your login interactively and detects local roots and networks.
+To change the setup later, stop the service and run `remotefs setup`, then start it again with `remotefs`. The interactive network choices and ZIP folder picker require version 0.2.2 or newer. Version 0.2.1 creates your login interactively and detects local roots and networks, but lacks these additional controls.
 
 ### Choose where ZIPs are prepared
 
