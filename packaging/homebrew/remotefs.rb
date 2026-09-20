@@ -5,8 +5,8 @@ class Remotefs < Formula
 
   desc "Manage local, SMB and NFS files through a browser"
   homepage "https://github.com/mightymorgs/remote-fs-browser"
-  url "https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.1/remote_fs_browser-0.2.1.tar.gz"
-  sha256 "a8dcae536dbffe6dd05652d64a9b277368ee75666051868594636b24d423fb63"
+  url "https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.2/remote_fs_browser-0.2.2.tar.gz"
+  sha256 "62d00083b41d3a7ef12fe68a65f97636f3f8f49462c72d3a91807937d50e7f21"
   license "MIT"
 
   depends_on "rust" => :build # cryptography (via smbprotocol) builds from source
@@ -76,8 +76,8 @@ class Remotefs < Formula
   end
 
   resource "idna" do
-    url "https://files.pythonhosted.org/packages/5f/f7/abb373e5757eaec4b922b92f97ec8d6d7e057cf06778247604fbc4e7c3f3/idna-3.19.tar.gz"
-    sha256 "5e0811a4383b21dc5838069f801c4fb62113b7447663d2530d2bd6e77b49bf15"
+    url "https://files.pythonhosted.org/packages/f5/08/8eea9d4b8302028f3abb2c0813953f7aec26d33b7a8960ed760e65ff29fa/idna-3.20.tar.gz"
+    sha256 "a7db850025b95ded1eae8a46181a1a6c56c92c96f0e2b005d9ff8dc0210cab44"
   end
 
   resource "impacket" do
@@ -181,8 +181,8 @@ class Remotefs < Formula
   end
 
   resource "uvicorn" do
-    url "https://files.pythonhosted.org/packages/f2/0f/3f86e61397dd33bf2ccf28188c40db6a740658aeebbbf6e7dbc101a1f487/uvicorn-0.52.4.tar.gz"
-    sha256 "73acfee47a0b133c5de13d219492d62d8a31e935f4fe6e41a232451a15379f86"
+    url "https://files.pythonhosted.org/packages/5d/ad/04bbb797c84fc1f26cb171f7394716f4865ffb8d8c5e1eef42565c2dfa6b/uvicorn-0.53.0.tar.gz"
+    sha256 "a9356f0cb89b3b8621529c5d5eebd69bfe154f4c3f68b4cf2de47e45fa855c2e"
   end
 
   resource "werkzeug" do
