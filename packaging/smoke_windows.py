@@ -9,6 +9,7 @@ import tempfile
 import time
 import tomllib
 import urllib.request
+import psutil
 
 version = tomllib.loads(Path('pyproject.toml').read_text())['project']['version']
 exe = str(Path('dist/remotefs/remotefs.exe').resolve())
@@ -57,8 +58,19 @@ with tempfile.TemporaryDirectory(prefix='remotefs-release-') as folder:
                 assert b'Choose folder' in response.read()
             print('Frozen executable version, CLI, login, filesystem worker, ZIP folder selection and persistence passed.')
         finally:
-            server.terminate()
+            # Frozen multiprocessing children inherit the log handle on Windows.
+            # Wait for the whole test process tree before deleting its directory.
             try:
-                server.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                server.kill();server.wait(timeout=5)
+                process = psutil.Process(server.pid)
+                processes = [process, *process.children(recursive=True)]
+                for child in reversed(processes):
+                    try:
+                        child.kill()
+                    except psutil.NoSuchProcess:
+                        pass
+                _, alive = psutil.wait_procs(processes, timeout=15)
+                if alive:
+                    raise RuntimeError('Frozen test processes did not stop')
+            except psutil.NoSuchProcess:
+                pass
+            server.wait(timeout=15)
