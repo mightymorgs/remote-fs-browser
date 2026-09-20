@@ -25,12 +25,94 @@ A 70-second feature demo using published 0.2.1: a short installation excerpt, re
 
 ## Install
 
+Choose the option for the computer that will run remotefs. Other devices only need a browser and access to that computer.
+
+### macOS — Homebrew
+
+[Homebrew](https://brew.sh/) installs Python and libnfs for you:
+
+```sh
+brew install mightymorgs/tap/remotefs
+remotefs
+```
+
+Upgrade with `brew update` followed by `brew upgrade mightymorgs/tap/remotefs`. After setup, stop the foreground app and use `brew services start remotefs` for background operation.
+
+### Windows — portable download
+
+[Download remotefs 0.2.2 for Windows x64](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.2/remotefs-0.2.2-windows-x64.zip). Extract the ZIP, open PowerShell in the extracted `remotefs` folder, and run:
+
+```powershell
+.\\remotefs.exe
+```
+
+Python and libnfs are bundled; no separate Python installation is needed. To upgrade, stop the app and extract the new release into a fresh directory. Your configuration is stored separately.
+
+### Windows — WinGet (pending acceptance)
+
+The [WinGet submission](https://github.com/microsoft/winget-pkgs/pull/432620) is still awaiting Microsoft review. Use the portable download above now. Once accepted, install with:
+
+```powershell
+winget install --id mightymorgs.remotefs --exact --source winget
+remotefs
+```
+
+Open a new terminal if the command is not found. Once available, upgrade with `winget upgrade --id mightymorgs.remotefs --exact --source winget`.
+
+### Linux, macOS or Windows — Python / pipx
+
+With Python 3.11+ and [pipx](https://pipx.pypa.io/stable/installation/) installed:
+
 ```sh
 pipx install remote-fs-browser
 remotefs
 ```
 
-Version 0.2.2 guides you through network access and login on first launch, with no configuration file needed. Open the address printed at startup (default **http://127.0.0.1:8080/**) and sign in. Homebrew and Windows installation instructions are in the [quickstart](quickstart.html).
+Upgrade with `pipx upgrade remote-fs-browser`. Local files and SMB work with the Python package. NFS additionally needs **libnfs 6+**; Homebrew and the Windows portable edition include it. See the [deployment guide](deployment.html) for Linux native dependency installation.
+
+### Python — pip in a virtual environment
+
+If you prefer pip, create and activate a virtual environment first:
+
+```sh
+python -m venv .venv
+# macOS / Linux (use python3 above if needed):
+source .venv/bin/activate
+```
+
+On Windows PowerShell, activate it with `.\\.venv\\Scripts\\Activate.ps1` instead. Then:
+
+```sh
+python -m pip install remote-fs-browser
+remotefs
+```
+
+Use `python -m pip install --upgrade remote-fs-browser` inside that environment to upgrade. The same Python and NFS requirements apply as for pipx.
+
+### Install from source
+
+With Git, Python 3.11+ and pipx installed:
+
+```sh
+git clone https://github.com/mightymorgs/remote-fs-browser.git
+cd remote-fs-browser
+git checkout v0.2.2
+pipx install .
+remotefs
+```
+
+This installs the published release source. Developers can use `python -m pip install -e .` in an activated virtual environment for an editable checkout.
+
+### Always-on services and automated deployment
+
+The [deployment guide](deployment.html) covers Linux systemd, macOS launchd and Windows startup-task installers, plus Ansible playbooks, unattended account setup, upgrades and custom access policies. The installers deploy the source checkout you run them from; choose your release tag first.
+
+## First launch
+
+Version 0.2.2 guides you through network access and login on first launch, with no configuration file needed. Open the address printed at startup (default **http://127.0.0.1:8080/**) and sign in. Stop the service and run `remotefs setup` to revisit your choices.
+
+Follow the [quickstart](quickstart.html) to connect SMB/NFS shares, scan networks, save locations, prepare ZIP downloads and reach the service from another device.
+
 '''
 for filename, title, source in [('index.html','remotefs',home),('quickstart.html','Quickstart',(root/'QUICKSTART.md').read_text()),('reference.html','Features and API',(root/'README.md').read_text()),('deployment.html','Automated deployments',(root/'docs/DEPLOYMENT.md').read_text()),('demo.html','Demo transcript',(root/'docs/site/demo.md').read_text())]:
     body=markdown.markdown(source,extensions=['fenced_code','tables','toc'])
