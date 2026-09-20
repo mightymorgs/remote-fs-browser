@@ -40,7 +40,9 @@ with tempfile.TemporaryDirectory(prefix='remotefs-release-') as folder:
                 if server.poll() is not None:
                     raise RuntimeError('Frozen service exited during startup')
                 try:
-                    request('/api/login');break
+                    with client.open(base+'/', timeout=2) as response:
+                        assert response.status == 200
+                    break
                 except OSError:
                     time.sleep(.5)
             else:
