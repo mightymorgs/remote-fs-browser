@@ -125,7 +125,7 @@ ssh -N -L 8080:127.0.0.1:8080 YOUR_USER@YOUR_SERVER_TAILSCALE_NAME
 
 Open `http://127.0.0.1:8080/` in your browser and sign in. Keep the SSH connection open. This is the arrangement used in the network demonstration: a Mac browser, an SSH connection over Tailscale, and a Linux service reaching the LAN and VM subnet. SSH must be available and permitted on the service host.
 
-For a browser HTTPS URL without an SSH tunnel, keep remotefs on loopback and configure [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve). Your tailnet access rules must permit the connection. Use HTTPS or the localhost tunnel for published 0.2.1: its download queue depends on a browser API unavailable on plain-HTTP network origins. The current source checkout fixes that compatibility issue.
+For a browser HTTPS URL without an SSH tunnel, keep remotefs on loopback and configure [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve). Your tailnet access rules must permit the connection. Use HTTPS or the localhost tunnel for published 0.2.1: its download queue depends on a browser API unavailable on plain-HTTP network origins. Version 0.2.2 fixes that compatibility issue.
 
 The service host connects to SMB/NFS servers on your behalf. Those file servers do not need remotefs or Tailscale installed if the service host can already reach them over the LAN. A subnet router is not needed for this browser-to-service arrangement; it is needed only if your chosen network path requires routing through one. Remotefs does not create routes or bypass server permissions.
 
@@ -179,10 +179,10 @@ See the [full README](README.md), [security boundaries](SECURITY.md) and [tested
 
 See the [deployment guide](docs/DEPLOYMENT.md) for unattended installers and Ansible on Linux, macOS and Windows, including password setup, service management and upgrades.
 
-## First-run setup and ZIP folders (current source)
+## First-run setup and ZIP folders (0.2.2+)
 
 Run `remotefs` without flags or configuration files. The first-run wizard shows detected network addresses and scan ranges, lets you choose browser access, and creates your login. Press Enter to accept the defaults. Run `remotefs setup` to revisit those choices after stopping the service.
 
 In the ZIP download dialog, use **Choose folder…**, browse a local folder on the service computer, optionally create one with **New folder**, then select **Use this folder**. ZIP preparation locations are saved automatically. Your browser controls the downloaded file's destination; extraction is handled by your archive application.
 
-These additions are available from the source checkout ahead of the next package release. See the [deployment guide](docs/DEPLOYMENT.md) for managed service installs and advanced configuration.
+These additions require version 0.2.2 or newer. See the [deployment guide](docs/DEPLOYMENT.md) for managed service installs and advanced configuration.

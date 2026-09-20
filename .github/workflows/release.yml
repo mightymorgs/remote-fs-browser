@@ -62,10 +62,7 @@ jobs:
           Copy-Item LICENSE dist/remotefs/LICENSE
           Copy-Item THIRD_PARTY_NOTICES.md dist/remotefs/THIRD_PARTY_NOTICES.md
       - name: Smoke test frozen binary
-        shell: pwsh
-        run: |
-          & dist/remotefs/remotefs.exe --version
-          if ($LASTEXITCODE -ne 0) { throw 'remotefs.exe --version failed' }
+        run: python packaging/smoke_windows.py
       - name: Derive version from tag
         id: version
         shell: bash

@@ -13,7 +13,7 @@ Install one Python service on a computer that can reach your shares, then use it
 - Local, SMB and NFS browsing, metadata, uploads, downloads, new files/folders, text editing, copy, move, rename and recursive deletion, subject to policy and filesystem permissions.
 - CIDR scanning with DNS names, NetBIOS names and IP addresses shown together; manual connections, mapped hosts, encrypted saved SMB credentials and folder shortlists.
 - A responsive manager with filtering, sorting, breadcrumbs, checkbox/range selection, context menus and keyboard shortcuts.
-- Direct file downloads or host-staged ZIP64 archives, optional byte splitting, HTTP Range support, packing pause/resume and explicit purge. In the current source, choose ZIP preparation folders and create new ones from the browser.
+- Direct file downloads or host-staged ZIP64 archives, optional byte splitting, HTTP Range support, packing pause/resume and explicit purge. In 0.2.2, choose ZIP preparation folders and create new ones from the browser.
 - A Python SDK, authenticated HTTP API and embeddable directory picker with credential-free descriptors.
 
 [Documentation site](https://mightymorgs.github.io/remote-fs-browser/) · [Product demo](https://mightymorgs.github.io/remote-fs-browser/#watch-it-install-and-run)
@@ -22,7 +22,7 @@ Install one Python service on a computer that can reach your shares, then use it
 
 Follow the [step-by-step quickstart](QUICKSTART.md) for first login, NAS connections, file operations and multipart downloads.
 
-To install from a source checkout, use `pipx install .` (or `pip install -e .` in a virtual environment). Then run `remotefs`: first-run setup detects network details and guides you through access and login with no configuration file to prepare. `remotefs setup` revisits these choices. The full setup wizard and ZIP preparation folder picker are available in source ahead of the next release.
+To install from a source checkout, use `pipx install .` (or `pip install -e .` in a virtual environment). Then run `remotefs`: first-run setup detects network details and guides you through access and login with no configuration file to prepare. `remotefs setup` revisits these choices. The full setup wizard and ZIP preparation folder picker require version 0.2.2 or newer.
 
 ### Homebrew (macOS)
 
@@ -201,7 +201,7 @@ The guide covers all three platforms, Ansible Vault, preinstalled dependencies, 
 
 ## Terminal file manager
 
-Client commands are available from the current source checkout; the published 0.2.1 CLI has only `serve` and `account`. Install the checkout with `pipx install .` to use them before the next release.
+Client commands are included in version 0.2.2 and newer; 0.2.1 has only `serve` and `account`.
 
 The CLI can use the same running service as the web UI. Commands share its roots,
 network policy, saved locations, encrypted credentials and download jobs. `serve`
@@ -394,7 +394,7 @@ Here `policy` and `authenticate_user` are supplied by the embedding application 
 
 For an API mounted with `app.mount('/storage-api', create_app(...))`, use `/storage-api/api` as the client base. The standalone service uses `/api`. Existing bearer-authenticated integrations using the legacy unprefixed routes continue to work, including file mutations, host credentials and staged downloads. Cookie login uses the canonical `/api` routes and is scoped to the mount path.
 
-The current source checkout adds the client helpers below alongside the terminal client; published 0.2.1 does not yet include all of these helpers.
+Version 0.2.2 adds the client helpers below alongside the terminal client.
 
 | Area | JavaScript methods |
 | --- | --- |
