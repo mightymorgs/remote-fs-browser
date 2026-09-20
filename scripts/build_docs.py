@@ -27,11 +27,10 @@ A 70-second feature demo using published 0.2.1: a short installation excerpt, re
 
 ```sh
 pipx install remote-fs-browser
-remotefs account --username admin
-remotefs serve
+remotefs
 ```
 
-Open **http://127.0.0.1:8080/** and sign in. Homebrew and Windows installation instructions are in the [quickstart](quickstart.html).
+Version 0.2.2 guides you through network access and login on first launch, with no configuration file needed. Open the address printed at startup (default **http://127.0.0.1:8080/**) and sign in. Homebrew and Windows installation instructions are in the [quickstart](quickstart.html).
 '''
 for filename, title, source in [('index.html','remotefs',home),('quickstart.html','Quickstart',(root/'QUICKSTART.md').read_text()),('reference.html','Features and API',(root/'README.md').read_text()),('deployment.html','Automated deployments',(root/'docs/DEPLOYMENT.md').read_text()),('demo.html','Demo transcript',(root/'docs/site/demo.md').read_text())]:
     body=markdown.markdown(source,extensions=['fenced_code','tables','toc'])
