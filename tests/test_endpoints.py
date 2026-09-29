@@ -172,3 +172,24 @@ async def test_existing_connections_do_not_require_writable_temporary_directory(
     async with Browser(Policy(local_roots=[str(tmp_path)])) as browser:
         fs = await browser.connect({'type': 'local', 'root': str(tmp_path)})
         assert (await fs.list('/'))['entries'] == []
+
+
+@pytest.mark.skipif(sys.platform == 'win32', reason='POSIX group signal fallback')
+def test_worker_close_handles_rejected_group_signal(monkeypatch):
+    import os
+    import threading
+    import psutil
+    from remote_fs_browser.sessions import Worker
+    calls = []
+    def rejected(*args): raise PermissionError('Group signal rejected')
+    monkeypatch.setattr(os, 'killpg', rejected)
+    monkeypatch.setattr(psutil, 'Process', lambda pid: SimpleNamespace(children=lambda recursive: [SimpleNamespace(kill=lambda: calls.append('child'))]))
+    worker = Worker.__new__(Worker)
+    worker.lock = threading.RLock()
+    worker.has_children = True
+    worker.scratch = SimpleNamespace(cleanup=lambda: calls.append('scratch'))
+    worker.pipe = SimpleNamespace(send=lambda value: None, close=lambda: calls.append('pipe'))
+    worker.process = SimpleNamespace(pid=123, is_alive=lambda: True, join=lambda timeout: None,
+                                     terminate=lambda: calls.append('worker'))
+    worker.close()
+    assert calls == ['child', 'worker', 'pipe', 'scratch']

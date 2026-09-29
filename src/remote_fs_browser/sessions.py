@@ -12,7 +12,7 @@ CHUNK = 256 * 1024
 
 def worker(pipe, config, policy_values):
     import os
-    if os.name != 'nt':
+    if os.name != 'nt' and config['type'] in ('rclone', 'libvirt'):
         os.setsid()
     from .backends import LocalFilesystem, SMBFilesystem
     from .endpoints import RcloneFilesystem, LibvirtFilesystem
@@ -136,6 +136,7 @@ def worker(pipe, config, policy_values):
 class Worker:
     def __init__(self, config, policy):
         import tempfile
+        self.has_children = config['type'] in ('rclone', 'libvirt')
         self.scratch = tempfile.TemporaryDirectory(prefix='remotefs-session-') if config['type'] == 'rclone' else None
         if self.scratch:
             config = {**config, '_scratch': self.scratch.name}
@@ -185,13 +186,27 @@ class Worker:
                     import os
                     import signal
                     import subprocess
-                    if os.name == 'nt':
+                    if not self.has_children:
+                        self.process.terminate()
+                    elif os.name == 'nt':
                         subprocess.run(['taskkill', '/PID', str(self.process.pid), '/T', '/F'],
                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
                     else:
                         try:
                             os.killpg(self.process.pid, signal.SIGKILL)
-                        except ProcessLookupError:
+                        except (ProcessLookupError, PermissionError):
+                            # macOS can reject a group signal during worker exit.
+                            # Kill any remaining descendants before the worker.
+                            import psutil
+                            try:
+                                children = psutil.Process(self.process.pid).children(recursive=True)
+                            except psutil.Error:
+                                children = []
+                            for child in children:
+                                try:
+                                    child.kill()
+                                except psutil.Error:
+                                    pass
                             self.process.terminate()
                     self.process.join(1)
             self.pipe.close()
