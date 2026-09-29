@@ -23,6 +23,7 @@ class Policy:
     network_ranges: list[str] = field(default_factory=list)
     discovery_ranges: list[str] | None = None
     servers: list[str] = field(default_factory=list)
+    endpoints: dict[str, dict] = field(default_factory=dict)
     operations: list[str] = field(default_factory=lambda: list(READ_OPERATIONS))
     max_write_bytes: int = 10 * 1024**3
     max_sessions: int = 16
@@ -32,6 +33,26 @@ class Policy:
     requests_per_minute: int = 120
 
     def __post_init__(self):
+        import re
+        for name, config in self.endpoints.items():
+            if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', name):
+                raise ValueError('Endpoint names must use letters, digits, underscores or hyphens')
+            if config.get('type') == 'rclone':
+                if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', config.get('remote', '')):
+                    raise ValueError('Use a named rclone remote, without a colon or connection string')
+                if not Path(config.get('config', '')).is_absolute():
+                    raise ValueError('An absolute rclone config path is required')
+                normalize(config.get('root', '/'))
+            elif config.get('type') == 'libvirt':
+                if not isinstance(config.get('uri'), str) or not config['uri']:
+                    raise ValueError('A libvirt URI is required')
+                pools = config.get('pools')
+                if not isinstance(pools, list) or not pools or any(not isinstance(p, str) or not p or normalize('/' + p) != '/' + p or '/' in p for p in pools):
+                    raise ValueError('List the permitted libvirt pool names explicitly')
+            else:
+                raise ValueError('Endpoint type must be rclone or libvirt')
+            if 'read_only' in config and not isinstance(config['read_only'], bool):
+                raise ValueError('read_only must be a boolean')
         self.local_roots = [str(Path(p).resolve(strict=True)) for p in self.local_roots]
         for network in self.network_ranges:
             ipaddress.ip_network(network)
@@ -43,6 +64,12 @@ class Policy:
     def require(self, operation):
         if operation not in self.operations:
             raise PermissionError('Operation is not permitted')
+
+    def endpoint(self, name, kind):
+        config = self.endpoints.get(name)
+        if not config or config['type'] != kind:
+            raise PermissionError('Endpoint is not permitted')
+        return dict(config)
 
     def local_root(self, root):
         root = Path(root).resolve(strict=True)

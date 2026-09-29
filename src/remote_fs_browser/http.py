@@ -467,8 +467,8 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
             session._descriptor['credential_id'] = reference
         owners[session.id] = request.state.principal
         return {'id': session.id, 'descriptor': session.descriptor(), 'idle_seconds': policy.idle_seconds,
-                'operations': policy.operations, 'max_write_bytes': policy.max_write_bytes,
-                'rename_directories': True}
+                'operations': session.policy.operations, 'max_write_bytes': policy.max_write_bytes,
+                'rename_directories': 'rename' in session.policy.operations}
 
     @app.post('/api/sessions/{id}/mkdir')
     @app.post('/sessions/{id}/mkdir', include_in_schema=False)

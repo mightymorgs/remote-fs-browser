@@ -330,10 +330,11 @@ export class RemoteFsBrowser extends HTMLElement {
           <select data-type aria-label="Storage type">
             <option value="local">This machine</option>
             <option value="smb">SMB share</option>
-            <option value="nfs">NFS export</option>
+            <option value="nfs">NFS export</option><option value="rclone">Cloud / rclone</option><option value="libvirt">Libvirt pools</option>
           </select>
         </label>
 
+        <label class="field" data-for="rclone libvirt">Configured endpoint name<input data-endpoint placeholder="archive or hypervisor" autocomplete="off"></label>
         <label class="field" data-for="local">Root folder on this host
           <input type="text" data-root placeholder="/srv/media" autocomplete="off">
         </label>
@@ -442,7 +443,7 @@ export class RemoteFsBrowser extends HTMLElement {
     this.form = q('[data-form]')
     this.type = q('[data-type]'); this.version = q('[data-version]')
     this.host = q('[data-host-input]')
-    this.root = q('[data-root]'); this.share = q('[data-share]'); this.export = q('[data-export]')
+    this.endpoint = q('[data-endpoint]'); this.root = q('[data-root]'); this.share = q('[data-share]'); this.export = q('[data-export]')
     this.username = q('[data-username]'); this.password = q('[data-password]'); this.domain = q('[data-domain]')
     this.savedBlock = q('[data-saved]'); this.savedList = q('[data-saved-list]')
     this.locations = q('[data-locations]'); this.hostLabel = q('[data-host]')
@@ -514,11 +515,12 @@ export class RemoteFsBrowser extends HTMLElement {
   }
   where(descriptor = {}) {
     const folder = descriptor.path && descriptor.path !== '/' ? descriptor.path : ''
+    if (descriptor.endpoint) return `${descriptor.type} · ${descriptor.endpoint}${folder}`
     if (descriptor.type === 'smb') return `SMB · smb://${descriptor.host}/${descriptor.share}${folder}`
     if (descriptor.type === 'nfs') return `NFSv${descriptor.version ?? 4} · nfs://${descriptor.host}${this.absolute(descriptor.export ?? '')}${folder}`
     return `Local · ${descriptor.root ?? ''}${folder}`
   }
-  field() { return this.type.value === 'local' ? this.root : this.type.value === 'smb' ? this.share : this.export }
+  field() { return ['rclone','libvirt'].includes(this.type.value) ? this.endpoint : this.type.value === 'local' ? this.root : this.type.value === 'smb' ? this.share : this.export }
   /** clean_descriptor rejects a relative export, so force the leading slash. */
   absolute(value) { return value && !value.startsWith('/') ? '/' + value : value }
   target() { return this.field().value || this.host.value }
@@ -602,6 +604,7 @@ export class RemoteFsBrowser extends HTMLElement {
       this.nextScan = result.next_offset
       if (this.nextScanButton) this.nextScanButton.hidden = this.nextScan == null
       this.roots = this.rootsFrom(result)
+      this.endpoints = result.endpoints || []
       if (scan) {
         const devices = [...(offset ? this.deviceList || [] : []), ...this.devicesFrom(result)]
         this.deviceList = [...new Map(devices.map(device => [device.type + ':' + device.host, device])).values()]
@@ -724,13 +727,18 @@ export class RemoteFsBrowser extends HTMLElement {
     this.locations.replaceChildren()
     const groups = [
       { label: 'This machine', items: this.roots || [] },
-      { label: 'Network', items: this.mapped || [] }
+      { label: 'Network', items: this.mapped || [] },
+      { label: 'Cloud and virtualisation', items: this.endpoints || [] }
     ]
     for (const group of groups) {
       if (!group.items.length) continue
       this.locations.append(this.el('p', group.label, 'eyebrow'))
       for (const item of group.items) {
         const local = item.type === 'local'
+        if (item.endpoint) {
+          const node = this.source(item.label, false, () => this.pick(item), item.type.toUpperCase())
+          this.locations.append(node); continue
+        }
         const connected = this.session && this.descriptor?.type === item.type && this.descriptor?.host === item.host
         const active = local
           ? this.session && this.descriptor?.type === 'local' && this.descriptor.root === item.root
@@ -797,10 +805,11 @@ export class RemoteFsBrowser extends HTMLElement {
       await this.close()
       const d = record.descriptor
       this.type.value = d.type; this.type.onchange()
+      this.endpoint.value = d.endpoint || ''
       this.host.value = d.host || ''
       this.root.value = d.root || ''; this.share.value = d.share || ''; this.export.value = d.export || ''
       if (d.version) this.version.value = String(d.version)
-      this.descriptor = { ...d, credential_id: record.id }; this.credentials = {}
+      this.descriptor = { ...d, ...(record.has_credentials ? {credential_id:record.id} : {}) }; this.credentials = {}
       this.skeleton(`Connecting to ${record.label}…`)
       const generation = this.generation
       const result = await this.client.connect(this.descriptor, {})
@@ -811,6 +820,7 @@ export class RemoteFsBrowser extends HTMLElement {
   }
   pick(item) {
     this.type.value = item.type; this.type.onchange()
+    if (item.endpoint) { this.endpoint.value = item.endpoint; void this.connect(); return }
     if (item.type === 'local') { this.root.value = item.root; void this.connect(); return }
     this.host.value = item.host; this.share.value = ''; this.export.value = ''
     if (this.hostShares?.[`${item.type}:${item.host}`]) { this.activeHost = item.host; this.activeType = item.type; this.renderRail(); return }
@@ -819,7 +829,8 @@ export class RemoteFsBrowser extends HTMLElement {
   async connect() {
     await this.action(async () => {
       await this.close()
-      this.descriptor = this.type.value === 'local' ? { type: 'local', root: this.root.value }
+      this.descriptor = ['rclone','libvirt'].includes(this.type.value) ? {type:this.type.value, endpoint:this.endpoint.value}
+        : this.type.value === 'local' ? { type: 'local', root: this.root.value }
         : this.type.value === 'smb' ? { type: 'smb', host: this.host.value, share: this.share.value }
           : { type: 'nfs', host: this.host.value, export: this.absolute(this.export.value), version: Number(this.version.value) }
       this.credentials = this.creds()
@@ -868,7 +879,7 @@ export class RemoteFsBrowser extends HTMLElement {
   /** Back: up one folder, then out of the share, then out of the location. */
   back() {
     if (this.session && this.path !== '/') return this.action(() => this.show(this.path.replace(/\/[^/]+\/?$/, '') || '/'))
-    if (this.session && this.descriptor?.type !== 'local') return this.leaveShare()
+    if (this.session && ['smb','nfs'].includes(this.descriptor?.type)) return this.leaveShare()
     return this.disconnect()
   }
   /** Drop the session but keep the host selected, so the rail's share list is the next step up. */
@@ -890,7 +901,9 @@ export class RemoteFsBrowser extends HTMLElement {
     this.crumbs.replaceChildren()
     const parts = path.split('/').filter(Boolean)
     const crumb = (text, action) => { const node = this.button(text, action); node.className = ''; return node }
-    if (descriptor.type === 'local') {
+    if (descriptor.endpoint) {
+      this.crumbs.append(crumb(descriptor.endpoint, () => this.action(() => this.show('/'))))
+    } else if (descriptor.type === 'local') {
       this.crumbs.append(crumb(descriptor.root || '/', () => this.action(() => this.show('/'))))
     } else {
       const scheme = descriptor.type === 'nfs' ? 'nfs://' : 'smb://'
@@ -950,7 +963,7 @@ export class RemoteFsBrowser extends HTMLElement {
         this.el('span', directory ? '—' : this.bytes(item.size), 'size'),
         this.el('span', this.when(item.modified), 'mod'))
       const act = this.el('span', null, 'act')
-      if (!directory && this.download) act.append(this.button('Download', event => { event.stopPropagation(); this.download(this.session, item) }))
+      if (item.type === 'file' && this.download && this.operations?.includes('read')) act.append(this.button('Download', event => { event.stopPropagation(); this.download(this.session, item) }))
       else if (directory) act.append(this.el('span', '›', 'chev'))
       row.append(act)
       this.list.append(row)
@@ -974,7 +987,12 @@ export class RemoteFsBrowser extends HTMLElement {
       for (const [label, value] of selected ? [['Type', selected.type], ['Size', this.bytes(selected.size)], ['Modified', this.when(selected.modified)], ['Path', selected.path]] : [['Selection', 'Select a file or folder to see its details.']]) {
         this.details.append(this.el('span', label, 'detail-label'), this.el('p', value))
       }
-      if (selected?.type === 'directory' && this.renameDirectories === false) this.details.append(this.el('p', 'For NFS folders, copy to the new location, then delete the original.'))
+      if (selected?.capacity != null) {
+        for (const [label, value] of [['Capacity', selected.capacity], ['Allocated', selected.allocation], ['Available', selected.available]]) {
+          if (value != null) this.details.append(this.el('span', label, 'detail-label'), this.el('p', this.bytes(value)))
+        }
+      }
+      if (this.descriptor?.type === 'nfs' && selected?.type === 'directory' && this.renameDirectories === false) this.details.append(this.el('p', 'For NFS folders, copy to the new location, then delete the original.'))
     }
   }
 
@@ -1089,7 +1107,7 @@ export class RemoteFsBrowser extends HTMLElement {
   }
   /** Title is the folder being saved; where() supplies the protocol and full path. */
   shortlistLabel(descriptor) {
-    const place = descriptor.share || descriptor.export || descriptor.root || ''
+    const place = descriptor.endpoint || descriptor.share || descriptor.export || descriptor.root || ''
     const folder = (descriptor.path && descriptor.path !== '/' ? descriptor.path : this.path)
     const leaf = folder.split('/').filter(Boolean).pop()
     return leaf || place.split('/').filter(Boolean).pop() || place

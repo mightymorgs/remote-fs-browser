@@ -80,3 +80,19 @@ jobs:
       - name: Stop test servers
         if: always()
         run: docker rm -f remotefs-protocol-tests || true
+
+  optional-endpoints:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install optional adapters
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rclone libvirt-dev pkg-config
+          python -m pip install -e '.[test,libvirt]'
+      - name: Exercise rclone and libvirt without external accounts
+        run: python -m pytest -q tests/test_endpoints.py
