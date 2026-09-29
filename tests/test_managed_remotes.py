@@ -176,6 +176,14 @@ def test_real_s3_connection_copy_both_directions_and_restart(tmp_path, s3_server
         target=client.post('/api/sessions',json={'descriptor':{'type':'rclone','endpoint':second}}).json()['id']
         copy(cloud,'/source.txt',target,'/cross-cloud.txt')
         assert files['bucket/cross-cloud.txt']==b'cloud contents\n'
+        # Root-level S3 browsing exposes buckets, then their folder structures.
+        bucket_data={**data, 'root':'/', 'label':'All buckets'}
+        buckets=client.post('/api/remotes',json=bucket_data).json()['id']
+        buckets=client.post('/api/sessions',json={'descriptor':{'type':'rclone','endpoint':buckets}}).json()['id']
+        listing=client.get(f'/api/sessions/{buckets}/list').json()
+        assert [row['name'] for row in listing['entries']]==['bucket']
+        listing=client.get(f'/api/sessions/{buckets}/list',params={'path':'/bucket/folder'}).json()
+        assert listing['entries'][0]['name']=='nested.txt'
         data['read_only']=True
         response=client.put('/api/remotes/'+reference,json=data);assert response.status_code==200,response.text
         assert client.get(f'/api/sessions/{cloud}/list').status_code==404
