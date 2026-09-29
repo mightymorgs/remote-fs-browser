@@ -1,0 +1,76 @@
+<header class="hero">
+  <div><p class="release">Browser file manager / self-hosted</p><h1>Your storage.<br>One place to work.</h1><p class="lead">Open the NAS. Move the files. Grab the archive.<br>Connect your cloud storage and inspect your VM pools—all from one browser.</p><div class="actions"><a class="button primary" href="#tour">Take the feature tour</a><a class="button" href="install.html">Install remotefs</a></div></div>
+  <div class="connection-map" aria-label="Your browser connects to one remotefs service, which accesses local folders, SMB, NFS, rclone and libvirt"><div class="map-browser">Your browser <span>Any device with access to the service</span></div><div class="map-wire"></div><div class="map-service"><strong>remotefs</strong><span>One service. Your permissions.</span></div><div class="map-fan"><span>Local</span><span>SMB</span><span>NFS</span><span>rclone</span><span>libvirt</span></div><p>Cloud and libvirt connections require the <a href="endpoints.html">updated source version</a>.</p></div>
+</header>
+<section id="tour" aria-labelledby="tour-heading">
+  <div class="section-heading"><div><h2 id="tour-heading">See the whole workflow.</h2><p>Eight short chapters. Jump in anywhere.</p></div><button class="button" id="play-tour" hidden>Play tour</button></div>
+  <div class="tour-shell">
+    <div class="tour-tabs" role="tablist" aria-label="Feature chapters">
+      <button id="tab-setup" role="tab" aria-selected="true" aria-controls="scene-setup">1. Set up</button>
+      <button id="tab-discover" role="tab" aria-selected="false" aria-controls="scene-discover" tabindex="-1">2. Discover</button>
+      <button id="tab-manage" role="tab" aria-selected="false" aria-controls="scene-manage" tabindex="-1">3. Manage</button>
+      <button id="tab-downloads" role="tab" aria-selected="false" aria-controls="scene-downloads" tabindex="-1">4. Download</button>
+      <button id="tab-cloud" role="tab" aria-selected="false" aria-controls="scene-cloud" tabindex="-1">5. Cloud</button>
+      <button id="tab-libvirt" role="tab" aria-selected="false" aria-controls="scene-libvirt" tabindex="-1">6. VM storage</button>
+      <button id="tab-cli" role="tab" aria-selected="false" aria-controls="scene-cli" tabindex="-1">7. Terminal</button>
+      <button id="tab-embed" role="tab" aria-selected="false" aria-controls="scene-embed" tabindex="-1">8. Integrate</button>
+    </div>
+    <article class="scene" id="scene-setup" role="tabpanel" aria-labelledby="tab-setup" tabindex="0">
+      <div class="scene-copy"><span class="scene-kind">Start on the computer that can reach your files</span><h3>Install once.<br>Open anywhere.</h3><p>Run remotefs, choose your network access and set up a login. Other devices connect to that service in their browser.</p><p>Local folders, SMB and NFS work without mounting network shares in your operating system.</p><a href="quickstart.html">Follow the first-run guide</a></div>
+      <div class="scene-visual"><div class="terminal"><div class="window-title">Service host / Python 3.11+</div><pre><span>$</span> pipx install remote-fs-browser
+<span>$</span> remotefs
+
+Choose network access
+Set your username and password
+Open http://127.0.0.1:8080/</pre><div class="terminal-note">Homebrew and Windows portable installs are available too.</div></div><p class="visual-note">Command guide • use the source install for cloud and libvirt</p></div>
+    </article>
+    <article class="scene" id="scene-discover" role="tabpanel" aria-labelledby="tab-discover" tabindex="0" hidden>
+      <div class="scene-copy"><span class="scene-kind">Local roots + network shares</span><h3>Find it.<br>Connect to it.<br>Keep it handy.</h3><p>Scan permitted CIDR ranges for SMB and NFS. See DNS names, NetBIOS names and addresses together—or add a server directly.</p><p>Map shares, save encrypted SMB credentials and shortlist the folders you use most.</p><a href="reference.html#scan-map-and-remember-locations">Discovery and saved locations</a></div>
+      <div class="scene-visual"><div class="sample-ui"><div class="window-title">Scan network <span>Illustrated example</span></div><div class="pathline">192.168.1.0/24</div><div class="sample-row heading"><span>Device</span><span>Address</span><span>Service</span></div><div class="sample-row"><strong>studio-nas</strong><span>192.168.1.20</span><b>SMB</b></div><div class="sample-row"><strong>backup-server</strong><span>192.168.1.30</span><b>NFS</b></div><div class="selection-note">Map a share, then save its folder to your shortlist.</div></div><p class="visual-note">Discovery finds file services—not every device on the network.</p></div>
+    </article>
+    <article class="scene" id="scene-manage" role="tabpanel" aria-labelledby="tab-manage" tabindex="0" hidden>
+      <div class="scene-copy"><span class="scene-kind">The everyday file work</span><h3>Less hopping.<br>More doing.</h3><p>Filter, sort, preview and select a range. Right-click for file actions. Upload files, edit text, create folders, copy between locations, rename or delete.</p><p>Controls follow the connection’s capabilities and your permissions. Filtering applies to the current folder.</p><a href="reference.html#using-the-manager">All actions and keyboard shortcuts</a></div>
+      <div class="scene-visual"><img class="product-shot" src="demo-poster.jpg" alt="Actual remotefs manager showing a repository on an SMB share, sidebar locations and file listings"><p class="visual-note">Actual manager • original SMB demonstration</p></div>
+    </article>
+    <article class="scene" id="scene-downloads" role="tabpanel" aria-labelledby="tab-downloads" tabindex="0" hidden>
+      <div class="scene-copy"><span class="scene-kind">One file or a whole collection</span><h3>Pack it.<br>Split it.<br>Take it with you.</h3><p>Download files directly or prepare ZIP64 archives on the service host. Estimate space, choose a staging folder and optionally split the archive into parts.</p><p>Pause or resume packing, download the parts, then purge staged copies to reclaim space.</p><a href="reference.html#downloads-and-staged-zips">How archive downloads work</a></div>
+      <div class="scene-visual"><div class="sample-ui"><div class="window-title">Prepare ZIP <span>Illustrated workflow</span></div><div class="archive-source">Projects / photography<br><small>Choose files and folders</small></div><div class="archive-route"><span>Estimate space</span><span>Choose staging folder</span><span>Prepare &amp; split</span></div><div class="parts"><code>photos.zip.part001</code><code>photos.zip.part002</code><code>photos.zip.part003</code></div><div class="selection-note">Download every part. Rejoin before unzipping.</div></div><p class="visual-note">Pause affects packing; the browser manages the file transfers.</p></div>
+    </article>
+    <article class="scene" id="scene-cloud" role="tabpanel" aria-labelledby="tab-cloud" tabindex="0" hidden>
+      <div class="scene-copy"><span class="scene-kind">New in the source version / optional rclone</span><h3>Your cloud.<br>The same browser.</h3><p>Use named rclone remotes for S3, Dropbox, Google Drive, OneDrive, B2 and other providers. Administrators choose the exposed remote and folder prefix.</p><p>Browse, preview, download and copy out. Enable uploads, text saves, folders and deletion per endpoint. Cloud rename/cut is unavailable.</p><a href="endpoints.html#configure-rclone-once-on-the-service-host">Configure your cloud endpoints</a></div>
+      <div class="scene-visual"><div class="provider-grid"><strong>Amazon S3<small>+ compatible object stores</small></strong><strong>Dropbox<small>Shared folders and files</small></strong><strong>Google Drive<small>Configured rclone remote</small></strong><strong>OneDrive<small>Configured rclone remote</small></strong><strong>Backblaze B2<small>Object storage</small></strong><a href="https://rclone.org/overview/">More providers<small>See rclone’s capabilities</small></a></div><div class="endpoint-strip"><code>rclone config</code><span>Named remote</span><span>Approved endpoint</span></div><p class="visual-note">Provider support comes from rclone. Credentials stay on the service host.</p></div>
+    </article>
+    <article class="scene" id="scene-libvirt" role="tabpanel" aria-labelledby="tab-libvirt" tabindex="0" hidden>
+      <div class="scene-copy"><span class="scene-kind">New in the source version / optional libvirt</span><h3>Know what’s<br>in the pool.</h3><p>Connect a configured hypervisor. Browse approved storage pools, list volumes and inspect capacity and allocation with Get info.</p><p>This is read-only storage inventory. It does not mount VM disks or browse files inside running guests.</p><a href="endpoints.html#libvirt-pools-and-volumes-not-guest-files">Set up libvirt access</a></div>
+      <div class="scene-visual"><div class="sample-ui"><div class="window-title">hypervisor / images <span>Illustrated inventory</span></div><div class="pool-summary"><span>Storage pool<strong>images</strong></span><span>Connection<strong>Read-only</strong></span></div><div class="sample-row"><strong>ubuntu-base.qcow2</strong><span>Volume</span><b>Get info</b></div><div class="sample-row"><strong>worker-data.qcow2</strong><span>Volume</span><b>Get info</b></div><div class="selection-note">Inspect capacity, allocation and volume type.</div></div><p class="visual-note">Inspired by the VM storage workflow in ductstack.</p></div>
+    </article>
+    <article class="scene" id="scene-cli" role="tabpanel" aria-labelledby="tab-cli" tabindex="0" hidden>
+      <div class="scene-copy"><span class="scene-kind">The browser’s service, from your shell</span><h3>Same files.<br>Fewer clicks.</h3><p>Log in, discover, connect, list and transfer. Reuse saved locations and manage archive jobs from the terminal.</p><p>JSON results fit scripts. Browser and CLI share the same policy, credentials and service; client commands do not start another server.</p><a href="reference.html#terminal-file-manager">Complete CLI command guide</a></div>
+      <div class="scene-visual"><div class="terminal"><div class="window-title">Your terminal / command guide</div><pre><span>$</span> remotefs login --username YOUR_NAME
+<span>$</span> remotefs discover
+<span>$</span> remotefs connect --type rclone \
+    --endpoint s3-archive
+
+<span># Use the returned session id</span>
+<span>$</span> remotefs ls SESSION_ID /
+<span>$</span> remotefs get SESSION_ID \
+    /report.csv ./report.csv
+<span>$</span> remotefs downloads list</pre></div></div>
+    </article>
+    <article class="scene" id="scene-embed" role="tabpanel" aria-labelledby="tab-embed" tabindex="0" hidden>
+      <div class="scene-copy"><span class="scene-kind">Build it into your own tools</span><h3>Pick a folder.<br>Pass a descriptor.</h3><p>Embed the directory picker, call the authenticated HTTP API or use the asynchronous Python SDK. Pass a location descriptor without embedding a password.</p><p>Deploy the service with systemd, launchd, Windows startup tasks or Ansible. Explicit roots, endpoints and operations define access.</p><a href="reference.html#python-sdk">SDK, API and picker reference</a></div>
+      <div class="scene-visual"><div class="terminal"><div class="window-title">A portable location / illustrative descriptor</div><pre>{
+  "type": "rclone",
+  "endpoint": "s3-archive",
+  "path": "/projects"
+}</pre><div class="terminal-note">Use the descriptor against the service that defines this endpoint.</div></div><a class="deploy-link" href="deployment.html">Run it as an always-on service</a></div>
+    </article>
+    <div class="tour-footer"><span id="tour-position" aria-live="polite">Chapter 1 of 8</span><span>Illustrated guide + actual product footage</span><div><button id="tour-prev" aria-label="Previous chapter" hidden>Previous</button><button id="tour-next" aria-label="Next chapter" hidden>Next</button></div></div>
+  </div>
+  <noscript><p>JavaScript enables chapter navigation. <a href="guide.html">Read the complete guide without JavaScript.</a></p></noscript>
+</section>
+<section class="recording" id="watch-it-install-and-run" aria-labelledby="recording-heading">
+  <div><h2 id="recording-heading">Real shares.<br>Real file operations.</h2><p>The original 70-second recording shows installation, LAN discovery, a real SMB connection, file previews and a byte-verified download.</p><p class="muted">Recorded on 0.2.1. Cloud, libvirt, the client CLI and newer ZIP controls are covered in the tour and guide above.</p><div class="video-chapters" aria-label="Recorded video chapters"><button data-seek="1.8">Install</button><button data-seek="9.52">Scan</button><button data-seek="21.76">Connect</button><button data-seek="35.12">Preview</button><button data-seek="42.64">Select &amp; download</button><button data-seek="56.12">Reconnect</button></div><a href="demo.html">Read the recording transcript</a></div>
+  <div><video id="product-video" controls preload="metadata" playsinline poster="demo-poster.jpg" aria-label="Original remotefs SMB demonstration"><source src="https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.1/remotefs-feature-demo.mp4" type="video/mp4"><track kind="captions" src="demo.vtt" srclang="en" label="English"></video><p class="visual-note"><a href="https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.1/remotefs-feature-demo.mp4">Download the original video</a></p></div>
+</section>
+<section class="reading" aria-labelledby="reading-heading"><h2 id="reading-heading">Ready to connect your storage?</h2><div class="reading-links"><a href="guide.html"><strong>How it works</strong><span>The complete workflow, from first login to integration.</span></a><a href="endpoints.html"><strong>Cloud &amp; VM storage</strong><span>Dependencies, configuration, permissions and limits.</span></a><a href="install.html"><strong>Install &amp; run</strong><span>Published packages and the updated source version.</span></a></div></section>

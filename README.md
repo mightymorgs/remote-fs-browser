@@ -8,6 +8,14 @@ Version 0.2.2 adds guided first-run setup, a browser picker for ZIP preparation 
 
 Install one Python service on a computer that can reach your shares, then use it from a browser—including over Tailscale. File servers need no remotefs agent. SMB/NFS connections stay inside the app: no operating-system mounts are created on the service host or viewing computer. Access is limited to reachable, permitted networks and valid server credentials. NFS requires libnfs 6+; see the [Tailscale quickstart](QUICKSTART.md#one-service-network-access-through-tailscale).
 
+## Cloud storage and libvirt (source version)
+
+The updated source checkout adds optional **rclone endpoints** (S3, Dropbox and other configured providers) and **read-only libvirt storage pool/volume inventory**. They use the same manager, CLI, SDK and saved-location descriptors. These additions are not included in the published 0.2.2 packages.
+
+Rclone supports browsing, metadata, downloads, copying out and ZIP preparation. Uploads, text saves, folder creation and deletion require endpoint opt-in and policy permission; cloud rename/cut is not exposed. Libvirt lists explicitly permitted pools and volumes with capacity/allocation metadata; it does not browse guest files or alter disks.
+
+See [cloud and libvirt configuration](docs/ENDPOINTS.md) for source installation, dependencies, S3/Dropbox setup, capability differences and limits.
+
 ## What is included
 
 - Local, SMB and NFS browsing, metadata, uploads, downloads, new files/folders, text editing, copy, move, rename and recursive deletion, subject to policy and filesystem permissions.
