@@ -120,7 +120,7 @@ test('cloud clipboard paste retains the source connection and targets the visibl
  const source=m.fromDescriptor({type:'rclone',endpoint:'cloud-one',path:'/photos'})
  m.state.place=m.fromDescriptor({type:'rclone',endpoint:'cloud-two',path:'/backup'})
  m.state.session={id:'target'};m.state.clipboard={place:source,names:['album'],cut:false}
- m.sessionFor=async place=>{assert.equal(place.descriptor.endpoint,'cloud-one');return {id:'source'}}
+ m.sessionFor=async place=>{assert.equal(place.descriptor.endpoint,'cloud-one');m.state.place=m.fromDescriptor({type:'rclone',endpoint:'cloud-three',path:'/elsewhere'});return {id:'source'}}
  m.api=async(...args)=>calls.push(args);m.refresh=async()=>{}
  await m.paste()
  assert.deepEqual(JSON.parse(JSON.stringify(calls[0][1])),{source:'/photos/album',destination:'/backup/album',target_session:'target'})

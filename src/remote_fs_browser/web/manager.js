@@ -121,12 +121,13 @@ class Component extends DCLogic {
   async paste() {
     const clip=this.state.clipboard, target=this.state.session
     if(!clip||!target||this.state.pasteBusy)return
+    const targetPlace={...this.state.place,folders:[...this.state.place.folders]}
     this.setState({pasteBusy:true})
     let done=0
     try {
       const source=await this.sessionFor(clip.place)
       for(const name of clip.names) {
-        const src=this.childPath(name,clip.place),dest=this.childPath(name)
+        const src=this.childPath(name,clip.place),dest=this.childPath(name,targetPlace)
         if(clip.cut&&source.id===target.id)await this.api(`/sessions/${source.id}/rename`,{source:src,destination:dest})
         else {
           await this.api(`/sessions/${source.id}/copy`,{source:src,destination:dest,target_session:target.id})
@@ -134,7 +135,7 @@ class Component extends DCLogic {
         }
         done++
       }
-      this.say(`Copied ${done} item(s) to this folder`)
+      this.say(`Copied ${done} item(s)`)
     } finally {
       this.setState({pasteBusy:false})
       if(clip.cut)this.setState({clipboard:done===clip.names.length?null:{...clip,names:clip.names.slice(done)}})
