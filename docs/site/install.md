@@ -1,19 +1,12 @@
 # Install remotefs
 
-## Cloud and libvirt: updated source version
+## Version 0.3.0
 
-The optional rclone and libvirt connections require the updated source checkout. They are not included in the published 0.2.2 packages below.
+Cloud connection management and cross-storage Copy/Paste are included in 0.3.0. Install [rclone](https://rclone.org/install/) on the service host for cloud access. Libvirt inventory needs the native libvirt development packages and `pipx install --force 'remote-fs-browser[libvirt]'`. See the [endpoint guide](endpoints.html).
 
-```sh
-git clone https://github.com/mightymorgs/remote-fs-browser.git
-cd remote-fs-browser
-pipx install .
-remotefs
-```
+Existing pipx installations can update with `pipx upgrade remote-fs-browser`; Homebrew users can run `brew update && brew upgrade mightymorgs/tap/remotefs`. Restart your service after upgrading.
 
-If pipx already manages an older installation, use `pipx install --force .`. Install rclone on the service host for cloud endpoints. For libvirt, install the native development prerequisites and use `pipx install --force '.[libvirt]'`. Follow the [endpoint configuration guide](endpoints.html).
-
-## Published packages: local, SMB and NFS
+## Install a package
 
 Choose the option for the computer that will run remotefs. Other devices only need a browser and access to that computer.
 
@@ -30,7 +23,7 @@ Upgrade with `brew update` followed by `brew upgrade mightymorgs/tap/remotefs`. 
 
 ### Windows — portable download
 
-[Download remotefs 0.2.2 for Windows x64](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.2/remotefs-0.2.2-windows-x64.zip). Extract the ZIP, open PowerShell in the extracted `remotefs` folder, and run:
+[Download remotefs 0.3.0 for Windows x64](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.3.0/remotefs-0.3.0-windows-x64.zip). Extract the ZIP, open PowerShell in the extracted `remotefs` folder, and run:
 
 ```powershell
 .\remotefs.exe
@@ -86,7 +79,7 @@ With Git, Python 3.11+ and pipx installed:
 ```sh
 git clone https://github.com/mightymorgs/remote-fs-browser.git
 cd remote-fs-browser
-git checkout v0.2.2
+git checkout v0.3.0
 pipx install .
 remotefs
 ```

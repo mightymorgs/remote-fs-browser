@@ -2,7 +2,7 @@
 
 Remotefs runs on a computer that can reach your storage. Your browser, terminal client and integrations connect to that service. Files are read or written by the service host using its permitted roots, network connections and configured endpoints.
 
-The published 0.2.2 release supports local folders, SMB and NFS. The updated source version adds optional rclone cloud connections and read-only libvirt pool/volume inventory. See the [endpoint guide](endpoints.html) for installation, configuration and the complete capability table.
+Version 0.3.0 supports local folders, SMB, NFS, optional rclone cloud connections and read-only libvirt pool/volume inventory. See the [endpoint guide](endpoints.html) for installation, configuration and the complete capability table.
 
 ## Set up the service
 

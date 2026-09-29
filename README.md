@@ -4,13 +4,13 @@
 
 Run remotefs on a workstation, server or homelab node to access the storage that machine can reach. Its home directory, mounted volumes and permitted network servers appear in one interface. The viewing computer needs only access to the service’s HTTP port; SMB and NFS connections run from the service host.
 
-Version 0.2.2 adds guided first-run setup, a browser picker for ZIP preparation folders, and client CLI commands alongside password login, file write operations and staged multipart downloads. The [cross-host dogfood report](docs/validation/2026-09-11-dogfood.md) records the completed browser workflows and network download checks. See [validation](VALIDATION.md) for scope and limitations.
+Version 0.3.0 adds cloud connections managed in the GUI or CLI, cross-storage Copy/Paste, and optional read-only libvirt inventory. It retains guided setup, password login, file editing and staged multipart downloads. The [cross-host dogfood report](docs/validation/2026-09-11-dogfood.md) records the completed browser workflows and network download checks. See [validation](VALIDATION.md) for scope and limitations.
 
 Install one Python service on a computer that can reach your shares, then use it from a browser—including over Tailscale. File servers need no remotefs agent. SMB/NFS connections stay inside the app: no operating-system mounts are created on the service host or viewing computer. Access is limited to reachable, permitted networks and valid server credentials. NFS requires libnfs 6+; see the [Tailscale quickstart](QUICKSTART.md#one-service-network-access-through-tailscale).
 
-## Cloud storage and libvirt (source version)
+## Cloud storage and libvirt
 
-The updated source checkout adds optional **cloud connections added through the GUI or CLI** (S3, Dropbox and other rclone providers) and **read-only libvirt storage pool/volume inventory**. They use the same manager, CLI, SDK and saved-location descriptors. These additions are not included in the published 0.2.2 packages.
+Version 0.3.0 includes optional **cloud connections added through the GUI or CLI** (S3, Dropbox and other rclone providers) and **read-only libvirt storage pool/volume inventory**. They use the same manager, CLI, SDK and saved-location descriptors. Install rclone on the service host for cloud storage; libvirt needs its native library and Python extra.
 
 Rclone supports browsing, metadata, downloads, copying out and ZIP preparation. Copy/paste works across local, NAS and cloud connections. Uploads, text saves, folder creation and deletion require write permission; cloud rename/cut is not exposed. Libvirt lists explicitly permitted pools and volumes with capacity/allocation metadata; it does not browse guest files or alter disks.
 
@@ -60,7 +60,7 @@ winget install --id mightymorgs.remotefs --exact --source winget
 remotefs
 ```
 
-Until WinGet accepts the package, download the [Windows x64 ZIP](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.2/remotefs-0.2.2-windows-x64.zip), extract it, and run `remotefs\remotefs.exe` from PowerShell. The portable executable includes libnfs and does not require a separate Python installation. If `remotefs` is not found after installation, open a new terminal. To update:
+Until WinGet accepts the package, download the [Windows x64 ZIP](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.3.0/remotefs-0.3.0-windows-x64.zip), extract it, and run `remotefs\remotefs.exe` from PowerShell. The portable executable includes libnfs and does not require a separate Python installation. If `remotefs` is not found after installation, open a new terminal. To update:
 
 ```powershell
 winget upgrade --id mightymorgs.remotefs --exact --source winget

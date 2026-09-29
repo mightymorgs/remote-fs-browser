@@ -16,7 +16,7 @@ Homebrew installs Python and libnfs for you.
 
 ### Windows x64
 
-Download the [0.2.2 portable ZIP](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.2/remotefs-0.2.2-windows-x64.zip) and extract it. Open PowerShell inside the extracted `remotefs` folder. Use `.\remotefs.exe` in place of `remotefs` in the commands below. Python and libnfs are bundled.
+Download the [0.3.0 portable ZIP](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.3.0/remotefs-0.3.0-windows-x64.zip) and extract it. Open PowerShell inside the extracted `remotefs` folder. Use `.\remotefs.exe` in place of `remotefs` in the commands below. Python and libnfs are bundled.
 
 The [WinGet submission](https://github.com/microsoft/winget-pkgs/pull/432620) is awaiting review. Once accepted, install with:
 
@@ -182,4 +182,4 @@ See the [deployment guide](docs/DEPLOYMENT.md) for unattended installers and Ans
 
 ## Cloud and libvirt endpoints
 
-The updated source version adds configured rclone remotes and read-only libvirt pool/volume browsing. These are not in the published 0.2.2 package. Use **Cloud storage → Add / manage** to save a provider connection in the GUI, or `remotefs remotes add` from the CLI. Browse its folders and use Copy / Paste here across storage connections. No restart is needed. The [endpoint setup guide](docs/ENDPOINTS.md) covers credentials, provider authorization and the separate libvirt setup.
+Version 0.3.0 adds managed cloud connections and read-only libvirt pool/volume browsing. Install rclone separately on the service host for cloud access. Use **Cloud storage → Add / manage** to save a provider connection in the GUI, or `remotefs remotes add` from the CLI. Browse its folders and use Copy / Paste here across storage connections. No restart is needed. The [endpoint setup guide](docs/ENDPOINTS.md) covers credentials, provider authorization and the separate libvirt setup.

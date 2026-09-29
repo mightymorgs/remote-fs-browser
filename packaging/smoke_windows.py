@@ -16,6 +16,7 @@ exe = str(Path('dist/remotefs/remotefs.exe').resolve())
 assert subprocess.check_output([exe, '--version'], text=True).strip() == f'remotefs {version}'
 subprocess.run([exe, 'setup', '--help'], check=True, stdout=subprocess.DEVNULL)
 subprocess.run([exe, 'downloads', '--help'], check=True, stdout=subprocess.DEVNULL)
+subprocess.run([exe, 'remotes', '--help'], check=True, stdout=subprocess.DEVNULL)
 with tempfile.TemporaryDirectory(prefix='remotefs-release-') as folder:
     root = Path(folder)
     config = root/'config.json'
@@ -49,6 +50,12 @@ with tempfile.TemporaryDirectory(prefix='remotefs-release-') as folder:
             else:
                 raise RuntimeError('Frozen service did not become ready')
             request('/api/login', {'username':'release-test','password':password})
+            providers = request('/api/remotes')['providers']
+            assert {'s3', 'dropbox', 'drive', 'onedrive'} <= {row['id'] for row in providers}
+            remote = request('/api/remotes', {'provider':'s3', 'label':'Release smoke', 'root':'/test',
+                'options':{'access_key_id':'fixture-key','secret_access_key':'fixture-secret'}})
+            assert remote['id'] in {row['id'] for row in request('/api/remotes')['remotes']}
+            assert 'fixture-secret' not in json.dumps(request('/api/remotes/'+remote['id']))
             session = request('/api/sessions', {'descriptor':{'type':'local','root':str(root)}})['id']
             request(f'/api/sessions/{session}/mkdir', {'path':'/Prepared ZIPs'})
             store = request('/api/downloads/stores', {'session':session,'path':'/Prepared ZIPs'})
@@ -56,7 +63,7 @@ with tempfile.TemporaryDirectory(prefix='remotefs-release-') as folder:
             assert Path(json.loads(config.read_text())['staging_stores'][store['id']]).is_dir()
             with client.open(base+'/manager') as response:
                 assert b'Choose folder' in response.read()
-            print('Frozen executable version, CLI, login, filesystem worker, ZIP folder selection and persistence passed.')
+            print('Frozen executable version, CLI, login, cloud connection persistence, filesystem worker and ZIP folder selection passed.')
         finally:
             # Frozen multiprocessing children inherit the log handle on Windows.
             # Wait for the whole test process tree before deleting its directory.
