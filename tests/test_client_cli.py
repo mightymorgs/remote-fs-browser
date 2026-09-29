@@ -270,3 +270,18 @@ def test_cloud_connections_created_edited_and_removed_with_login(server):
     assert edited['read_only'] and edited['label']=='Readonly archive' and edited['root']=='/'
     assert run('remotes','remove','--id',row['id'])['removed']
     assert run('remotes','list')==[]
+
+
+def test_explicit_automation_token_takes_precedence_over_saved_login(tmp_path, monkeypatch):
+    from remote_fs_browser.client_cli import Client
+    import io
+    auth=tmp_path/'client.json';auth.write_text(json.dumps({'http://localhost:8080':'old-login'}))
+    client=Client('http://localhost:8080',auth,10)
+    monkeypatch.setenv('REMOTEFS_TOKEN','optional-test-automation-token-with-32-characters')
+    class Opener:
+        def open(self,request,timeout):
+            assert request.get_header('Authorization')=='Bearer optional-test-automation-token-with-32-characters'
+            assert request.get_header('Cookie') is None
+            return io.BytesIO(b'{"ok":true}')
+    client.opener=Opener()
+    assert client.request('GET','remotes')['ok']

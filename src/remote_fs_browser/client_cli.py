@@ -60,9 +60,10 @@ class Client:
 
     def request(self, method, route, data=None, params=None, source=None, output=None):
         headers = {'Origin': self.url}
-        if os.environ.get('REMOTEFS_TOKEN'):
-            headers['Authorization'] = 'Bearer ' + os.environ['REMOTEFS_TOKEN']
-        if self.cookie:
+        automation_token = os.environ.get('REMOTEFS_TOKEN')
+        if automation_token:
+            headers['Authorization'] = 'Bearer ' + automation_token
+        if self.cookie and not automation_token:
             headers['Cookie'] = 'remote_fs_session=' + self.cookie
         body = None
         if data is not None:
