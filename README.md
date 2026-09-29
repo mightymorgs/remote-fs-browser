@@ -10,7 +10,7 @@ Install one Python service on a computer that can reach your shares, then use it
 
 ## Cloud storage and libvirt
 
-Version 0.3.0 includes optional **cloud connections added through the GUI or CLI** (S3, Dropbox and other rclone providers) and **read-only libvirt storage pool/volume inventory**. They use the same manager, CLI, SDK and saved-location descriptors. Install rclone on the service host for cloud storage; libvirt needs its native library and Python extra.
+Version 0.3.0 includes optional **cloud connections added through the GUI or CLI** (S3, Dropbox and other rclone providers) and **read-only libvirt storage pool/volume inventory**. They use the same manager, CLI, SDK and saved-location descriptors. Homebrew includes rclone; other installations need rclone on the service host for cloud storage; libvirt needs its native library and Python extra.
 
 Rclone supports browsing, metadata, downloads, copying out and ZIP preparation. Copy/paste works across local, NAS and cloud connections. Uploads, text saves, folder creation and deletion require write permission; cloud rename/cut is not exposed. Libvirt lists explicitly permitted pools and volumes with capacity/allocation metadata; it does not browse guest files or alter disks.
 
