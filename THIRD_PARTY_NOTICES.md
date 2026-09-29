@@ -72,3 +72,11 @@ The browser loads the included assets locally; no Node server is required.
 
 ZIP packing and job coordination use Python's standard library. No additional
 Python package is required for those features.
+
+## Optional cloud and virtualisation adapters
+
+Rclone is a separately installed command-line dependency; no rclone executable is
+bundled in the Python wheel. The optional `libvirt-python` package and native
+libvirt library are installed separately and retain their upstream licence terms.
+See [rclone](https://rclone.org/licence/) and [libvirt](https://libvirt.org/)
+for their distributions and notices.

@@ -91,3 +91,14 @@ test('direct downloads work on HTTP origins without crypto.randomUUID',async()=>
  assert.equal(m.state.transfers[0].parts[0].relative,'/repo/README.md')
  assert.equal(m.state.transfers[0].status,'ready')
 })
+
+test('configured endpoints keep their identity when opening and saving folders',()=>{
+ const m=manager()
+ for(const type of ['rclone','libvirt']){
+  const place=m.fromDescriptor({type,endpoint:'approved',path:'/folder'})
+  assert.equal(place.descriptor.type,type)
+  assert.equal(place.descriptor.endpoint,'approved')
+  assert.equal(place.host,`${type}://approved`)
+  assert.equal(m.currentPath(place),'/folder')
+ }
+})

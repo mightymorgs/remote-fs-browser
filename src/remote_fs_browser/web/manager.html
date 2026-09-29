@@ -352,6 +352,14 @@
           </div>
 
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;max-width:560px">
+            <sc-if value="{{ addEndpoint }}">
+              <label style="display:grid;gap:6px;font-size:12px;color:#4d545c">Configured endpoint name
+                <input type="text" placeholder="archive or hypervisor" value="{{ addEndpointName }}" onChange="{{ setAddEndpoint }}" autoComplete="off" style="width:100%;padding:8px 11px;border:1px solid #c8ccd3;border-radius:8px">
+              </label>
+              <sc-for list="{{ endpointChoices }}" as="endpoint">
+                <button type="button" onClick="{{ endpoint.open }}" style="padding:10px;border:1px solid #c8ccd3;border-radius:8px;background:#fff;color:#1c2024;cursor:pointer">Open {{ endpoint.label }}</button>
+              </sc-for>
+            </sc-if>
             <sc-if value="{{ addLocal }}">
               <label style="display:grid;gap:6px;font-size:12px;color:#6a727c">Root folder on this host
                 <input type="text" placeholder="/srv/media" value="{{ addRoot }}" onChange="{{ setAddRoot }}" autoComplete="off" style="width:100%;padding:8px 11px;font:13.5px ui-monospace,Menlo,Consolas,monospace;color:#1c2024;border:1px solid #c8ccd3;border-radius:8px;background:rgba(255,255,255,.9)">

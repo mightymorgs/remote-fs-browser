@@ -11,7 +11,11 @@ CHUNK = 256 * 1024
 
 
 def worker(pipe, config, policy_values):
+    import os
+    if os.name != 'nt' and config['type'] in ('rclone', 'libvirt'):
+        os.setsid()
     from .backends import LocalFilesystem, SMBFilesystem
+    from .endpoints import RcloneFilesystem, LibvirtFilesystem
     from .nfs import NFSFilesystem
     from .discovery import discover, smb_shares, nfs_exports
     fs, files, uploads = None, {}, {}
@@ -28,6 +32,9 @@ def worker(pipe, config, policy_values):
             return
         if kind == 'local':
             config['root'] = policy.local_root(config['root'])
+        elif kind in ('rclone', 'libvirt'):
+            config.update(policy.endpoint(config['endpoint'], kind))
+            config['_timeout'] = max(0.1, policy.operation_timeout * 0.8)
         else:
             config['host'] = policy.host(config['host'])
         if kind == 'smb':
@@ -39,7 +46,8 @@ def worker(pipe, config, policy_values):
                 if event == 'socket.connect' and isinstance(args[1], tuple) and args[1][0] != pinned:
                     raise PermissionError('SMB redirect leaves the permitted server')
             sys.addaudithook(socket_policy)
-        fs = {'local': LocalFilesystem, 'smb': SMBFilesystem, 'nfs': NFSFilesystem}[kind](config)
+        fs = {'local': LocalFilesystem, 'smb': SMBFilesystem, 'nfs': NFSFilesystem,
+              'rclone': RcloneFilesystem, 'libvirt': LibvirtFilesystem}[kind](dict(config))
         config.clear()
         pipe.send({'ok': True})
         while pipe.poll(policy.idle_seconds):
@@ -127,6 +135,11 @@ def worker(pipe, config, policy_values):
 
 class Worker:
     def __init__(self, config, policy):
+        import tempfile
+        self.has_children = config['type'] in ('rclone', 'libvirt')
+        self.scratch = tempfile.TemporaryDirectory(prefix='remotefs-session-') if config['type'] == 'rclone' else None
+        if self.scratch:
+            config = {**config, '_scratch': self.scratch.name}
         context = multiprocessing.get_context('spawn')
         self.pipe, child = context.Pipe()
         self.process = context.Process(target=worker, args=(child, config, asdict(policy)), daemon=True)
@@ -150,7 +163,7 @@ class Worker:
             raise KeyError('Session expired') from None
         if 'error' in value:
             types = {'FileExistsError': FileExistsError, 'FileNotFoundError': FileNotFoundError,
-                     'PermissionError': PermissionError, 'ValueError': ValueError}
+                     'PermissionError': PermissionError, 'ValueError': ValueError, 'TimeoutError': TimeoutError}
             raise types.get(value.get('kind'), OSError)(value['error'])
         return value['ok']
 
@@ -170,9 +183,35 @@ class Worker:
                     pass
                 self.process.join(0.1)
                 if self.process.is_alive():
-                    self.process.terminate()
+                    import os
+                    import signal
+                    import subprocess
+                    if not self.has_children:
+                        self.process.terminate()
+                    elif os.name == 'nt':
+                        subprocess.run(['taskkill', '/PID', str(self.process.pid), '/T', '/F'],
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+                    else:
+                        try:
+                            os.killpg(self.process.pid, signal.SIGKILL)
+                        except (ProcessLookupError, PermissionError):
+                            # macOS can reject a group signal during worker exit.
+                            # Kill any remaining descendants before the worker.
+                            import psutil
+                            try:
+                                children = psutil.Process(self.process.pid).children(recursive=True)
+                            except psutil.Error:
+                                children = []
+                            for child in children:
+                                try:
+                                    child.kill()
+                                except psutil.Error:
+                                    pass
+                            self.process.terminate()
                     self.process.join(1)
             self.pipe.close()
+            if self.scratch:
+                self.scratch.cleanup()
 
 
 class FilesystemSession:
@@ -374,15 +413,20 @@ class FilesystemSession:
 def clean_descriptor(descriptor):
     """Only the fields that identify a location; never credentials or unknown keys."""
     kind = descriptor.get('type')
-    fields = {'local': ('root',), 'smb': ('host', 'share'), 'nfs': ('host', 'export', 'version')}
+    fields = {'local': ('root',), 'smb': ('host', 'share'), 'nfs': ('host', 'export', 'version'),
+              'rclone': ('endpoint',), 'libvirt': ('endpoint',)}
     if kind not in fields:
-        raise ValueError('Choose local, smb or nfs')
+        raise ValueError('Choose local, smb, nfs, rclone or libvirt')
     clean = {'type': kind, **{k: descriptor[k] for k in fields[kind] if k in descriptor}}
     if kind == 'smb' and (not clean.get('share') or any(c in clean['share'] for c in '/\\\x00')):
         raise ValueError('Use a share name without subfolders')
     if kind == 'nfs' and (not clean.get('export', '').startswith('/') or int(clean.get('version', 4)) not in (3, 4)):
         raise ValueError('Use an absolute NFS export and version 3 or 4')
-    if kind != 'local' and not clean.get('host'):
+    if kind in ('rclone', 'libvirt'):
+        import re
+        if not isinstance(clean.get('endpoint'), str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', clean['endpoint']):
+            raise ValueError('A configured endpoint name is required')
+    if kind in ('smb', 'nfs') and not clean.get('host'):
         raise ValueError('A server hostname or address is required')
     return clean
 
@@ -423,6 +467,14 @@ class Browser:
         if len(self.sessions) + self.pending >= self.policy.max_sessions:
             raise ValueError('Session limit reached')
         clean = clean_descriptor(descriptor)
+        session_policy = self.policy
+        if clean['type'] in ('rclone', 'libvirt'):
+            from dataclasses import replace
+            endpoint = self.policy.endpoint(clean['endpoint'], clean['type'])
+            supported = {'discover', 'list', 'stat'} if clean['type'] == 'libvirt' else {'discover', 'list', 'stat', 'read', 'copy'}
+            if clean['type'] == 'rclone' and not endpoint.get('read_only', True):
+                supported.update(('write', 'mkdir', 'delete'))
+            session_policy = replace(self.policy, operations=[op for op in self.policy.operations if op in supported])
         config = dict(clean)
         ref = descriptor.get('credential_id')
         if ref:
@@ -434,7 +486,7 @@ class Browser:
         self.pending += 1
         try:
             worker = await self._worker(config)
-            session = FilesystemSession(worker, clean, self.policy)
+            session = FilesystemSession(worker, clean, session_policy)
             self.sessions[session.id] = session
             return session
         finally:

@@ -133,7 +133,8 @@ def credentials(args):
 
 
 def location_flags(parser):
-    parser.add_argument('--type', choices=('local', 'smb', 'nfs'))
+    parser.add_argument('--type', choices=('local', 'smb', 'nfs', 'rclone', 'libvirt'))
+    parser.add_argument('--endpoint', help='Administrator-configured rclone or libvirt endpoint name')
     parser.add_argument('--root', help='Local root on the server, not this client')
     parser.add_argument('--host')
     parser.add_argument('--share')
@@ -146,7 +147,7 @@ def location_flags(parser):
 
 def location(args, client):
     if args.saved_id:
-        if any((args.type, args.root, args.host, args.share, args.export, args.username, args.credential_id)):
+        if any((args.type, args.endpoint, args.root, args.host, args.share, args.export, args.username, args.credential_id)):
             raise ValueError('--saved-id cannot be combined with a new location or credentials')
         rows = client.request('GET', 'saved')['locations']
         row = next((row for row in rows if row['id'] == args.saved_id), None)
@@ -158,7 +159,7 @@ def location(args, client):
         return result
     from .sessions import clean_descriptor
     result = {'type': args.type, 'path': args.path}
-    for key in ('root', 'host', 'share', 'export'):
+    for key in ('root', 'host', 'share', 'export', 'endpoint'):
         if getattr(args, key):
             result[key] = getattr(args, key)
     if args.type == 'local' and not args.root:

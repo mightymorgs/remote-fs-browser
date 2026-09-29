@@ -99,6 +99,8 @@ class SavedLocations:
 
     @staticmethod
     def default_label(descriptor):
+        if descriptor.get('endpoint'):
+            return descriptor['endpoint']
         if descriptor.get('type') == 'local':
             return str(descriptor.get('root', ''))
         location = str(descriptor.get('share') or descriptor.get('export') or '').lstrip('/')

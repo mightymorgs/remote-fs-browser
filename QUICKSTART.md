@@ -179,3 +179,7 @@ See the [full README](README.md), [security boundaries](SECURITY.md) and [tested
 ## Automated or always-on deployment
 
 See the [deployment guide](docs/DEPLOYMENT.md) for unattended installers and Ansible on Linux, macOS and Windows, including password setup, service management and upgrades.
+
+## Cloud and libvirt endpoints
+
+The updated source version adds configured rclone remotes and read-only libvirt pool/volume browsing. These are not in the published 0.2.2 package. Follow the [endpoint setup guide](docs/ENDPOINTS.md), restart the service, then choose **Cloud / rclone** or **Libvirt pools** in Add location. Select a configured endpoint and browse or shortlist it like other locations.

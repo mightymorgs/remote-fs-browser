@@ -38,7 +38,7 @@ class Component extends DCLogic {
     }
     document.addEventListener('keydown', this.onKey)
     const [discovery] = await Promise.all([this.api('/discover'), this.reloadSaved(), this.pollJobs()])
-    this.setState({roots:discovery.roots, ranges:discovery.scan_ranges.join(', '), scan:'idle'})
+    this.setState({roots:discovery.roots, endpoints:discovery.endpoints || [], ranges:discovery.scan_ranges.join(', '), scan:'idle'})
     if (discovery.roots.length) this.goTo(this.fromDescriptor(discovery.roots[0]))
     this.pollTimer = setInterval(() => {if (!document.hidden) this.pollJobs().catch(() => {})}, 5000)
   }
@@ -56,6 +56,7 @@ class Component extends DCLogic {
     return `${unit === 0 ? value : value.toFixed(value < 10 ? 2 : 1)} ${units[unit]}`
   }
   kindOf(entry) {
+    if (entry.capacity != null) return entry.type === 'directory' ? 'Storage pool' : 'Storage volume'
     if (entry.type === 'directory') return 'Folder'
     return KINDS[entry.name.split('.').pop().toLowerCase()] || 'Document'
   }
@@ -636,7 +637,7 @@ class Component extends DCLogic {
           dot: entry.type === 'directory' ? '#3f6fd1' : '#c0c5cc',
           bg: on ? '#e3ebfb' : 'transparent',
           hoverBg: on ? '#dde7fa' : '#eef2fb',
-          title: `${entry.name}\n${this.kindOf(entry)} · ${entry.type === 'directory' ? 'folder — downloads as a zip' : this.bytes(entry.size)}\nModified ${entry.modified}\n${entry.type === 'directory' ? 'Click to open · tick to select · ☆ to shortlist' : 'Tick to select · right-click for actions'}`,
+          title: `${entry.name}\n${this.kindOf(entry)} · ${entry.type === 'directory' ? (this.can('read') ? 'folder — downloads as a zip' : 'read-only inventory') : this.bytes(entry.size)}\nModified ${entry.modified}\n${entry.type === 'directory' ? 'Click to open · tick to select · ☆ to shortlist' : 'Tick to select · right-click for actions'}`,
           opacity: cutting ? '.5' : '1',
           // The row navigates; the tick box is the only selector.
           click: event => {
@@ -653,7 +654,7 @@ class Component extends DCLogic {
           pinInk: this.state.pins.some(pin => this.pathOf(pin.place) === this.pathOf({ ...this.state.place, folders: [...this.state.place.folders, entry.name] })) ? '#3f6fd1' : '#a8b0ba',
           pinTitle: entry.type === 'directory' ? `Shortlist ${entry.name}` : '',
           isDir: entry.type === 'directory',
-          isFile: entry.type !== 'directory',
+          isFile: entry.type === 'file' && this.can('read'),
           grabTitle: `Download ${entry.name} (${this.bytes(entry.size)}) — right-click to zip it in parts instead`,
           grab: event => { event.stopPropagation(); this.startBatch([entry]) },
           pin: event => {
@@ -873,10 +874,16 @@ class Component extends DCLogic {
       addLocal: (this.state.addType || 'smb') === 'local',
       addSmb: (this.state.addType || 'smb') === 'smb',
       addNfs: (this.state.addType || 'smb') === 'nfs',
+      addEndpoint: ['rclone','libvirt'].includes(this.state.addType),
+      addEndpointName: this.state.add?.endpoint || '',
+      setAddEndpoint: event => this.setState({add:{...this.state.add,endpoint:event.target.value}}),
+      endpointChoices: (this.state.endpoints || []).filter(e=>e.type===this.state.addType).map(e=>({...e,open:()=>this.goTo(this.fromDescriptor(e))})),
       addTypes: [
         { value: 'local', label: 'This machine' },
         { value: 'smb', label: 'SMB share' },
-        { value: 'nfs', label: 'NFS export' }
+        { value: 'nfs', label: 'NFS export' },
+        { value: 'rclone', label: 'Cloud / rclone' },
+        { value: 'libvirt', label: 'Libvirt pools' }
       ].map(option => ({
         label: option.label,
         bg: (this.state.addType || 'smb') === option.value ? '#3f6fd1' : '#fff',
@@ -884,7 +891,9 @@ class Component extends DCLogic {
         line: (this.state.addType || 'smb') === option.value ? '#2b57ae' : '#c8ccd3',
         pick: () => this.setState({ addType: option.value })
       })),
-      addNote: (this.state.addType || 'smb') === 'smb'
+      addNote: ['rclone','libvirt'].includes(this.state.addType)
+        ? 'Choose a host-configured endpoint. Cloud writes require administrator opt-in; libvirt exposes read-only pool and volume metadata. Credentials stay on the service host.'
+        : (this.state.addType || 'smb') === 'smb'
         ? 'NTLM over SMB2/3 on port 445. A domain is applied as DOMAIN\\username, and IPv6 literals are not supported — use an IPv4 address.'
         : (this.state.addType || 'smb') === 'nfs'
           ? 'No credentials: access uses the service account\'s AUTH_SYS UID/GID. NFSv4-only servers may not list exports, so enter the absolute path.'
@@ -1051,9 +1060,9 @@ class Component extends DCLogic {
   can(operation) {return !!this.state.session?.operations.includes(operation)}
   fromDescriptor(descriptor) {
     const {path='/', credential_id, ...base} = descriptor
-    const clean = base.type === 'local' ? {type:'local',root:base.root} : base.type === 'smb' ? {type:'smb',host:base.host,share:base.share} : {type:'nfs',host:base.host,export:base.export,version:base.version||4}
+    const clean = base.endpoint ? {type:base.type,endpoint:base.endpoint} : base.type === 'local' ? {type:'local',root:base.root} : base.type === 'smb' ? {type:'smb',host:base.host,share:base.share} : {type:'nfs',host:base.host,export:base.export,version:base.version||4}
     if (credential_id) clean.credential_id = credential_id
-    return {host:base.type === 'local' ? '' : `${base.type}://${base.host}`, share:base.root || base.share || base.export, folders:path.split('/').filter(Boolean), descriptor:clean}
+    return {host:base.type === 'local' ? '' : `${base.type}://${base.endpoint || base.host}`, share:base.endpoint || base.root || base.share || base.export, folders:path.split('/').filter(Boolean), descriptor:clean}
   }
   currentPath(place=this.state.place) {return '/' + place.folders.join('/')}
   childPath(name, place=this.state.place) {return (this.currentPath(place).replace(/\/$/,'') + '/' + name)}
@@ -1089,6 +1098,7 @@ class Component extends DCLogic {
   }
   async addLocation(discover=false) {
     const type=this.state.addType||'smb', values=this.state.add||{}
+    if(['rclone','libvirt'].includes(type))return this.goTo(this.fromDescriptor({type,endpoint:values.endpoint||''}))
     if(type==='local')return this.goTo(this.fromDescriptor({type,root:values.root||''}))
     await this.mapDevice({protocol:type.toUpperCase(),ip:values.host||''},{credentials:type==='smb'?{username:values.username||'',password:values.password||'',domain:values.domain||''}:undefined,share:discover?'':values.share,export:discover?'':values.export,version:values.version||4})
     this.setState({add:{}})
@@ -1136,6 +1146,7 @@ class Component extends DCLogic {
   async preview(entry) {
     const session=this.state.session
     const info=await this.api(`/sessions/${session.id}/stat?${new URLSearchParams({path:entry.path})}`)
+    if(!this.can('read'))return this.info([entry])
     if(info.size>1048576)return this.say('Preview is limited to 1 MiB. Download this file to open it locally.')
     const response=await fetch(`/api/sessions/${session.id}/file?${new URLSearchParams({path:entry.path})}`)
     if(!response.ok)throw new Error('Unable to read the file')
@@ -1173,7 +1184,7 @@ class Component extends DCLogic {
   }
   async info(entries) {
     const rows=await Promise.all(entries.map(e=>this.api(`/sessions/${this.state.session.id}/stat?${new URLSearchParams({path:e.path})}`)))
-    await this.dialog('Get info',rows.map(e=>`${e.path} · ${e.type} · ${this.bytes(e.size)} · ${e.modified||'—'}`).join('\n'))
+    await this.dialog('Get info',rows.map(e=>[e.path, `Type: ${e.type === 'other' && e.capacity != null ? 'Storage volume' : e.type}`, e.capacity != null ? `Capacity: ${this.bytes(e.capacity)}\nAllocated: ${this.bytes(e.allocation)}` : `Size: ${this.bytes(e.size)}`, e.available != null ? `Available: ${this.bytes(e.available)}` : '', e.volume_type != null ? `Libvirt volume type: ${e.volume_type}` : '', e.modified ? `Modified: ${e.modified}` : ''].filter(Boolean).join('\n')).join('\n\n'))
   }
   async pollJobs() {
     if(this.polling)return
