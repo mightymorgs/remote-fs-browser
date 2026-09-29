@@ -1,18 +1,18 @@
 # Cloud storage and libvirt
 
-The source version of remotefs adds two optional connection types: **rclone** for cloud connections you add in the GUI or CLI and **libvirt** for read-only storage-pool and volume inventory. These additions are not in the published 0.2.2 packages. Install from the updated source checkout to use them.
+Version 0.3.0 adds two optional connection types: **rclone** for cloud connections you add in the GUI or CLI and **libvirt** for read-only storage-pool and volume inventory. Upgrade remotefs to 0.3.0 or newer to use them.
 
-## Install the source version
+## Install or upgrade
 
 ```sh
-git clone https://github.com/mightymorgs/remote-fs-browser.git
-cd remote-fs-browser
-pipx install .
+pipx install remote-fs-browser
+# Already installed with pipx:
+pipx upgrade remote-fs-browser
 ```
 
-If pipx already manages an older installation, use `pipx install --force .` from this checkout. Install [rclone](https://rclone.org/install/) separately on the computer running remotefs. It must be on the service account's PATH.
+Install [rclone](https://rclone.org/install/) separately on the computer running remotefs. It must be on the service account's PATH.
 
-For libvirt, install the native libvirt development package and pkg-config, then install the Python extra with `pipx install --force '.[libvirt]'`. On macOS, native prerequisites are `brew install libvirt pkgconf`; Debian/Ubuntu use `sudo apt install libvirt-dev pkg-config python3-dev build-essential`. These are service-host dependencies; viewing devices need only a browser. Windows users can run the libvirt-enabled service on a Linux host and connect to its browser interface.
+For libvirt, install the native libvirt development package and pkg-config, then install the Python extra with `pipx install --force 'remote-fs-browser[libvirt]'`. On macOS, native prerequisites are `brew install libvirt pkgconf`; Debian/Ubuntu use `sudo apt install libvirt-dev pkg-config python3-dev build-essential`. These are service-host dependencies; viewing devices need only a browser. Windows users can run the libvirt-enabled service on a Linux host and connect to its browser interface.
 
 ## Add cloud storage in the GUI
 
