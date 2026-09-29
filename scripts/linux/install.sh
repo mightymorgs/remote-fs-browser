@@ -19,6 +19,7 @@ fi
 fi
 "$PYTHON" -c 'import sys; assert sys.version_info >= (3, 11), "Python 3.11+ is required"'
 install -d -m 700 "$PREFIX"
+install -d -m 700 "$PREFIX/tmp"
 if [ -x "$PREFIX/venv/bin/python" ]; then
   if "$PREFIX/venv/bin/python" "$SOURCE/scripts/deployment.py" --config "$CONFIG" --destination "$PREFIX/config.json" "${BOOTSTRAP_ARGS[@]}" --check; then :
   else [ "$?" = 2 ] || exit 1; fi
@@ -47,6 +48,7 @@ Wants=network-online.target
 [Service]
 ExecStart=$PREFIX/venv/bin/remotefs serve --no-defaults --config $PREFIX/config.json
 Environment=LIBNFS_LIBRARY=$LIBRARY
+Environment=TMPDIR=$PREFIX/tmp
 Restart=on-failure
 RestartSec=5
 UMask=0077

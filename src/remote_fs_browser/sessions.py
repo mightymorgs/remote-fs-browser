@@ -136,8 +136,9 @@ def worker(pipe, config, policy_values):
 class Worker:
     def __init__(self, config, policy):
         import tempfile
-        self.scratch = tempfile.TemporaryDirectory(prefix='remotefs-session-')
-        config = {**config, '_scratch': self.scratch.name}
+        self.scratch = tempfile.TemporaryDirectory(prefix='remotefs-session-') if config['type'] == 'rclone' else None
+        if self.scratch:
+            config = {**config, '_scratch': self.scratch.name}
         context = multiprocessing.get_context('spawn')
         self.pipe, child = context.Pipe()
         self.process = context.Process(target=worker, args=(child, config, asdict(policy)), daemon=True)
@@ -194,7 +195,8 @@ class Worker:
                             self.process.terminate()
                     self.process.join(1)
             self.pipe.close()
-            self.scratch.cleanup()
+            if self.scratch:
+                self.scratch.cleanup()
 
 
 class FilesystemSession:

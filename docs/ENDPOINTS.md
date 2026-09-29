@@ -118,3 +118,10 @@ Ductstack's storage picker is the related workflow: choose VM storage or a mount
 The adapter tests exercise real rclone commands against a disposable local alias remote, including ranged and multi-chunk downloads, uploads, overwrite handling, cross-backend copying, deletion and read-only enforcement. Libvirt is exercised against its in-memory `test:///default` driver, with separate pool/volume metadata and allowlist tests. The manager and endpoint controls are also checked in a browser.
 
 These checks do not authenticate to live S3, Dropbox or other cloud accounts, and they do not modify production hypervisors. Validate your provider configuration and permissions with a small test folder before using important data.
+
+For the Linux service installer, temporary cloud data uses the private
+`/opt/remote-fs-browser/tmp` directory, within the service's existing writable
+prefix. Put a refreshable OAuth config at `/opt/remote-fs-browser/rclone.conf`
+so token updates are also permitted by its systemd filesystem policy. A custom
+service must provide a writable temporary directory (for example with `TMPDIR`)
+and allow writes to the rclone config's parent when OAuth refresh requires them.

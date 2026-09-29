@@ -161,3 +161,14 @@ def test_endpoint_cli_descriptors_and_saved_locations(tmp_path):
     assert len(records) == 2
     assert all(record['label'] == 'approved' and not record['has_credentials'] for record in records)
     assert not store.list('someone-else')
+
+
+@pytest.mark.asyncio
+async def test_existing_connections_do_not_require_writable_temporary_directory(tmp_path, monkeypatch):
+    import tempfile
+    def unavailable(*args, **kwargs):
+        raise FileNotFoundError('No usable temporary directory in a hardened service')
+    monkeypatch.setattr(tempfile, 'TemporaryDirectory', unavailable)
+    async with Browser(Policy(local_roots=[str(tmp_path)])) as browser:
+        fs = await browser.connect({'type': 'local', 'root': str(tmp_path)})
+        assert (await fs.list('/'))['entries'] == []
