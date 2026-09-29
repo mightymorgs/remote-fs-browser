@@ -1,6 +1,6 @@
 # Cloud storage and libvirt
 
-The source version of remotefs adds two optional connection types: **rclone** for configured cloud remotes and **libvirt** for read-only storage-pool and volume inventory. These additions are not in the published 0.2.2 packages. Install from the updated source checkout to use them.
+The source version of remotefs adds two optional connection types: **rclone** for cloud connections you add in the GUI or CLI and **libvirt** for read-only storage-pool and volume inventory. These additions are not in the published 0.2.2 packages. Install from the updated source checkout to use them.
 
 ## Install the source version
 
@@ -14,7 +14,52 @@ If pipx already manages an older installation, use `pipx install --force .` from
 
 For libvirt, install the native libvirt development package and pkg-config, then install the Python extra with `pipx install --force '.[libvirt]'`. On macOS, native prerequisites are `brew install libvirt pkgconf`; Debian/Ubuntu use `sudo apt install libvirt-dev pkg-config python3-dev build-essential`. These are service-host dependencies; viewing devices need only a browser. Windows users can run the libvirt-enabled service on a Linux host and connect to its browser interface.
 
+## Add cloud storage in the GUI
+
+Sign in with your remotefs **username and password**, then choose **Cloud storage → Add / manage** (or **Add location → Cloud / rclone**). Choose a provider, name the connection, enter its credentials, and select **Save & connect**. No configuration-file edit or service restart is needed.
+
+The built-in forms cover Amazon S3 and compatible services, Backblaze B2, Dropbox, Google Drive, OneDrive, WebDAV/Nextcloud, and Azure Blob Storage. S3 takes an access key, secret, region and optional custom endpoint. Set the bucket/folder prefix to `/my-bucket/projects`, or `/` to browse everything those credentials can access.
+
+Connections allow writes by default when the service and provider permit them. Tick **Read-only** for browse/copy-out access. Saved connections appear in the sidebar. Use **Edit** to change their name, prefix, permissions or credentials; leave secret fields blank to preserve them. **Remove connection** removes the saved configuration and closes its sessions, without deleting cloud files.
+
+Credentials are stored in private rclone configuration files under the service's `remotes` directory next to `config.json`. They are not included in descriptors, browser storage, listings, or API responses. Back up and protect this directory with the rest of the service configuration. Each signed-in principal sees only its own managed connections. A globally read-only service disables connection changes.
+
+### Dropbox, Drive and OneDrive authorization
+
+These providers use OAuth. On a computer with rclone and a browser, run `rclone authorize dropbox`, `rclone authorize drive`, or `rclone authorize onedrive`. Sign in to the provider and paste the returned authorization JSON into the form. OneDrive also needs the drive ID and drive type. The form explains this step; it works with headless remotefs hosts. See [rclone's remote authorization guide](https://rclone.org/remote_setup/).
+
+This is a provider authorization step, separate from the remotefs login. At present it requires the rclone authorization helper; remotefs does not provide an embedded OAuth redirect flow. Refreshed provider tokens are saved by rclone on the service host.
+
+### Copy and paste across storage
+
+1. Open a local folder, SMB/NFS share or cloud connection. Select files or folders and choose **Copy**.
+2. Open the destination connection and folder.
+3. Select **Paste here** in the clipboard bar, including when the destination folder is empty.
+
+The service transfers the data; your browser does not need to download and re-upload it. Folder copies recurse through their contents. Existing destination files are not silently overwritten. Read-only connections may be copy sources, but the destination needs write permission. Cloud Cut and Rename remain unavailable; use Copy, verify, then Delete when moving cloud data.
+
+## Manage cloud connections from the CLI
+
+```sh
+remotefs login --username YOUR_NAME
+remotefs remotes providers
+# Prompts for provider fields; secret fields are hidden:
+remotefs remotes add --provider s3 --label "Studio archive" --root /my-bucket
+remotefs remotes list
+remotefs remotes edit --id CLOUD_ID --read-only
+remotefs connect --type rclone --endpoint CLOUD_ID
+remotefs copy SOURCE_SESSION /photos /backup/photos --target-session DESTINATION_SESSION
+remotefs remotes remove --id CLOUD_ID
+```
+
+For non-interactive setup, pass `--options-stdin` and pipe a JSON object containing the provider's field names. Credentials are never command-line arguments. `remotes show --id CLOUD_ID` returns non-secret fields and the names of saved secret fields, not their values.
+
+Automation may optionally use a separate `automation_token` of at least 32 random characters in the server's private `config.json` (restart to apply), and `REMOTEFS_TOKEN` in the client environment. It acts as the configured account. Normal GUI and CLI use remains username/password with a login cookie; no API token is required.
+
 ## Configure rclone once on the service host
+
+This optional advanced route preserves existing host-configured remotes and provides access to other rclone providers. The GUI/CLI flow above does not need it.
+
 
 Run rclone as the account that runs remotefs, with an explicit config path:
 
@@ -61,7 +106,7 @@ Endpoint names are public aliases. A browser cannot supply a different rclone co
 
 ## Connect in the browser or terminal
 
-In **Add location**, select **Cloud / rclone** or **Libvirt pools**, then open one of the configured endpoints. You can also type its alias. Browse with the normal folder list and breadcrumbs, and shortlist folders for later. The embeddable picker exposes the same endpoints.
+Managed cloud connections appear under **Cloud storage** in the sidebar. Host-configured rclone endpoints also appear there. For libvirt, select **Libvirt pools** in Add location and choose or enter the configured alias. Browse with the normal folder list and breadcrumbs, and shortlist folders for later. The embeddable picker exposes the same endpoints.
 
 ```sh
 remotefs login --username YOUR_NAME
@@ -95,11 +140,11 @@ The libvirt equivalent is `{"type":"libvirt","endpoint":"hypervisor","path":"/de
 | Copy out to a writable location | Yes | Yes, when `copy` is permitted | No |
 | ZIP preparation and split downloads | Yes | Yes, through the service host | No |
 | Upload and text save | With write permission | With `read_only: false` and write permission | No |
-| Create folders and delete | With permission | With endpoint opt-in; provider semantics apply | No |
+| Create folders and delete | With permission | With write permission; provider semantics apply | No |
 | Rename / cut | With permission | Not exposed; use Copy, verify, then Delete | No |
 | Saved folders, CLI, SDK, picker | Yes | Yes | Yes, for inventory paths |
 
-Rclone endpoints default to read-only. Setting `read_only: false` cannot override the global operations policy or provider permissions. Empty folders may not persist on object stores. Names that the common path format cannot represent are skipped and reported. Large listing responses above 16 MiB are rejected; narrower prefixes help.
+Managed GUI/CLI cloud connections default to writable; the Read-only option disables mutations. Advanced policy endpoints default to read-only. Setting `read_only: false` cannot override the global operations policy or provider permissions. Empty folders may not persist on object stores. Names that the common path format cannot represent are skipped and reported. Large listing responses above 16 MiB are rejected; narrower prefixes help.
 
 Uploads first spool to temporary disk on the service host, then publish through rclone. Allow enough free disk for concurrent uploads. Each provider operation must finish within the configured operation timeout (10 seconds by default); increase `policy.operation_timeout` for large transfers or slow providers. Downloads use bounded 4 MiB ranged requests, so they favor predictable memory use over maximum throughput. Provider APIs can incur request and egress charges.
 
@@ -115,7 +160,7 @@ Ductstack's storage picker is the related workflow: choose VM storage or a mount
 
 ## Validation scope
 
-The adapter tests exercise real rclone commands against a disposable local alias remote, including ranged and multi-chunk downloads, uploads, overwrite handling, cross-backend copying, deletion and read-only enforcement. Libvirt is exercised against its in-memory `test:///default` driver, with separate pool/volume metadata and allowlist tests. The manager and endpoint controls are also checked in a browser.
+The adapter tests exercise real rclone against a disposable S3 HTTP fixture and a local alias remote. Coverage includes managed connection creation, edits, owner isolation, persistence, removal without cloud deletion, local-to-cloud and cloud-to-cloud copies, as well as including ranged and multi-chunk downloads, uploads, overwrite handling, cross-backend copying, deletion and read-only enforcement. Libvirt is exercised against its in-memory `test:///default` driver, with separate pool/volume metadata and allowlist tests. The manager and endpoint controls are also checked in a browser.
 
 These checks do not authenticate to live S3, Dropbox or other cloud accounts, and they do not modify production hypervisors. Validate your provider configuration and permissions with a small test folder before using important data.
 
