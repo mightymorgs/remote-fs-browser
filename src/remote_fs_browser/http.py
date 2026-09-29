@@ -80,7 +80,9 @@ class BodyLimit:
 
 
 def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
-               authorize: Callable | None = None, credential_resolver=None, root_kinds=None, saved_locations=None, account=None, staging_stores=None, staging_store_writer=None):
+               authorize: Callable | None = None, credential_resolver=None, root_kinds=None, saved_locations=None, account=None, staging_stores=None, staging_store_writer=None, remote_store=None):
+    if token is not None and (not isinstance(token, str) or len(token) < 32):
+        raise ValueError('Automation tokens must contain at least 32 characters')
     if not account and not authenticate and (not token or len(token) < 32):
         raise ValueError('Configure an authentication hook or a token of at least 32 characters')
     if saved_locations is not None and credential_resolver is None:
@@ -135,7 +137,7 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
             if inspect.isawaitable(principal):
                 principal = await principal
         elif not principal and token and hmac.compare_digest(request.headers.get('authorization', '').encode(), ('Bearer ' + token).encode()):
-            principal = 'token-user'
+            principal = account.get('principal', 'owner') if account else 'token-user'
         if not principal or not isinstance(principal, str):
             return JSONResponse({'detail': 'Authentication required'}, status_code=401)
         now = time.monotonic()
@@ -417,11 +419,59 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         jobs.save(job)
         return FileResponse(path, filename=part['name'], media_type='application/octet-stream')
 
+    async def remotes_allowed(request, mutate=False):
+        await allowed(request, 'write' if mutate else 'discover')
+        if remote_store is None:
+            raise PermissionError('Cloud connection management is unavailable')
+
+    async def close_remote(request, reference):
+        for sid, session in list(browser.sessions.items()):
+            if owners.get(sid) == request.state.principal and session.descriptor().get('endpoint') == reference:
+                await session.close()
+                browser.sessions.pop(sid, None)
+                owners.pop(sid, None)
+
+    @app.get('/api/remotes')
+    async def remotes_list(request: Request):
+        await allowed(request, 'discover')
+        if remote_store is None:
+            return {'remotes': [], 'providers': [], 'available': False, 'manageable': False}
+        result = await asyncio.to_thread(remote_store.providers)
+        return {**result, 'remotes': await asyncio.to_thread(remote_store.list, request.state.principal), 'manageable': 'write' in policy.operations}
+
+    @app.get('/api/remotes/{reference}')
+    async def remotes_get(request: Request, reference: str):
+        await remotes_allowed(request)
+        return await asyncio.to_thread(remote_store.get, request.state.principal, reference)
+
+    @app.post('/api/remotes')
+    async def remotes_add(request: Request):
+        await remotes_allowed(request, True)
+        return await asyncio.to_thread(remote_store.save, request.state.principal, await request.json())
+
+    @app.put('/api/remotes/{reference}')
+    async def remotes_update(request: Request, reference: str):
+        await remotes_allowed(request, True)
+        await asyncio.to_thread(remote_store.get, request.state.principal, reference)
+        await close_remote(request, reference)
+        return await asyncio.to_thread(remote_store.save, request.state.principal, await request.json(), reference)
+
+    @app.delete('/api/remotes/{reference}')
+    async def remotes_remove(request: Request, reference: str):
+        await remotes_allowed(request, True)
+        await asyncio.to_thread(remote_store.get, request.state.principal, reference)
+        await close_remote(request, reference)
+        await asyncio.to_thread(remote_store.remove, request.state.principal, reference)
+        return {'removed': True}
+
     @app.get('/api/discover')
     @app.get('/discover', include_in_schema=False)
     async def discover(request: Request, scan: bool = False):
         await allowed(request, 'discover')
-        return await browser.discover(scan=scan)
+        result = await browser.discover(scan=scan)
+        if remote_store is not None:
+            result['endpoints'] += await asyncio.to_thread(remote_store.list, request.state.principal)
+        return result
 
     @app.post('/api/discover')
     @app.post('/discover', include_in_schema=False)
@@ -462,7 +512,10 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
                 credentials = credential_resolver(request.state.principal, reference)
             if inspect.isawaitable(credentials):
                 credentials = await credentials
-        session = await browser.connect(descriptor, credentials)
+        endpoint_config = None
+        if remote_store is not None and descriptor.get('type') == 'rclone' and descriptor.get('endpoint') in remote_store.records:
+            endpoint_config = await asyncio.to_thread(remote_store.endpoint, request.state.principal, descriptor['endpoint'])
+        session = await browser.connect(descriptor, credentials, endpoint_config=endpoint_config)
         if reference:
             session._descriptor['credential_id'] = reference
         owners[session.id] = request.state.principal
