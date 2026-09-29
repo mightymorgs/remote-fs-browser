@@ -10,9 +10,9 @@ Install one Python service on a computer that can reach your shares, then use it
 
 ## Cloud storage and libvirt (source version)
 
-The updated source checkout adds optional **rclone endpoints** (S3, Dropbox and other configured providers) and **read-only libvirt storage pool/volume inventory**. They use the same manager, CLI, SDK and saved-location descriptors. These additions are not included in the published 0.2.2 packages.
+The updated source checkout adds optional **cloud connections added through the GUI or CLI** (S3, Dropbox and other rclone providers) and **read-only libvirt storage pool/volume inventory**. They use the same manager, CLI, SDK and saved-location descriptors. These additions are not included in the published 0.2.2 packages.
 
-Rclone supports browsing, metadata, downloads, copying out and ZIP preparation. Uploads, text saves, folder creation and deletion require endpoint opt-in and policy permission; cloud rename/cut is not exposed. Libvirt lists explicitly permitted pools and volumes with capacity/allocation metadata; it does not browse guest files or alter disks.
+Rclone supports browsing, metadata, downloads, copying out and ZIP preparation. Copy/paste works across local, NAS and cloud connections. Uploads, text saves, folder creation and deletion require write permission; cloud rename/cut is not exposed. Libvirt lists explicitly permitted pools and volumes with capacity/allocation metadata; it does not browse guest files or alter disks.
 
 See [cloud and libvirt configuration](docs/ENDPOINTS.md) for source installation, dependencies, S3/Dropbox setup, capability differences and limits.
 

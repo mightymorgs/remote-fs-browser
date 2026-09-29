@@ -182,7 +182,9 @@ def main(argv=None):
         latest['staging_stores'] = stores
         write_private(path, json.dumps(latest, indent=2) + '\n')
 
-    app = create_app(policy, account=config['account'], root_kinds=kinds, saved_locations=saved,
+    from .remotes import RemoteStore
+    remotes = RemoteStore(path.parent / 'remotes')
+    app = create_app(policy, account=config['account'], token=config.get('automation_token'), remote_store=remotes, root_kinds=kinds, saved_locations=saved,
                      staging_stores=config.get('staging_stores', {'Downloads': str(path.parent / 'staging')}),
                      staging_store_writer=save_staging_stores if config.get('staging_stores') != {} else None)
     bind = args.bind or config.get('bind', '127.0.0.1')

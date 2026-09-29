@@ -37,7 +37,7 @@ class Component extends DCLogic {
       if (key === 'backspace') this.remove()
     }
     document.addEventListener('keydown', this.onKey)
-    const [discovery] = await Promise.all([this.api('/discover'), this.reloadSaved(), this.pollJobs()])
+    const [discovery] = await Promise.all([this.api('/discover'), this.reloadSaved(), this.pollJobs(), this.reloadRemotes()])
     this.setState({roots:discovery.roots, endpoints:discovery.endpoints || [], ranges:discovery.scan_ranges.join(', '), scan:'idle'})
     if (discovery.roots.length) this.goTo(this.fromDescriptor(discovery.roots[0]))
     this.pollTimer = setInterval(() => {if (!document.hidden) this.pollJobs().catch(() => {})}, 5000)
@@ -120,12 +120,14 @@ class Component extends DCLogic {
   }
   async paste() {
     const clip=this.state.clipboard, target=this.state.session
-    if(!clip||!target)return
-    const source=await this.sessionFor(clip.place)
+    if(!clip||!target||this.state.pasteBusy)return
+    const targetPlace={...this.state.place,folders:[...this.state.place.folders]}
+    this.setState({pasteBusy:true})
     let done=0
     try {
+      const source=await this.sessionFor(clip.place)
       for(const name of clip.names) {
-        const src=this.childPath(name,clip.place),dest=this.childPath(name)
+        const src=this.childPath(name,clip.place),dest=this.childPath(name,targetPlace)
         if(clip.cut&&source.id===target.id)await this.api(`/sessions/${source.id}/rename`,{source:src,destination:dest})
         else {
           await this.api(`/sessions/${source.id}/copy`,{source:src,destination:dest,target_session:target.id})
@@ -133,7 +135,9 @@ class Component extends DCLogic {
         }
         done++
       }
+      this.say(`Copied ${done} item(s)`)
     } finally {
+      this.setState({pasteBusy:false})
       if(clip.cut)this.setState({clipboard:done===clip.names.length?null:{...clip,names:clip.names.slice(done)}})
       await this.refresh()
     }
@@ -482,6 +486,7 @@ class Component extends DCLogic {
     this.goTo(this.fromDescriptor(descriptor))
   }
   renderVals() {
+    const cloud = this.state.cloud || {}, provider = (this.state.cloudProviders || []).find(p=>p.id===(cloud.provider || 's3'))
     const rows = this.visible()
     const all = this.entries()
     const selected = this.state.selected
@@ -565,7 +570,7 @@ class Component extends DCLogic {
         .map((text, index, all) => {
           const last = index === all.length - 1
           return {
-            text, sep: index > 0,
+            text: this.state.place.descriptor?.type==='rclone' && index < 2 ? (index===0?'Cloud':(this.state.endpoints||[]).find(r=>r.endpoint===this.state.place.descriptor.endpoint)?.label||text) : text, sep: index > 0,
             color: last ? '#1c2024' : '#6a727c',
             weight: last ? '500' : '400',
             flex: index < 2 ? '0 1 auto' : 'none',
@@ -704,6 +709,11 @@ class Component extends DCLogic {
       })),
 
       countLabel: this.state.loading ? 'Loading…' : this.state.filter ? `${rows.length} of ${all.length} items` : `${all.length} items`,
+      hasClipboard: !!clip,
+      pasteHere: ()=>this.paste(),
+      pasteDisabled: !clip || !this.can('write') || !!this.state.pasteBusy,
+      pasteLabel: this.state.pasteBusy?'Copying…':'Paste here',
+      clearClipboard: ()=>this.setState({clipboard:null}),
       clipboardLabel: clip ? `${clip.names.length} item${clip.names.length === 1 ? '' : 's'} on the clipboard (${clip.cut ? 'cut' : 'copy'})` : '',
       readOnly: !write,
 
@@ -874,7 +884,33 @@ class Component extends DCLogic {
       addLocal: (this.state.addType || 'smb') === 'local',
       addSmb: (this.state.addType || 'smb') === 'smb',
       addNfs: (this.state.addType || 'smb') === 'nfs',
-      addEndpoint: ['rclone','libvirt'].includes(this.state.addType),
+      addEndpoint: this.state.addType === 'libvirt',
+      addCloud: this.state.addType === 'rclone',
+      cloudManage: !!this.state.cloudManage,
+      cloudReady: !!this.state.cloudAvailable,
+      cloudUnavailable: !this.state.cloudAvailable,
+      cloudBusy: !!this.state.cloudBusy,
+      cloudStatus: this.state.cloudStatus || '',
+      cloudLabel: cloud.label || '',
+      cloudRoot: cloud.root || '/',
+      cloudReadOnly: !!cloud.read_only,
+      cloudProvider: cloud.provider || 's3',
+      cloudEditing: !!cloud.id,
+      cloudProviders: this.state.cloudProviders || [],
+      setCloudLabel: e=>this.setState({cloud:{...cloud,label:e.target.value}}),
+      setCloudRoot: e=>this.setState({cloud:{...cloud,root:e.target.value}}),
+      setCloudReadOnly: e=>this.setState({cloud:{...cloud,read_only:e.target.checked}}),
+      setCloudProvider: e=>this.setState({cloud:{label:cloud.label,provider:e.target.value,root:'/',options:{}}}),
+      cloudOAuth: !!provider?.oauth,
+      cloudAuthorize: `rclone authorize ${cloud.provider || 's3'}`,
+      cloudFields: (provider?.fields || []).map(f=>({...f, inputType:f.secret?'password':'text', value:cloud.options?.[f.name] ?? f.default,
+        placeholder:cloud.saved_secrets?.includes(f.name)?'Saved — leave blank to keep':f.required?'Required':'Optional',
+        change:e=>this.setState({cloud:{...cloud,options:{...cloud.options,[f.name]:e.target.value}}})})),
+      saveCloud: ()=>this.saveCloud(),
+      newCloud: ()=>this.setState({cloud:{provider:'s3'},cloudStatus:''}),
+      cloudConnections: (this.state.cloudRemotes || []).map(r=>({...r, open:()=>this.goTo(this.fromDescriptor(r)), edit:()=>this.editCloud(r), forget:()=>this.forgetCloud(r)})),
+      cloudSidebar: (this.state.endpoints || []).filter(r=>r.type==='rclone').map(r=>({...r, open:()=>this.goTo(this.fromDescriptor(r))})),
+      openCloud: ()=>this.setState({view:'add',addType:'rclone'}),
       addEndpointName: this.state.add?.endpoint || '',
       setAddEndpoint: event => this.setState({add:{...this.state.add,endpoint:event.target.value}}),
       endpointChoices: (this.state.endpoints || []).filter(e=>e.type===this.state.addType).map(e=>({...e,open:()=>this.goTo(this.fromDescriptor(e))})),
@@ -889,15 +925,16 @@ class Component extends DCLogic {
         bg: (this.state.addType || 'smb') === option.value ? '#3f6fd1' : '#fff',
         ink: (this.state.addType || 'smb') === option.value ? '#fff' : '#1c2024',
         line: (this.state.addType || 'smb') === option.value ? '#2b57ae' : '#c8ccd3',
-        pick: () => this.setState({ addType: option.value })
+        pick: () => {this.setState({ addType: option.value });if(option.value==='rclone')this.reloadRemotes()}
       })),
-      addNote: ['rclone','libvirt'].includes(this.state.addType)
+      addNote: this.state.addType==='rclone' ? 'Saved cloud folders work with the same previews, uploads, downloads and Copy/Paste as your other locations. Read-only connections allow copying out. Removing a connection never deletes its cloud files.' : this.state.addType==='libvirt'
         ? 'Choose a host-configured endpoint. Cloud writes require administrator opt-in; libvirt exposes read-only pool and volume metadata. Credentials stay on the service host.'
         : (this.state.addType || 'smb') === 'smb'
         ? 'NTLM over SMB2/3 on port 445. A domain is applied as DOMAIN\\username, and IPv6 literals are not supported — use an IPv4 address.'
         : (this.state.addType || 'smb') === 'nfs'
           ? 'No credentials: access uses the service account\'s AUTH_SYS UID/GID. NFSv4-only servers may not list exports, so enter the absolute path.'
           : 'Only roots the service policy permits can be opened.',
+      addStandard: this.state.addType !== 'rclone',
       addConnect: () => this.addLocation(),
       addDiscover: () => this.addLocation(true),
       addRoot: this.state.add?.root || '',
@@ -1030,7 +1067,7 @@ class Component extends DCLogic {
       menuX: menu ? `${menu.x}px` : '0px',
       menuY: menu ? `${menu.y}px` : '0px',
       closeMenu: () => this.setState({ menu: null }),
-      menuItems: (menu?.kind === 'toolbar' ? [{label:'New folder',on:this.can('mkdir'),run:()=>this.newFolder()},{label:'Upload files',on:this.can('write'),run:()=>this.upload()},{label:'Sign out',on:true,run:()=>this.setState({signout:true,menu:null})}] : menu?.kind === 'device' ? this.deviceItems(menu.device)
+      menuItems: (menu?.kind === 'toolbar' ? [{label:'Paste here',on:!!clip&&this.can('write')&&!this.state.pasteBusy,run:()=>this.paste()},{label:'New folder',on:this.can('mkdir'),run:()=>this.newFolder()},{label:'Upload files',on:this.can('write'),run:()=>this.upload()},{label:'Sign out',on:true,run:()=>this.setState({signout:true,menu:null})}] : menu?.kind === 'device' ? this.deviceItems(menu.device)
         : menu?.kind === 'mount' ? this.mountItems(menu.host)
         : menu?.kind === 'pin' ? this.pinItems(menu.pin)
         : menu?.kind === 'share' ? this.shareItems(menu.host, menu.share)
@@ -1095,6 +1132,40 @@ class Component extends DCLogic {
   async reloadSaved() {
     const [pins,credentials]=await Promise.all([this.api('/saved'),this.api('/credentials')])
     this.setState({pins:pins.locations.map(pin=>({...pin,place:this.fromDescriptor({...pin.descriptor,credential_id:pin.has_credentials?pin.id:undefined})})), creds:credentials.credentials.map(row=>({...row,note:`Saved for ${row.host}`})), savedAvailable:pins.available})
+  }
+  async reloadRemotes() {
+    const info=await this.api('/remotes')
+    const discovery=await this.api('/discover')
+    this.setState({cloudRemotes:info.remotes,cloudProviders:info.providers,cloudAvailable:info.available,cloudManage:info.manageable,endpoints:discovery.endpoints||[]})
+  }
+  async editCloud(remote) {
+    const cloud=await this.api('/remotes/'+remote.id)
+    this.setState({view:'add',addType:'rclone',cloud,cloudStatus:''})
+  }
+  async saveCloud() {
+    if(this.state.cloudBusy)return
+    const cloud=this.state.cloud||{}, provider=(this.state.cloudProviders||[]).find(p=>p.id===(cloud.provider||'s3'))
+    const options=Object.fromEntries((provider?.fields||[]).map(f=>[f.name,cloud.options?.[f.name]??f.default]))
+    this.setState({cloudBusy:true,cloudStatus:'Saving connection…'})
+    try {
+      const remote=await this.api('/remotes'+(cloud.id?'/'+cloud.id:''),{provider:cloud.provider||'s3',label:cloud.label||'',root:cloud.root||'/',read_only:!!cloud.read_only,options},cloud.id?'PUT':'POST')
+      for(const [key,session] of this.sessions)if(session.descriptor?.endpoint===remote.id)this.sessions.delete(key)
+      this.setState({cloud:await this.api('/remotes/'+remote.id),cloudStatus:'Saved. Connecting…'})
+      await this.reloadRemotes()
+      const place=this.fromDescriptor(remote)
+      await this.sessionFor(place,true)
+      this.setState({cloudStatus:'Connected',cloud:{provider:'s3'}})
+      this.goTo(place)
+    } catch(error) {this.setState({cloudStatus:error.message});await this.reloadRemotes()}
+    finally {this.setState({cloudBusy:false})}
+  }
+  async forgetCloud(remote) {
+    if(!await this.dialog('Remove connection',`Remove ${remote.label} from remotefs? Files in the cloud will be kept.`,null,'Remove connection'))return
+    await this.api('/remotes/'+remote.id,undefined,'DELETE')
+    for(const [key,session] of this.sessions)if(session.descriptor?.endpoint===remote.id)this.sessions.delete(key)
+    if(this.state.place.descriptor?.endpoint===remote.id)this.setState({session:null,listing:[],selected:[],place:{host:'',share:'',folders:[]}})
+    this.setState({cloud:{provider:'s3'},cloudStatus:''})
+    await this.reloadRemotes()
   }
   async addLocation(discover=false) {
     const type=this.state.addType||'smb', values=this.state.add||{}

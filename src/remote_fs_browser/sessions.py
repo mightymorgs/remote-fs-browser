@@ -441,10 +441,10 @@ class Browser:
         self.closed = False
         self.starting = set()
 
-    async def _worker(self, config):
+    async def _worker(self, config, policy=None):
         if self.closed:
             raise RuntimeError('Browser is closed')
-        task = asyncio.create_task(asyncio.to_thread(Worker, config, self.policy))
+        task = asyncio.create_task(asyncio.to_thread(Worker, config, policy or self.policy))
         self.starting.add(task)
         try:
             value = await asyncio.shield(task)
@@ -462,7 +462,7 @@ class Browser:
         finally:
             self.starting.discard(task)
 
-    async def connect(self, descriptor, credentials=None):
+    async def connect(self, descriptor, credentials=None, *, endpoint_config=None):
         await self.expire()
         if len(self.sessions) + self.pending >= self.policy.max_sessions:
             raise ValueError('Session limit reached')
@@ -470,11 +470,11 @@ class Browser:
         session_policy = self.policy
         if clean['type'] in ('rclone', 'libvirt'):
             from dataclasses import replace
-            endpoint = self.policy.endpoint(clean['endpoint'], clean['type'])
+            endpoint = endpoint_config or self.policy.endpoint(clean['endpoint'], clean['type'])
             supported = {'discover', 'list', 'stat'} if clean['type'] == 'libvirt' else {'discover', 'list', 'stat', 'read', 'copy'}
             if clean['type'] == 'rclone' and not endpoint.get('read_only', True):
                 supported.update(('write', 'mkdir', 'delete'))
-            session_policy = replace(self.policy, operations=[op for op in self.policy.operations if op in supported])
+            session_policy = replace(self.policy, endpoints={**self.policy.endpoints, clean['endpoint']: endpoint}, operations=[op for op in self.policy.operations if op in supported])
         config = dict(clean)
         ref = descriptor.get('credential_id')
         if ref:
@@ -485,7 +485,7 @@ class Browser:
         config.update({k: v for k, v in (credentials or {}).items() if k in ('username', 'password', 'domain')})
         self.pending += 1
         try:
-            worker = await self._worker(config)
+            worker = await self._worker(config, session_policy)
             session = FilesystemSession(worker, clean, session_policy)
             self.sessions[session.id] = session
             return session

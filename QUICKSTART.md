@@ -182,4 +182,4 @@ See the [deployment guide](docs/DEPLOYMENT.md) for unattended installers and Ans
 
 ## Cloud and libvirt endpoints
 
-The updated source version adds configured rclone remotes and read-only libvirt pool/volume browsing. These are not in the published 0.2.2 package. Follow the [endpoint setup guide](docs/ENDPOINTS.md), restart the service, then choose **Cloud / rclone** or **Libvirt pools** in Add location. Select a configured endpoint and browse or shortlist it like other locations.
+The updated source version adds configured rclone remotes and read-only libvirt pool/volume browsing. These are not in the published 0.2.2 package. Use **Cloud storage → Add / manage** to save a provider connection in the GUI, or `remotefs remotes add` from the CLI. Browse its folders and use Copy / Paste here across storage connections. No restart is needed. The [endpoint setup guide](docs/ENDPOINTS.md) covers credentials, provider authorization and the separate libvirt setup.

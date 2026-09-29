@@ -102,3 +102,27 @@ test('configured endpoints keep their identity when opening and saving folders',
   assert.equal(m.currentPath(place),'/folder')
  }
 })
+
+test('saving a cloud connection uses provider fields and opens its credential-free descriptor',async()=>{
+ const m=manager(),calls=[]
+ m.state.cloud={label:'S3 archive',provider:'s3',options:{secret_access_key:'secret'}}
+ m.state.cloudProviders=[{id:'s3',fields:[{name:'secret_access_key',secret:true,default:''},{name:'region',default:'us-east-1'}]}]
+ m.api=async(...args)=>{calls.push(args);return {id:'cloud-test',endpoint:'cloud-test',type:'rclone',provider:'s3',label:'S3 archive',root:'/',read_only:false}}
+ m.reloadRemotes=async()=>{};m.sessionFor=async place=>{assert.equal(place.descriptor.endpoint,'cloud-test');assert.equal(place.descriptor.secret_access_key,undefined)}
+ m.goTo=place=>{assert.equal(place.descriptor.type,'rclone')}
+ await m.saveCloud()
+ assert.equal(calls[0][0],'/remotes');assert.equal(calls[0][1].options.region,'us-east-1')
+ assert.equal(m.state.cloud.options,undefined);assert.equal(m.state.cloudBusy,false)
+})
+
+test('cloud clipboard paste retains the source connection and targets the visible folder',async()=>{
+ const m=manager(),calls=[]
+ const source=m.fromDescriptor({type:'rclone',endpoint:'cloud-one',path:'/photos'})
+ m.state.place=m.fromDescriptor({type:'rclone',endpoint:'cloud-two',path:'/backup'})
+ m.state.session={id:'target'};m.state.clipboard={place:source,names:['album'],cut:false}
+ m.sessionFor=async place=>{assert.equal(place.descriptor.endpoint,'cloud-one');m.state.place=m.fromDescriptor({type:'rclone',endpoint:'cloud-three',path:'/elsewhere'});return {id:'source'}}
+ m.api=async(...args)=>calls.push(args);m.refresh=async()=>{}
+ await m.paste()
+ assert.deepEqual(JSON.parse(JSON.stringify(calls[0][1])),{source:'/photos/album',destination:'/backup/album',target_session:'target'})
+ assert.equal(calls.length,1);assert.equal(m.state.clipboard.names[0],'album')
+})

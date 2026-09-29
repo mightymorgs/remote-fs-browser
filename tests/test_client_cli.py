@@ -256,3 +256,32 @@ def test_dash_prefixed_session_and_real_options():
     assert parser().parse_args(['login', '--username', 'user', '--password-stdin']).password_stdin
     with pytest.raises(SystemExit):
         parser().parse_args(['ls', 'sid', '--unknown-option'])
+
+
+def test_cloud_connections_created_edited_and_removed_with_login(server):
+    run,root,tmp=server
+    providers=run('remotes','providers')
+    assert {'s3','dropbox','drive','onedrive'} <= {p['id'] for p in providers}
+    row=run('remotes','add','--provider','s3','--label','Archive','--root','/bucket','--options-stdin',stdin=json.dumps({'access_key_id':'fixture-key','secret_access_key':'fixture-secret'}))
+    assert row['read_only'] is False
+    assert run('remotes','list')[0]['id']==row['id']
+    assert 'fixture-secret' not in json.dumps(run('remotes','show','--id',row['id']))
+    edited=run('remotes','edit','--id',row['id'],'--label','Readonly archive','--root','/','--read-only','--options-stdin',stdin='{}')
+    assert edited['read_only'] and edited['label']=='Readonly archive' and edited['root']=='/'
+    assert run('remotes','remove','--id',row['id'])['removed']
+    assert run('remotes','list')==[]
+
+
+def test_explicit_automation_token_takes_precedence_over_saved_login(tmp_path, monkeypatch):
+    from remote_fs_browser.client_cli import Client
+    import io
+    auth=tmp_path/'client.json';auth.write_text(json.dumps({'http://localhost:8080':'old-login'}))
+    client=Client('http://localhost:8080',auth,10)
+    monkeypatch.setenv('REMOTEFS_TOKEN','optional-test-automation-token-with-32-characters')
+    class Opener:
+        def open(self,request,timeout):
+            assert request.get_header('Authorization')=='Bearer optional-test-automation-token-with-32-characters'
+            assert request.get_header('Cookie') is None
+            return io.BytesIO(b'{"ok":true}')
+    client.opener=Opener()
+    assert client.request('GET','remotes')['ok']

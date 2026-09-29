@@ -46,11 +46,11 @@ Completed archives survive a service restart. Interrupted packing does not resum
 
 ## Add cloud storage with rclone
 
-Configure S3, Dropbox or another supported provider with rclone on the service host. Add an explicitly approved endpoint under `policy.endpoints`, choosing the named remote and its root prefix. Restart the service, then choose **Cloud / rclone** in Add location.
+Choose **Cloud storage → Add / manage**, select a provider, enter its credentials and bucket/folder prefix, then **Save & connect**. Connections are saved for your account and appear in the sidebar immediately. The CLI offers the same setup through `remotefs remotes add`.
 
-Browse, preview, download, copy out and prepare ZIPs. Writable endpoints can also upload, save text, create folders and delete, subject to the provider's capabilities. They default to read-only. Native cloud rename/cut is not exposed, and object stores do not necessarily preserve empty folders.
+Browse, preview, download, copy out and prepare ZIPs. Writable endpoints can also upload, save text, create folders and delete, subject to the provider's capabilities. Tick Read-only when you only want to browse and copy out. Native cloud rename/cut is not exposed, and object stores do not necessarily preserve empty folders.
 
-[Set up S3, Dropbox and other rclone remotes](endpoints.html#configure-rclone-once-on-the-service-host).
+[Set up S3, Dropbox and other rclone remotes](endpoints.html#add-cloud-storage-in-the-gui).
 
 ## Inspect libvirt storage
 

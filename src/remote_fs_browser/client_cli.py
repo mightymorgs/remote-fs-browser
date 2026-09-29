@@ -14,7 +14,7 @@ from urllib.request import build_opener, HTTPCookieProcessor, HTTPRedirectHandle
 
 COMMANDS = ('login', 'logout', 'discover', 'scan', 'shares', 'connect', 'disconnect',
             'ls', 'stat', 'select', 'mkdir', 'rename', 'copy', 'remove', 'get', 'put',
-            'saved', 'credentials', 'downloads')
+            'saved', 'credentials', 'downloads', 'remotes')
 
 
 class ClientParser(argparse.ArgumentParser):
@@ -60,7 +60,10 @@ class Client:
 
     def request(self, method, route, data=None, params=None, source=None, output=None):
         headers = {'Origin': self.url}
-        if self.cookie:
+        automation_token = os.environ.get('REMOTEFS_TOKEN')
+        if automation_token:
+            headers['Authorization'] = 'Bearer ' + automation_token
+        if self.cookie and not automation_token:
             headers['Cookie'] = 'remote_fs_session=' + self.cookie
         body = None
         if data is not None:
@@ -134,7 +137,7 @@ def credentials(args):
 
 def location_flags(parser):
     parser.add_argument('--type', choices=('local', 'smb', 'nfs', 'rclone', 'libvirt'))
-    parser.add_argument('--endpoint', help='Administrator-configured rclone or libvirt endpoint name')
+    parser.add_argument('--endpoint', help='Saved cloud connection ID or configured libvirt endpoint name')
     parser.add_argument('--root', help='Local root on the server, not this client')
     parser.add_argument('--host')
     parser.add_argument('--share')
@@ -195,7 +198,7 @@ def parser():
     shares.add_argument('host')
     shares.add_argument('--type', choices=('smb', 'nfs'), default='smb')
     credential_flags(shares)
-    location_flags(command('connect', 'Open a local, SMB or NFS browsing session; returns its ID'))
+    location_flags(command('connect', 'Open a local, SMB, NFS, cloud or libvirt browsing session; returns its ID'))
     close = command('disconnect', 'Close a browsing session immediately')
     close.add_argument('session')
     for name in ('ls', 'stat', 'select', 'mkdir', 'remove', 'get', 'put', 'rename', 'copy'):
@@ -221,6 +224,16 @@ def parser():
     creds.add_argument('--id')
     creds.add_argument('--host')
     credential_flags(creds)
+    remotes = command('remotes', 'Add, edit and remove cloud connections on the server')
+    remotes.add_argument('action', choices=('list', 'providers', 'add', 'edit', 'remove', 'show'))
+    remotes.add_argument('--id')
+    remotes.add_argument('--provider', help='Provider ID from remotefs remotes providers')
+    remotes.add_argument('--label')
+    remotes.add_argument('--root', help='Bucket/folder prefix, or / for all accessible folders')
+    mode = remotes.add_mutually_exclusive_group()
+    mode.add_argument('--read-only', action='store_true')
+    mode.add_argument('--read-write', action='store_true')
+    remotes.add_argument('--options-stdin', action='store_true', help='Read provider fields as JSON from stdin; secrets never appear in command arguments')
     jobs = command('downloads', 'Manage staged ZIP jobs, including pause, resume and parts')
     jobs.add_argument('action', choices=('list', 'estimate', 'create', 'pause', 'resume', 'purge', 'forget', 'part'))
     jobs.add_argument('--id')
@@ -309,6 +322,44 @@ def execute(args, client):
             return client.request('POST', cmd, {'descriptor': location(args, client), 'credentials': credentials(args), 'label': args.label})
         required(args, 'host', 'username')
         return client.request('POST', cmd, {'host': args.host, 'credentials': credentials(args)})
+    if cmd == 'remotes':
+        route = 'remotes'
+        if args.action in ('list', 'providers'):
+            result = client.request('GET', route)
+            return result['providers' if args.action == 'providers' else 'remotes']
+        if args.action in ('remove', 'show'):
+            required(args, 'id')
+            return client.request('DELETE' if args.action == 'remove' else 'GET', route + '/' + quote(args.id, safe=''))
+        old = {}
+        if args.action == 'edit':
+            required(args, 'id')
+            old = client.request('GET', route + '/' + quote(args.id, safe=''))
+        provider = args.provider or old.get('provider')
+        available = client.request('GET', route)['providers']
+        schema = next((row for row in available if row['id'] == provider), None)
+        if schema is None:
+            raise ValueError('Choose --provider from remotefs remotes providers')
+        label = args.label or old.get('label')
+        if not label:
+            if not sys.stdin.isatty():
+                raise ValueError('--label is required')
+            label = input('Connection name: ').strip()
+        if args.options_stdin:
+            options = json.load(sys.stdin)
+        elif sys.stdin.isatty():
+            if schema.get('oauth'):
+                print('Authorize with rclone authorize ' + provider + ' on a computer with a browser, then paste its JSON.', file=sys.stderr)
+            options = {}
+            for field in schema['fields']:
+                default = old.get('options', {}).get(field['name'], field['default'])
+                prompt = field['label'] + (' [keep saved]' if field['name'] in old.get('saved_secrets', []) else f' [{default}]' if default else '') + ': '
+                value = getpass.getpass(prompt) if field['secret'] else input(prompt)
+                options[field['name']] = value or default
+        else:
+            raise ValueError('Use --options-stdin for non-interactive provider credentials')
+        data = {'provider': provider, 'label': label, 'root': args.root if args.root is not None else old.get('root', '/'),
+                'read_only': args.read_only if args.read_only or args.read_write else old.get('read_only', False), 'options': options}
+        return client.request('PUT' if old else 'POST', route + ('/' + quote(args.id, safe='') if old else ''), data)
     if cmd == 'downloads':
         if args.action == 'list':
             return client.request('GET', cmd)

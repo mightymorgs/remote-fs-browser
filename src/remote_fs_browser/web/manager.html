@@ -78,6 +78,11 @@
           </sc-for>
         </div>
 
+        <div style="display:flex;flex-direction:column;gap:4px;padding:0 12px">
+          <div style="display:flex;justify-content:space-between;padding:0 4px 6px"><span style="font:500 11px ui-monospace,monospace;color:#6a727c">CLOUD STORAGE</span><button onClick="{{ openCloud }}" style="border:0;background:transparent;color:#3f6fd1;cursor:pointer">Add / manage</button></div>
+          <sc-for list="{{ cloudSidebar }}" as="remote"><button onClick="{{ remote.open }}" style="text-align:left;padding:8px;border:0;border-radius:8px;background:#edf2fc;color:#243c66;cursor:pointer;overflow:hidden;text-overflow:ellipsis">{{ remote.label }}</button></sc-for>
+        </div>
+
         <div style="display:flex;flex-direction:column;gap:1px">
           <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:0 12px 6px 16px">
             <p style="margin:0;font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#6a727c">Network</p>
@@ -164,6 +169,14 @@
         <button type="button" onClick="{{ overflowMenu }}" title="More actions" style="width:34px;height:34px;flex:none;padding:0;font-size:15px;line-height:1;color:#4d545c;border:1px solid #d5d9df;border-radius:8px;background:rgba(255,255,255,.75);cursor:pointer" style-hover="background:#fff">⋯</button>
       </sc-if>
     </div>
+
+    <sc-if value="{{ hasClipboard }}">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 14px;background:#f2f6fd;border-bottom:1px solid #d3dff1">
+        <span style="flex:1;font-size:12px;color:#244f9e">{{ clipboardLabel }}</span>
+        <button onClick="{{ pasteHere }}" disabled="{{ pasteDisabled }}" style="padding:7px 12px;border:1px solid #b6c6e8;border-radius:7px;background:white;color:#244f9e;cursor:pointer">{{ pasteLabel }}</button>
+        <button onClick="{{ clearClipboard }}" style="border:0;background:transparent;color:#6a727c;cursor:pointer">Clear clipboard</button>
+      </div>
+    </sc-if>
 
     <sc-if value="{{ anySelected }}">
       <div class="manager-selection" style="display:flex;align-items:center;gap:8px;padding:9px 16px;border-bottom:1px solid #cfdcf6;background:#eaf0fc">
@@ -336,7 +349,7 @@
         <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;padding:20px 20px 16px;border-bottom:1px solid rgba(230,232,236,.85);background:rgba(248,249,250,.72)">
           <div style="display:flex;flex-direction:column;gap:2px;min-width:180px;flex:1">
             <p style="margin:0;font:500 11px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.09em;text-transform:uppercase;color:#6a727c">Add a location</p>
-            <strong style="font-size:17px;font-weight:600;text-wrap:balance">Connect a root, share or export by hand</strong>
+            <strong style="font-size:17px;font-weight:600;text-wrap:balance">Connect local, network or cloud storage</strong>
           </div>
           <button type="button" onClick="{{ closeAdd }}" style="flex:none;font-size:13.5px;padding:9px 14px;border:1px solid #d5d9df;border-radius:8px;background:rgba(255,255,255,.85);cursor:pointer;color:#4d545c" style-hover="background:#fff">Close</button>
         </div>
@@ -351,6 +364,31 @@
             </div>
           </div>
 
+          <sc-if value="{{ addCloud }}">
+            <div style="display:grid;gap:14px;max-width:660px">
+              <sc-for list="{{ cloudConnections }}" as="remote">
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:10px;border:1px solid #d5d9df;border-radius:8px;background:white">
+                  <button onClick="{{ remote.open }}" style="flex:1;text-align:left;border:0;background:transparent;color:#244f9e;cursor:pointer">{{ remote.label }} · {{ remote.provider }}</button>
+                  <sc-if value="{{ cloudManage }}"><button onClick="{{ remote.edit }}">Edit</button><button onClick="{{ remote.forget }}">Remove connection</button></sc-if>
+                </div>
+              </sc-for>
+              <sc-if value="{{ cloudUnavailable }}"><p>Install rclone on the service host to connect cloud storage. Your saved connections will remain here.</p></sc-if>
+              <sc-if value="{{ cloudManage }}">
+                <div style="display:flex;justify-content:space-between;align-items:center"><strong>Add or edit cloud storage</strong><button onClick="{{ newCloud }}">New connection</button></div>
+                <label style="display:grid;gap:5px">Connection name<input value="{{ cloudLabel }}" onChange="{{ setCloudLabel }}" placeholder="Studio archive" autoComplete="off"></label>
+                <label style="display:grid;gap:5px">Provider<select value="{{ cloudProvider }}" onChange="{{ setCloudProvider }}" disabled="{{ cloudEditing }}"><sc-for list="{{ cloudProviders }}" as="provider"><option value="{{ provider.id }}">{{ provider.label }}</option></sc-for></select></label>
+                <sc-if value="{{ cloudOAuth }}"><div style="padding:12px;background:#edf2fc;border-radius:8px;font-size:13px;line-height:1.6">Authorize this provider on a computer with a browser: run <code>{{ cloudAuthorize }}</code>, sign in to your provider, then paste the returned JSON below. This also works when remotefs runs on a headless server. This provider authorization is separate from your remotefs username/password login.</div></sc-if>
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px">
+                  <sc-for list="{{ cloudFields }}" as="field"><label style="display:grid;gap:5px;font-size:13px">{{ field.label }}<input type="{{ field.inputType }}" value="{{ field.value }}" onChange="{{ field.change }}" placeholder="{{ field.placeholder }}" autoComplete="off" spellCheck="false" style="width:100%;min-width:0;padding:8px;border:1px solid #c8ccd3;border-radius:6px"></label></sc-for>
+                </div>
+                <label style="display:grid;gap:5px">Bucket / folder prefix<input value="{{ cloudRoot }}" onChange="{{ setCloudRoot }}" placeholder="/my-bucket/projects"><span style="font-size:12px;color:#6a727c">Use / to browse all accessible buckets or folders.</span></label>
+                <label><input type="checkbox" checked="{{ cloudReadOnly }}" onChange="{{ setCloudReadOnly }}"> Read-only (browse and copy out)</label>
+                <span style="font-size:12px;color:#6a727c">Credentials are saved privately on the service host. Blank secret fields keep the saved value when editing.</span>
+                <button disabled="{{ cloudBusy }}" onClick="{{ saveCloud }}" style="justify-self:start;padding:10px 16px;border:1px solid #2b57ae;border-radius:8px;background:#3f6fd1;color:white;cursor:pointer">Save &amp; connect</button>
+                <p role="status" style="margin:0;font-size:13px;color:#4d545c">{{ cloudStatus }}</p>
+              </sc-if>
+            </div>
+          </sc-if>
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;max-width:560px">
             <sc-if value="{{ addEndpoint }}">
               <label style="display:grid;gap:6px;font-size:12px;color:#4d545c">Configured endpoint name
@@ -413,8 +451,8 @@
           <span style="max-width:560px;font-size:12.5px;color:#6a727c;text-wrap:pretty">{{ addNote }}</span>
 
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button type="button" onClick="{{ addConnect }}" style="font-size:13.5px;font-weight:500;padding:9px 14px;border:1px solid #2b57ae;border-radius:8px;background:#3f6fd1;color:#fff;cursor:pointer" style-hover="background:#3563c4">Connect</button>
-            <button type="button" onClick="{{ addDiscover }}" style="font-size:13.5px;padding:9px 14px;border:1px solid #d5d9df;border-radius:8px;background:#fff;cursor:pointer;color:#1c2024" style-hover="background:#f6f8fc">Discover what it offers</button>
+            <sc-if value="{{ addStandard }}"><button type="button" onClick="{{ addConnect }}" style="font-size:13.5px;font-weight:500;padding:9px 14px;border:1px solid #2b57ae;border-radius:8px;background:#3f6fd1;color:#fff;cursor:pointer" style-hover="background:#3563c4">Connect</button>
+            <button type="button" onClick="{{ addDiscover }}" style="font-size:13.5px;padding:9px 14px;border:1px solid #d5d9df;border-radius:8px;background:#fff;cursor:pointer;color:#1c2024" style-hover="background:#f6f8fc">Discover what it offers</button></sc-if>
             <button type="button" onClick="{{ closeAdd }}" style="font-size:13.5px;padding:9px 14px;border:1px solid #d5d9df;border-radius:8px;background:#fff;cursor:pointer;color:#4d545c" style-hover="background:#f6f8fc">Cancel</button>
           </div>
         </div>
