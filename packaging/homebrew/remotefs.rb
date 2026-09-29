@@ -3,15 +3,16 @@
 class Remotefs < Formula
   include Language::Python::Virtualenv
 
-  desc "Manage local, SMB and NFS files through a browser"
+  desc "Manage local, NAS and cloud files through a browser"
   homepage "https://github.com/mightymorgs/remote-fs-browser"
-  url "https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.2/remote_fs_browser-0.2.2.tar.gz"
-  sha256 "62d00083b41d3a7ef12fe68a65f97636f3f8f49462c72d3a91807937d50e7f21"
+  url "https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.3.0/remote_fs_browser-0.3.0.tar.gz"
+  sha256 "52d94539d69b8edb1942b8655de41f2d883f093f2d6e968a897160add1416b2c"
   license "MIT"
 
   depends_on "rust" => :build # cryptography (via smbprotocol) builds from source
   depends_on "libnfs"
   depends_on "python@3.12"
+  depends_on "rclone"
 
   # Resource blocks: regenerate with `brew update-python-resources remotefs` after every version bump.
 
@@ -166,8 +167,8 @@ class Remotefs < Formula
   end
 
   resource "starlette" do
-    url "https://files.pythonhosted.org/packages/b5/b4/205b0d5241d934e8add0c38aa924c4f9fb7330834ff11e5444db964ec3f9/starlette-1.6.0.tar.gz"
-    sha256 "d4e3ac5e546444960c710297a3c9fc3f7ebae1b7e963f3d36173b49da535be9b"
+    url "https://files.pythonhosted.org/packages/7b/2b/3850dc6bf7ef71b088962eba31dafc6cffd2f96e577ebb0bb316df96da3e/starlette-1.7.0.tar.gz"
+    sha256 "c79f74ea63cff761804fbbfb182f1e0b440c2d07b164d24700c5a1bab5d6ff5d"
   end
 
   resource "typing-extensions" do
@@ -181,13 +182,13 @@ class Remotefs < Formula
   end
 
   resource "uvicorn" do
-    url "https://files.pythonhosted.org/packages/5d/ad/04bbb797c84fc1f26cb171f7394716f4865ffb8d8c5e1eef42565c2dfa6b/uvicorn-0.53.0.tar.gz"
-    sha256 "a9356f0cb89b3b8621529c5d5eebd69bfe154f4c3f68b4cf2de47e45fa855c2e"
+    url "https://files.pythonhosted.org/packages/da/34/30e9280707135d2cfc589dfff3cb796bd07a3aeb1a3e415ba09dd89d7bb4/uvicorn-0.54.0.tar.gz"
+    sha256 "a2e33cbfaa0306f8e6b0c13e0cb89d7d7a2da3e62b90c66e18c33d9807b28620"
   end
 
   resource "werkzeug" do
-    url "https://files.pythonhosted.org/packages/dd/b2/381be8cfdee792dd117872481b6e378f85c957dd7c5bca38897b08f765fd/werkzeug-3.1.8.tar.gz"
-    sha256 "9bad61a4268dac112f1c5cd4630a56ede601b6ed420300677a869083d70a4c44"
+    url "https://files.pythonhosted.org/packages/a4/34/4dd12fc8bb7d61c91467ec3efe415ffa7d5456f799954b40c5bbaeae470e/werkzeug-3.1.9.tar.gz"
+    sha256 "55ca7c70a75689be937aa27f8ff4b018f06ff4838fc73045560bf0f5a1291060"
   end
 
   def install
@@ -199,10 +200,12 @@ class Remotefs < Formula
     keep_alive true
     log_path var/"log/remotefs.log"
     error_log_path var/"log/remotefs.log"
-    environment_variables LIBNFS_LIBRARY: HOMEBREW_PREFIX/"lib/libnfs.dylib"
+    environment_variables LIBNFS_LIBRARY: HOMEBREW_PREFIX/"lib/libnfs.dylib",
+                          PATH: std_service_path_env
   end
 
   test do
-    assert_includes shell_output("#{bin}/remotefs --version"), "remotefs"
+    assert_includes shell_output("#{bin}/remotefs --version"), "remotefs #{version}"
+    assert_includes shell_output("#{bin}/remotefs remotes --help"), "add"
   end
 end

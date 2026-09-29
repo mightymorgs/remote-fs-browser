@@ -2,7 +2,7 @@
 
 ## Version 0.3.0
 
-Cloud connection management and cross-storage Copy/Paste are included in 0.3.0. Install [rclone](https://rclone.org/install/) on the service host for cloud access. Libvirt inventory needs the native libvirt development packages and `pipx install --force 'remote-fs-browser[libvirt]'`. See the [endpoint guide](endpoints.html).
+Cloud connection management and cross-storage Copy/Paste are included in 0.3.0. Homebrew includes rclone. For other installations, install [rclone](https://rclone.org/install/) on the service host for cloud access. Libvirt inventory needs the native libvirt development packages and `pipx install --force 'remote-fs-browser[libvirt]'`. See the [endpoint guide](endpoints.html).
 
 Existing pipx installations can update with `pipx upgrade remote-fs-browser`; Homebrew users can run `brew update && brew upgrade mightymorgs/tap/remotefs`. Restart your service after upgrading.
 
@@ -12,7 +12,7 @@ Choose the option for the computer that will run remotefs. Other devices only ne
 
 ### macOS — Homebrew
 
-[Homebrew](https://brew.sh/) installs Python and libnfs for you:
+[Homebrew](https://brew.sh/) installs Python, libnfs and rclone for you:
 
 ```sh
 brew install mightymorgs/tap/remotefs
