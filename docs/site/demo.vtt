@@ -1,89 +1,177 @@
 WEBVTT
 
-00:00:00.000 --> 00:00:01.800
-Real SMB. Real files.
-SmartNAS → Python service → Mac browser
+00:00:00.000 --> 00:00:03.000
+Your files. Across storage.
+remotefs 0.3.0
 
-00:00:01.800 --> 00:00:03.800
-Install once
-Python + pipx already installed
+00:00:03.000 --> 00:00:06.000
+Copy. Switch. Paste.
+Local folder → SmartNAS S3. The service moves the bytes.
 
-00:00:03.800 --> 00:00:05.800
-Installed from PyPI
-The published 0.2.1 package
+00:00:06.000 --> 00:00:08.000
+Copy. Switch. Paste.
+Local folder → SmartNAS S3. The service moves the bytes.
 
-00:00:05.800 --> 00:00:09.520
-Sign in from another device
-Demo connection: SSH over Tailscale
+00:00:08.000 --> 00:00:11.000
+The whole folder arrives.
+Real files in the nas bucket, inside a dedicated demo prefix.
 
-00:00:09.520 --> 00:00:13.800
-Scan your LAN
-Choose the subnet the service should probe
+00:00:11.000 --> 00:00:14.000
+Keep the folder structure.
+Nested folders, documents and images travel together.
 
-00:00:13.800 --> 00:00:16.000
-Real network results
-SMB and NFS services discovered on the LAN
+00:00:14.000 --> 00:00:17.000
+Open it. Edit it. Save it.
+Text editing directly against SmartNAS S3. Write permission required.
 
-00:00:16.000 --> 00:00:19.800
-Switch subnet
-Select 192.168.122.0/24 — the NAT VM network
+00:00:17.000 --> 00:00:20.000
+Open it. Edit it. Save it.
+Text editing directly against SmartNAS S3. Write permission required.
 
-00:00:19.800 --> 00:00:21.760
-Subnet scan complete
-No SMB/NFS services replied on this VM subnet
+00:00:20.000 --> 00:00:23.000
+Bring it back just as easily.
+Copy from S3 into an empty local destination.
 
-00:00:21.760 --> 00:00:23.760
-Map a real SMB server
-SmartNAS at 192.168.0.107
+00:00:23.000 --> 00:00:24.500
+Bring it back just as easily.
+Copy from S3 into an empty local destination.
 
-00:00:23.760 --> 00:00:27.440
-Save SMB credentials
-Authenticate and list the server’s shares
+00:00:24.500 --> 00:00:28.000
+Four files. A verified round trip.
+Copied bytes checked against SmartNAS S3, including the edited README.
 
-00:00:27.440 --> 00:00:30.040
-SMB connected
-Open the dedicated remotefs-demo share
+00:00:28.000 --> 00:00:33.000
+Install once. Open from your browser.
+Run the service where it can reach your storage.
 
-00:00:30.040 --> 00:00:35.120
-Save a network location
-Add the repository folder to your shortlist
+00:00:33.000 --> 00:00:36.000
+Your username. Your password.
+Normal GUI and CLI sign-in. Optional tokens for automation.
 
-00:00:35.120 --> 00:00:38.160
-Read files from the NAS
-Preview the remote repository’s README
+00:00:36.000 --> 00:00:39.000
+Find reachable file services.
+Scan permitted CIDR ranges. DNS, NetBIOS and IP stay together.
+Isolated SMB demo on SmartNAS; browser connected over SSH.
 
-00:00:38.160 --> 00:00:42.640
-Browse the Python source
-Open src/remote_fs_browser/cli.py over SMB
+00:00:39.000 --> 00:00:42.000
+Map a share. Save the login.
+Saved SMB credentials are encrypted on the service host.
+Disposable demo credentials and files.
 
-00:00:42.640 --> 00:00:45.920
-Shift-click a range
-Select several files in one action
+00:00:42.000 --> 00:00:44.500
+Browse the share in the same manager.
+SMB sessions need no operating-system mount.
 
-00:00:45.920 --> 00:00:49.040
-Right-click for file actions
-Choose Download from the context menu
+00:00:44.500 --> 00:00:47.000
+Read the file from the NAS.
+Actual SMB file access through the service.
 
-00:00:49.040 --> 00:00:52.320
-Download over SMB
-The file streams through the service to this Mac
+00:00:47.000 --> 00:00:50.000
+NFS fits here too.
+NFSv3 / NFSv4 connection controls. Requires libnfs on the host.
+Connection setup shown; this cut does not demonstrate an NFS transfer.
 
-00:00:52.320 --> 00:00:56.120
-SMB proof
-Downloaded bytes matched the NAS source
+00:00:50.000 --> 00:00:52.500
+Keep your working folders close.
+Shortlist locations and reopen them across sessions.
 
-00:00:56.120 --> 00:00:59.120
-Saved locations persist
-Reload and reopen the network folder
+00:00:52.500 --> 00:00:55.000
+Get to the file faster.
+Filtering, sorting, breadcrumbs and range selection.
 
-00:00:59.120 --> 00:01:02.800
-Reconnect with saved credentials
-Map the server without retyping the password
+00:00:55.000 --> 00:00:57.500
+Upload straight into the folder.
+The same file tools across writable connections.
 
-00:01:02.800 --> 00:01:05.320
-Unmount the connection
-Session deleted; no operating-system mount was created
+00:00:57.500 --> 00:01:00.000
+Create. Rename. Move.
+New files and folders, previews, metadata and deletion controls.
 
-00:01:05.320 --> 00:01:10.320
-Open a browser from another device, from anywhere.
-One service, wherever your permitted connection can reach it
+00:01:00.000 --> 00:01:02.500
+Create. Rename. Move.
+New files and folders, previews, metadata and deletion controls.
+
+00:01:02.500 --> 00:01:05.000
+Create. Rename. Move.
+Cut and paste for supported backends; cloud uses Copy / Paste.
+
+00:01:05.000 --> 00:01:08.000
+Stay on the keyboard.
+Select a range. Copy, cut, paste. Jump to downloads or scanning.
+
+00:01:08.000 --> 00:01:11.000
+Add cloud storage from the GUI.
+Name it, enter provider details, save and connect.
+Setup example uses disposable credentials; SmartNAS transfer footage is live.
+
+00:01:11.000 --> 00:01:14.500
+S3, Dropbox, Drive and more.
+OAuth providers use the rclone authorize helper shown in the form.
+
+00:01:14.500 --> 00:01:16.000
+S3, Dropbox, Drive and more.
+Google Drive · OneDrive · Backblaze B2 · WebDAV / Nextcloud · Azure Blob
+
+00:01:16.000 --> 00:01:17.500
+S3, Dropbox, Drive and more.
+Google Drive · OneDrive · Backblaze B2 · WebDAV / Nextcloud · Azure Blob
+
+00:01:17.500 --> 00:01:19.000
+S3, Dropbox, Drive and more.
+Google Drive · OneDrive · Backblaze B2 · WebDAV / Nextcloud · Azure Blob
+
+00:01:19.000 --> 00:01:20.500
+S3, Dropbox, Drive and more.
+Google Drive · OneDrive · Backblaze B2 · WebDAV / Nextcloud · Azure Blob
+
+00:01:20.500 --> 00:01:22.000
+S3, Dropbox, Drive and more.
+Google Drive · OneDrive · Backblaze B2 · WebDAV / Nextcloud · Azure Blob
+
+00:01:22.000 --> 00:01:25.500
+Big downloads. Manageable pieces.
+Choose the staging folder and ZIP part size on the service host.
+
+00:01:25.500 --> 00:01:28.000
+Choose where the ZIP is prepared.
+Browse local roots or create a preparation folder.
+
+00:01:28.000 --> 00:01:31.000
+Pause the packing. Resume it later.
+The work runs on the host, even when you leave this view.
+
+00:01:31.000 --> 00:01:33.000
+Pause the packing. Resume it later.
+The work runs on the host, even when you leave this view.
+
+00:01:33.000 --> 00:01:37.500
+Fetch the parts. Free the staged space.
+Range-resumable downloads and explicit purge. Rejoin parts before opening.
+Four-part archive reassembled and byte-checked against the 128 MiB source.
+
+00:01:37.500 --> 00:01:40.000
+See your VM storage pools.
+Only the host-configured pools are exposed.
+Libvirt test driver with sample volumes; no guest-disk access.
+
+00:01:40.000 --> 00:01:44.000
+Inspect volumes. Leave disks alone.
+Read-only pool and volume inventory, with capacity metadata.
+Libvirt test driver with sample volumes; no guest-disk access.
+
+00:01:44.000 --> 00:01:50.000
+The terminal gets the same storage.
+Cloud connections can be added, edited and removed from the CLI too.
+Commands abbreviated for readability; listing verified against SmartNAS S3.
+
+00:01:50.000 --> 00:01:54.500
+Embed the picker in your own app.
+Return a location descriptor, without embedding credentials.
+
+00:01:54.500 --> 00:01:59.500
+Build on the same service.
+Authenticated HTTP API and asynchronous Python SDK.
+
+00:01:59.500 --> 00:02:04.000
+Put your storage to work.
+remotefs 0.3.0
