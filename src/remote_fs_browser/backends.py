@@ -133,6 +133,16 @@ class LocalFilesystem(LocalMutations):
             self.root_fd = None
 
 
+def smb_username(host, username, domain=None, windows=os.name == 'nt'):
+    """The name to sign in with. Windows' own NTLM rejects a bare name ("the credentials supplied to the
+    package were not recognized"), so a bare name there means an account on the server itself."""
+    if not username or '\\' in username or '@' in username:
+        return username
+    if domain:
+        return domain + '\\' + username
+    return host + '\\' + username if windows else username
+
+
 class SMBFilesystem(SMBMutations):
     def __init__(self, config):
         import smbclient
@@ -141,9 +151,7 @@ class SMBFilesystem(SMBMutations):
         if ':' in host:
             raise ValueError('SMB IPv6 literals are not supported; use an IPv4 address')
         self.root = '\\\\' + host + '\\' + config['share']
-        username = config.get('username')
-        if config.get('domain') and username and '\\' not in username:
-            username = config['domain'] + '\\' + username
+        username = smb_username(host, config.get('username'), config.get('domain'))
         try:
             smbclient.register_session(host, username=username, password=config.get('password'),
                                        connection_timeout=8, connection_cache=self.cache, auth_protocol='ntlm')

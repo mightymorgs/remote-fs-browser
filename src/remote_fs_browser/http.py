@@ -105,6 +105,11 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
                     if key not in browser.sessions:
                         owners.pop(key, None)
         task = asyncio.create_task(reap())
+        if mount_manager is not None and hasattr(mount_manager, 'start'):
+            loop = asyncio.get_running_loop()
+            mount_manager.resolver = lambda principal, descriptor: remount_login(loop, principal, descriptor)
+            if mounts_enabled():
+                mount_manager.start()
         try:
             yield
         finally:
@@ -588,12 +593,41 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
             endpoint_config = policy.endpoint(descriptor['endpoint'], 'rclone')
         read_only = bool(data.get('read_only', False)) or 'write' not in session.policy.operations
         label = data.get('label') or mount_label(request, descriptor)
+        # Reconnecting mounts come back without anyone signing in to remotefs, so a login typed in for one
+        # is kept in the encrypted credential store, like "Save login", and the mount refers to it by id.
+        auto = bool(data.get('auto', True))
+        if auto and credentials and not descriptor.get('credential_id') and descriptor.get('type') == 'smb':
+            if saved_locations is None:
+                raise ValueError('This service cannot store logins, so this mount cannot reconnect by itself; '
+                                 'mount it without reconnecting')
+            descriptor['credential_id'] = await asyncio.to_thread(
+                saved_locations.add_host, request.state.principal, descriptor['host'], credentials)
         from .mounts import MountError
         try:
             return await asyncio.to_thread(mount_manager.mount, request.state.principal, descriptor, credentials,
-                                           endpoint_config, label, read_only, data.get('target'))
+                                           endpoint_config, label, read_only, data.get('target'), auto=auto)
         except MountError as error:
             raise ValueError(str(error)) from None
+
+    def remount_login(loop, principal, descriptor):
+        """For the mount manager's reconnect thread: the login, endpoint and write access a remembered mount has now."""
+        if descriptor.get('host'):
+            policy.host(descriptor['host'])  # still inside the service's allowed networks
+        credentials, reference = None, descriptor.get('credential_id')
+        if reference:
+            if saved_locations is not None and saved_locations.get(principal, reference).get('kind') == 'host':
+                credentials = saved_locations.resolve_host(principal, reference, descriptor.get('host', ''))
+            elif credential_resolver:
+                credentials = credential_resolver(principal, reference)
+                if inspect.isawaitable(credentials):
+                    credentials = asyncio.run_coroutine_threadsafe(credentials, loop).result(timeout=30)
+        endpoint_config = None
+        if descriptor.get('type') == 'rclone':
+            if remote_store is not None and descriptor.get('endpoint') in remote_store.records:
+                endpoint_config = remote_store.endpoint(principal, descriptor['endpoint'])
+            else:
+                endpoint_config = policy.endpoint(descriptor['endpoint'], 'rclone')
+        return credentials, endpoint_config, 'write' in policy.operations
 
     @app.delete('/api/mounts/{reference}')
     async def mounts_remove(request: Request, reference: str, force: bool = False):

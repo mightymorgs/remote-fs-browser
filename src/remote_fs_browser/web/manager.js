@@ -6,6 +6,9 @@ const KINDS = {
   log: 'Log file', sha256: 'Checksum file'
 }
 
+// NFS version for a descriptor: 3 or 4 when chosen, otherwise 'auto' (the service tries NFSv4, then NFSv3).
+const nfsVersion = value => ['3', '4'].includes(String(value)) ? Number(value) : 'auto'
+
 class Component extends DCLogic {
   state = {collapsed:window.innerWidth<700,view:'browse',selected:[],anchor:null,filter:'',sort:{key:'name',dir:1},clipboard:null,menu:null,toast:null,ranges:'',scan:'idle',probed:0,scanTotal:0,devices:[],mapped:[],roots:[],width:window.innerWidth,place:{host:'',share:'',folders:[]},creds:[],transfers:[],stores:[],pins:[],listing:[],session:null,mountInfo:{enabled:false,mounts:[]},band:null}
   filterRef = React.createRef()
@@ -438,7 +441,7 @@ class Component extends DCLogic {
   cancelScan() {this.scanId=(this.scanId||0)+1;this.scanCancelled=true;this.setState({scan:'stopped'})}
   askDevice(device) {
     const saved=this.state.creds.find(c=>c.host===device.ip.toLowerCase())
-    this.setState({menu:null,prompt:{device,username:'',password:'',domain:'',version:'4',export:'',store:false,credId:saved?.id||'new'}})
+    this.setState({menu:null,prompt:{device,username:'',password:'',domain:'',version:'auto',export:'',store:false,credId:saved?.id||'new'}})
   }
   setPrompt(key, value) { this.setState({ prompt: { ...this.state.prompt, [key]: value } }) }
   async submitPrompt() {
@@ -463,14 +466,14 @@ class Component extends DCLogic {
     for(const [cacheKey,session] of this.sessions)if(session.descriptor.host===device.ip&&session.descriptor.type===type){await this.api(`/sessions/${session.id}`,undefined,'DELETE').catch(()=>{});this.sessions.delete(cacheKey)}
     if(options.credentials)this.auth.set(key,options.credentials)
     if(typed){
-      const descriptor={type,host:device.ip,...(type==='smb'?{share:typed}:{export:typed,version:Number(options.version||4)}),...(credential_id?{credential_id}:{})}
+      const descriptor={type,host:device.ip,...(type==='smb'?{share:typed}:{export:typed,version:nfsVersion(options.version)}),...(credential_id?{credential_id}:{})}
       await this.sessionFor(this.fromDescriptor(descriptor))
     }
     if(type==='smb'&&options.store&&options.credentials) {
       credential_id=(await this.api('/credentials',{host:device.ip,credentials:options.credentials})).id
       await this.reloadSaved()
     }
-    const host={key,label:device.dns||device.netbios||device.ip,ip:device.ip,protocol:device.protocol,shares,version:Number(options.version||4),credential_id,creds:credential_id?'stored':type==='nfs'?'none':'session',user:options.credentials?.username||'',active:null}
+    const host={key,label:device.dns||device.netbios||device.ip,ip:device.ip,protocol:device.protocol,shares,version:nfsVersion(options.version),credential_id,creds:credential_id?'stored':type==='nfs'?'none':'session',user:options.credentials?.username||'',active:null}
     this.setState({mapped:[...this.state.mapped.filter(h=>h.key!==key),host],view:'browse',collapsed:false})
     if(typed)await this.openShare(host,typed)
   }
@@ -503,7 +506,7 @@ class Component extends DCLogic {
     ]
   }
   shareItems(host, name) {
-    const place = this.fromDescriptor({type:host.protocol.toLowerCase(),host:host.ip,...(host.protocol==='SMB'?{share:name}:{export:name,version:host.version||4}),credential_id:host.credential_id})
+    const place = this.fromDescriptor({type:host.protocol.toLowerCase(),host:host.ip,...(host.protocol==='SMB'?{share:name}:{export:name,version:nfsVersion(host.version)}),credential_id:host.credential_id})
     return [
       { label: 'Open', keys: '', on: true, run: () => { this.setState({ menu: null }); this.openShare(host, name) } },
       { label: `Shortlist ${host.protocol === 'NFS' ? 'export' : 'share'}`, keys: '', on: true, run: () => this.pin(place, name.replace(/^\//, '').split('/').pop()) },
@@ -530,7 +533,7 @@ class Component extends DCLogic {
     if(this.state.place.descriptor?.host===host.ip)this.setState({place:{host:'',share:'',folders:[]},listing:[],session:null})
   }
   openShare(host,name) {
-    const descriptor={type:host.protocol.toLowerCase(),host:host.ip,...(host.protocol==='SMB'?{share:name}:{export:name,version:host.version||4})}
+    const descriptor={type:host.protocol.toLowerCase(),host:host.ip,...(host.protocol==='SMB'?{share:name}:{export:name,version:nfsVersion(host.version)})}
     if(host.credential_id)descriptor.credential_id=host.credential_id
     this.setState({mapped:this.state.mapped.map(h=>({...h,active:h.key===host.key?name:null}))})
     this.goTo(this.fromDescriptor(descriptor))
@@ -818,7 +821,7 @@ class Component extends DCLogic {
       promptUser: prompt?.username || '',
       promptPass: prompt?.password || '',
       promptDomain: prompt?.domain || '',
-      promptVersion: prompt?.version || '4',
+      promptVersion: String(prompt?.version || 'auto'),
       promptExport: prompt?.export || '',
       // Typing new credentials deselects whatever saved card was picked.
       setPromptUser: event => this.setState({ prompt: { ...prompt, username: event.target.value, credId: 'new' } }),
@@ -963,7 +966,7 @@ class Component extends DCLogic {
       mountRows: this.state.mountInfo.mounts.map(row => {
         const pending = row.status?.pending_uploads || 0, up = row.status?.state === 'mounted'
         return {...row, dot: up ? (pending ? '#d98b3a' : '#3a9a5b') : '#b0b6bf',
-          detail: `${row.target}${row.read_only ? ' · read-only' : ''}${pending ? ` · ${pending} uploading` : up ? '' : ' · ' + (row.status?.state || 'stopped')}`,
+          detail: `${row.target}${row.read_only ? ' · read-only' : ''}${pending ? ` · ${pending} uploading` : up ? '' : ' · ' + (row.status?.reason || row.status?.state || 'stopped')}`,
           eject: () => this.unmountFolder(row).catch(error => this.say(error.message))}
       }),
       cloudSidebar: (this.state.endpoints || []).filter(r=>r.type==='rclone').map(r=>({...r, open:()=>this.goTo(this.fromDescriptor(r))})),
@@ -1008,7 +1011,7 @@ class Component extends DCLogic {
       setAddDomain: event => this.setState({add:{...this.state.add,domain:event.target.value}}),
       addExport: this.state.add?.export || '',
       setAddExport: event => this.setState({add:{...this.state.add,export:event.target.value}}),
-      addVersion: this.state.add?.version || '4',
+      addVersion: String(this.state.add?.version || 'auto'),
       setAddVersion: event => this.setState({add:{...this.state.add,version:event.target.value}}),
       closeAdd: () => this.setState({ view: 'browse' }),
 
@@ -1157,7 +1160,7 @@ class Component extends DCLogic {
   can(operation) {return !!this.state.session?.operations.includes(operation)}
   fromDescriptor(descriptor) {
     const {path='/', credential_id, ...base} = descriptor
-    const clean = base.endpoint ? {type:base.type,endpoint:base.endpoint} : base.type === 'local' ? {type:'local',root:base.root} : base.type === 'smb' ? {type:'smb',host:base.host,share:base.share} : {type:'nfs',host:base.host,export:base.export,version:base.version||4}
+    const clean = base.endpoint ? {type:base.type,endpoint:base.endpoint} : base.type === 'local' ? {type:'local',root:base.root} : base.type === 'smb' ? {type:'smb',host:base.host,share:base.share} : {type:'nfs',host:base.host,export:base.export,version:nfsVersion(base.version)}
     if (credential_id) clean.credential_id = credential_id
     return {host:base.type === 'local' ? '' : `${base.type}://${base.endpoint || base.host}`, share:base.endpoint || base.root || base.share || base.export, folders:path.split('/').filter(Boolean), descriptor:clean}
   }
@@ -1219,7 +1222,7 @@ class Component extends DCLogic {
     if(!choice)return
     const session=await this.sessionFor(place), descriptor=place.descriptor
     this.say(`Mounting ${choice.label}…`)
-    const row=await this.api('/mounts',{session:session.id,path:this.currentPath(place),label:choice.label,read_only:choice.readOnly,
+    const row=await this.api('/mounts',{session:session.id,path:this.currentPath(place),label:choice.label,read_only:choice.readOnly,auto:choice.auto,
       target:choice.target||undefined,credentials:this.auth.get(`${descriptor.type}:${descriptor.host}`)})
     await this.reloadMounts()
     this.say(`Mounted at ${row.target}${row.read_only?' (read-only)':''}.`)
@@ -1243,14 +1246,17 @@ class Component extends DCLogic {
       }
       const write=document.createElement('input');write.type='checkbox';write.checked=true
       const writeRow=document.createElement('label');writeRow.className='check';writeRow.append(write,' Allow changes (untick for read-only)')
-      form.append(writeRow)
+      const again=document.createElement('input');again.type='checkbox';again.checked=true
+      const againRow=document.createElement('label');againRow.className='check'
+      againRow.append(again,info.method==='winfsp'?' Reconnect automatically (after restarts and each time you sign in)':' Reconnect automatically (after restarts)')
+      form.append(writeRow,againRow)
       if(info.notice){const note=document.createElement('p');note.className='note';const link=document.createElement('a');link.href=info.notice.url;link.target='_blank';link.rel='noopener';link.textContent=info.notice.text;note.append('Drive letters use ',link,'.');form.append(note)}
       const buttons=document.createElement('div');buttons.className='dialog-buttons'
       const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=()=>dialog.close()
       const ok=document.createElement('button');ok.textContent='Mount';ok.className='primary'
       buttons.append(cancel,ok);form.append(buttons);dialog.append(form);document.body.append(dialog)
       form.onsubmit=e=>{e.preventDefault();dialog.close('ok')}
-      dialog.onclose=()=>{const ok=dialog.returnValue==='ok';dialog.remove();resolve(ok?{label:name.value.trim(),readOnly:!write.checked,target:letter?.value}:null)}
+      dialog.onclose=()=>{const ok=dialog.returnValue==='ok';dialog.remove();resolve(ok?{label:name.value.trim(),readOnly:!write.checked,auto:again.checked,target:letter?.value}:null)}
       dialog.showModal();name.select()
     })
   }
@@ -1302,7 +1308,7 @@ class Component extends DCLogic {
     const type=this.state.addType||'smb', values=this.state.add||{}
     if(['rclone','libvirt'].includes(type))return this.goTo(this.fromDescriptor({type,endpoint:values.endpoint||''}))
     if(type==='local')return this.goTo(this.fromDescriptor({type,root:values.root||''}))
-    await this.mapDevice({protocol:type.toUpperCase(),ip:values.host||''},{credentials:type==='smb'?{username:values.username||'',password:values.password||'',domain:values.domain||''}:undefined,share:discover?'':values.share,export:discover?'':values.export,version:values.version||4})
+    await this.mapDevice({protocol:type.toUpperCase(),ip:values.host||''},{credentials:type==='smb'?{username:values.username||'',password:values.password||'',domain:values.domain||''}:undefined,share:discover?'':values.share,export:discover?'':values.export,version:nfsVersion(values.version)})
     this.setState({add:{}})
   }
   async newFolder() {

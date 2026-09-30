@@ -23,6 +23,22 @@ def plain_obscure(monkeypatch):
     monkeypatch.setattr(mounts, 'obscure', lambda binary, secret: 'obscured:' + secret[::-1])
 
 
+def test_smb_remote_splits_a_domain_typed_into_the_username(plain_obscure):
+    section, _ = remote_for({'type': 'smb', 'host': '192.0.2.5', 'share': 'Projects', 'path': '/'},
+                            {'username': 'NAS\\studio', 'password': 'pa55'}, None, 'rclone')
+    assert section['user'] == 'studio' and section['domain'] == 'NAS'
+
+
+def test_smb_login_qualifies_a_bare_name_only_on_windows():
+    from remote_fs_browser.backends import smb_username
+    assert smb_username('192.0.2.5', 'studio', windows=True) == '192.0.2.5\\studio'
+    assert smb_username('192.0.2.5', 'studio', windows=False) == 'studio'
+    assert smb_username('192.0.2.5', 'studio', 'HARBOUR', windows=False) == 'HARBOUR\\studio'
+    assert smb_username('nas', 'NAS\\studio', 'IGNORED', windows=True) == 'NAS\\studio'
+    assert smb_username('nas', 'studio@example.com', windows=True) == 'studio@example.com'
+    assert smb_username('nas', '', windows=True) == ''
+
+
 def test_smb_remote_uses_obscured_password_and_share_path(plain_obscure):
     section, path = remote_for({'type': 'smb', 'host': '192.0.2.5', 'share': 'Projects', 'path': '/Jobs/2026'},
                                {'username': 'studio', 'password': 'pa55', 'domain': 'HARBOUR'}, None, 'rclone')
@@ -173,8 +189,8 @@ class FakeManager:
     def list(self, principal):
         return []
 
-    def mount(self, principal, descriptor, credentials, endpoint_config, label, read_only, target=None):
-        self.calls.append(dict(descriptor=descriptor, credentials=credentials, label=label, read_only=read_only))
+    def mount(self, principal, descriptor, credentials, endpoint_config, label, read_only, target=None, auto=False):
+        self.calls.append(dict(descriptor=descriptor, credentials=credentials, label=label, read_only=read_only, auto=auto))
         raise MountError('Local folders are already on this computer')
 
     def shutdown(self):
@@ -329,3 +345,288 @@ def test_account_names_match_with_or_without_the_computer_name():
 def test_windows_api_binding_reads_this_accounts_sid():
     from remote_fs_browser import winsession
     assert winsession.current_sid().startswith('S-1-5-')
+
+
+# ---------------------------------------------------------------- reconnecting mounts
+def reconnecting(tmp_path, monkeypatch, system='linux', resolver=None, **kw):
+    started = []
+    monkeypatch.setattr(mounts, 'prerequisites', lambda *a: {'available': True, 'missing': []})
+    monkeypatch.setattr(mounts, 'obscure', lambda binary, secret: 'obscured')
+    monkeypatch.setattr(mounts.time, 'sleep', lambda s: None)
+    m = MountManager(tmp_path / 'state', base=tmp_path / 'mnt', binary='rclone', system=system,
+                     popen=lambda argv, **k: started.append(argv) or FakeProcess(),
+                     resolver=resolver or (lambda principal, descriptor: ({'username': 'u', 'password': 'p'}, None, True)), **kw)
+    monkeypatch.setattr(m, 'rc', lambda row, command, **k: {'diskCache': {}} if command == 'vfs/stats' else None)
+    monkeypatch.setattr(m, 'mounted', lambda target: True)
+    return m, started
+
+
+SAVED_SMB = {'type': 'smb', 'host': '192.0.2.5', 'share': 'Projects', 'path': '/Jobs', 'credential_id': 'login-1'}
+
+
+def test_a_reconnecting_mount_comes_back_after_rclone_exits(tmp_path, monkeypatch):
+    seen = []
+    m, started = reconnecting(tmp_path, monkeypatch, resolver=lambda p, d: seen.append((p, d)) or ({'username': 'u', 'password': 'p'}, None, True))
+    row = m.mount('alice', SAVED_SMB, {'username': 'u', 'password': 'p'}, None, 'Jobs', read_only=False, auto=True)
+    assert row['auto'] and m.saved[row['id']]['descriptor']['credential_id'] == 'login-1'
+    target = row['target']
+    m.processes[row['id']].code = 1  # rclone exited
+    m.reconnect(now=0)
+    assert len(started) == 2 and seen == [('alice', SAVED_SMB)]
+    assert [(r['id'], r['target'], r['status']['state']) for r in m.list('alice')] == [(row['id'], target, 'mounted')]
+
+
+def test_a_mount_without_reconnect_is_not_brought_back(tmp_path, monkeypatch):
+    m, started = reconnecting(tmp_path, monkeypatch)
+    row = m.mount('alice', SAVED_SMB, {'username': 'u', 'password': 'p'}, None, 'Jobs', read_only=False)
+    assert not row['auto'] and not (tmp_path / 'state' / 'saved-mounts.json').exists()
+    m.processes[row['id']].code = 1
+    m.reconnect(now=0)
+    assert len(started) == 1 and m.list('alice')[0]['status']['state'] == 'stopped'
+
+
+def test_remembered_mounts_survive_a_service_restart_until_ejected(tmp_path, monkeypatch):
+    m, _ = reconnecting(tmp_path, monkeypatch)
+    row = m.mount('alice', SAVED_SMB, {'username': 'u', 'password': 'p'}, None, 'Jobs', read_only=True, target='Jobs', auto=True)
+    m.shutdown(wait_uploads=0)
+    assert m.list('alice')[0]['status']['state'] == 'waiting'
+    again, started = reconnecting(tmp_path, monkeypatch)
+    listed = again.list('alice')
+    assert [(r['id'], r['status']['state'], r['read_only']) for r in listed] == [(row['id'], 'waiting', True)]
+    assert 'credential_id' not in listed[0]['descriptor'] and again.list('bob') == []
+    again.reconnect(now=0)
+    assert len(started) == 1 and '--read-only' in started[0] and again.list('alice')[0]['status']['state'] == 'mounted'
+    with pytest.raises(PermissionError):
+        again.unmount('bob', row['id'])
+    assert again.unmount('alice', row['id']) == {'unmounted': True}
+    assert again.list('alice') == [] and reconnecting(tmp_path, monkeypatch)[0].list('alice') == []
+
+
+def test_a_waiting_mount_can_be_ejected_before_it_reconnects(tmp_path, monkeypatch):
+    m, _ = reconnecting(tmp_path, monkeypatch)
+    m.saved['mount-1'] = dict(principal='alice', descriptor=SAVED_SMB, label='Jobs', read_only=False, target=str(tmp_path / 'mnt' / 'Jobs'))
+    assert m.unmount('alice', 'mount-1') == {'unmounted': True} and m.saved == {}
+
+
+def test_reconnect_backs_off_and_shows_why(tmp_path, monkeypatch):
+    def refuse(principal, descriptor):
+        raise PermissionError('Saved location not found')
+    m, started = reconnecting(tmp_path, monkeypatch, resolver=refuse)
+    m.saved['mount-1'] = dict(principal='alice', descriptor=SAVED_SMB, label='Jobs', read_only=False, target=str(tmp_path / 'mnt' / 'Jobs'))
+    m.reconnect(now=0)
+    first = m.retries['mount-1']
+    assert first[0] == 15 and 'Saved location not found' in m.list('alice')[0]['status']['reason']
+    m.reconnect(now=1)  # not due yet
+    m.reconnect(now=15)
+    assert m.retries['mount-1'][1] == 30 and started == []
+    for n in range(10):
+        m.reconnect(now=10_000 * (n + 1))
+    assert m.retries['mount-1'][1] == 300
+
+
+def test_writes_follow_the_policy_when_a_mount_reconnects(tmp_path, monkeypatch):
+    m, started = reconnecting(tmp_path, monkeypatch, resolver=lambda p, d: ({'username': 'u', 'password': 'p'}, None, False))
+    m.saved['mount-1'] = dict(principal='alice', descriptor=SAVED_SMB, label='Jobs', read_only=False, target=str(tmp_path / 'mnt' / 'Jobs'))
+    m.reconnect(now=0)
+    assert '--read-only' in started[0]
+
+
+def test_windows_mounts_wait_for_the_owner_then_reconnect_in_their_session(tmp_path, monkeypatch):
+    sessions = FakeSessions(tmp_path)
+    m = windows_service(monkeypatch, tmp_path, 'PC\\morgan', sessions)
+    m.resolver = lambda principal, descriptor: ({'username': 'u', 'password': 'p'}, None, True)
+    monkeypatch.setattr(m, 'rc', lambda row, command, **kw: {'diskCache': {}})
+    row = m.mount('alice', *SMB, None, 'Projects', read_only=False, auto=True)
+    sessions.signed_in = False
+    m.processes[row['id']].code = 1  # signing out ends the owner's processes
+    m.reconnect(now=0)
+    waiting = m.list('alice')[0]
+    assert waiting['status'] == {'state': 'waiting', 'reason': 'Waiting for PC\\morgan to sign in to Windows', 'pending_uploads': 0}
+    m.reconnect(now=15)
+    assert len(sessions.started) == 1 and m.retries[row['id']][1] == 15  # waiting is not a failure: no backoff
+    sessions.signed_in = True
+    m.reconnect(now=30)
+    assert len(sessions.started) == 2 and m.list('alice')[0]['status']['state'] == 'mounted'
+    assert m.list('alice')[0]['target'] == 'Z:'
+
+
+def test_the_watcher_stops_with_the_service(tmp_path, monkeypatch):
+    m, _ = reconnecting(tmp_path, monkeypatch, interval=0.01)
+    m.start()
+    assert m.watcher.is_alive()
+    watcher = m.watcher
+    m.shutdown(wait_uploads=0)
+    assert not watcher.is_alive() and m.watcher is None
+
+
+class SavedHosts:
+    def __init__(self):
+        self.added = []
+
+    def add_host(self, principal, host, credentials):
+        self.added.append((principal, host, credentials))
+        return 'login-9'
+
+    def get(self, principal, reference):
+        return {'kind': 'host'}
+
+    def resolve_host(self, principal, reference, host):
+        return {'username': 'u', 'password': 'p'}
+
+    def resolve(self, principal, reference):
+        return {}
+
+    def hosts(self, principal):
+        return []
+
+
+def test_http_keeps_a_typed_login_so_the_mount_can_reconnect(tmp_path, monkeypatch):
+    from remote_fs_browser import sessions as sessions_module
+    monkeypatch.setattr(mounts, 'prerequisites', lambda *a: {'method': 'fuse', 'available': True, 'missing': [], 'rclone': '1.75'})
+
+    class SMBSession:
+        id, closed, policy = 'smb-1', False, Policy(operations=READ_OPERATIONS + WRITE_OPERATIONS)
+        _descriptor = {'type': 'smb', 'host': '192.0.2.5', 'share': 'Projects'}
+
+        def descriptor(self, path='/'):
+            return {**self._descriptor, 'path': path}
+
+        async def close(self):
+            pass
+
+    async def connect(self, descriptor, credentials=None, *, endpoint_config=None):
+        self.sessions['smb-1'] = SMBSession()
+        return self.sessions['smb-1']
+    monkeypatch.setattr(sessions_module.Browser, 'connect', connect)
+    fake, store = FakeManager(), SavedHosts()
+    policy = Policy(network_ranges=['192.0.2.0/24'], operations=READ_OPERATIONS + WRITE_OPERATIONS + HOST_OPERATIONS)
+    login = {'username': 'u', 'password': 'p'}
+    with TestClient(create_app(policy, token=TOKEN, mount_manager=fake, saved_locations=store), raise_server_exceptions=False) as client:
+        sid = client.post('/api/sessions', headers=HEADERS, json={'descriptor': {'type': 'smb', 'host': '192.0.2.5', 'share': 'Projects'}}).json()['id']
+        client.post('/api/mounts', headers=HEADERS, json={'session': sid, 'credentials': login})
+        client.post('/api/mounts', headers=HEADERS, json={'session': sid, 'credentials': login, 'auto': False})
+    assert [c['auto'] for c in fake.calls] == [True, False]
+    assert fake.calls[0]['descriptor']['credential_id'] == 'login-9' and store.added == [('token-user', '192.0.2.5', login)]
+    assert 'credential_id' not in fake.calls[1]['descriptor']
+
+
+@pytest.mark.parametrize('detail,expected', [
+    ('nfs_mount_async failed. NFS4ERR_PERM', 'insecure'),
+    ('mount/mnt call failed with "RPC error: Server rejected the call: AUTH_ERROR (AUTH_TOOWEAK)"', 'refused this computer'),
+    ('mount_cb: NFS4ERR_NOENT', 'no export named /tank/data'),
+    ('Failed to connect: Connection refused', 'Nothing on nas is accepting'),
+    ('timed out', 'did not answer'),
+    ('', 'Could not connect to /tank/data on nas'),
+])
+def test_nfs_connection_errors_say_what_to_fix(detail, expected):
+    from remote_fs_browser.nfs import connect_error
+    error = connect_error('nas', '/tank/data', detail)
+    assert isinstance(error, ValueError) and error.shown and expected in str(error)
+    assert (detail in str(error)) if detail else not str(error).endswith(')')
+
+
+class FakeWindowsShares:
+    """mpr + netapi32 stand-ins: one IPC$ connection, then NetShareEnum's SHARE_INFO_1 array."""
+
+    def __init__(self, add_result=0, shares=(('review', 0, 'Review'), ('IPC$', 3, 'IPC'), ('media', 0, None))):
+        import ctypes
+        from ctypes import wintypes
+        self.add_result, self.calls, self.freed = add_result, [], 0
+
+        class Row(ctypes.Structure):
+            _fields_ = [('shi1_netname', wintypes.LPWSTR), ('shi1_type', wintypes.DWORD), ('shi1_remark', wintypes.LPWSTR)]
+        self.array = (Row * len(shares))(*[Row(*share) for share in shares])
+
+    def WNetAddConnection2W(self, resource, password, user, flags):
+        self.calls.append(('add', resource._obj.lpRemoteName, user, password))
+        return self.add_result
+
+    def WNetCancelConnection2W(self, remote, flags, force):
+        self.calls.append(('cancel', remote))
+        return 0
+
+    def NetShareEnum(self, server, level, buffer, maximum, read, total, resume):
+        import ctypes
+        self.calls.append(('enum', server, level))
+        buffer._obj.value = ctypes.addressof(self.array)
+        read._obj.value = total._obj.value = len(self.array)
+        return 0
+
+    def NetApiBufferFree(self, buffer):
+        self.freed += 1
+
+
+def test_windows_lists_disk_shares_with_its_own_api_and_closes_the_connection():
+    from remote_fs_browser.discovery import windows_smb_shares
+    fake = FakeWindowsShares()
+    result = windows_smb_shares('192.0.2.5', {'username': 'morgs', 'password': 'pw'}, api=(fake, fake))
+    assert result == {'shares': [{'name': 'review', 'description': 'Review'}, {'name': 'media', 'description': ''}], 'truncated': False}
+    assert fake.calls == [('add', '\\\\192.0.2.5\\IPC$', '192.0.2.5\\morgs', 'pw'), ('enum', '\\\\192.0.2.5', 1),
+                          ('cancel', '\\\\192.0.2.5\\IPC$')]
+    assert fake.freed == 1
+
+
+def test_windows_share_listing_explains_a_bad_login():
+    from remote_fs_browser.discovery import DiscoveryError, windows_smb_shares
+    fake = FakeWindowsShares(add_result=1326)
+    with pytest.raises(DiscoveryError, match='Incorrect username or password') as caught:
+        windows_smb_shares('nas', {'username': 'morgs', 'password': 'wrong'}, api=(fake, fake))
+    assert caught.value.shown and [c[0] for c in fake.calls] == ['add']
+    with pytest.raises(DiscoveryError, match='Windows error 999'):
+        windows_smb_shares('nas', {'username': 'morgs', 'password': 'x'}, api=(FakeWindowsShares(add_result=999),) * 2)
+
+
+class FakeLibnfs:
+    """libnfs stand-in: each context remembers its version; mounting succeeds only for the listed versions."""
+
+    def __init__(self, works=(), errors=None):
+        self.works, self.errors, self.contexts, self.destroyed, self.tried = set(works), errors or {}, {}, 0, []
+
+    def nfs_init_context(self):
+        handle = len(self.contexts) + 1
+        self.contexts[handle] = None
+        return handle
+
+    def nfs_set_version(self, ctx, version):
+        self.contexts[ctx] = version
+        return 0
+
+    def nfs_set_timeout(self, ctx, value):
+        pass
+
+    nfs_set_dircache = nfs_set_timeout
+
+    def nfs_mount(self, ctx, host, export):
+        self.tried.append(self.contexts[ctx])
+        return 0 if self.contexts[ctx] in self.works else -1
+
+    def nfs_get_error(self, ctx):
+        return self.errors.get(self.contexts[ctx], '').encode()
+
+    def nfs_destroy_context(self, ctx):
+        self.destroyed += 1
+
+
+@pytest.mark.parametrize('version,works,tried,used', [(None, {4, 3}, [4], 4), ('auto', {3}, [4, 3], 3), (4, {3}, [4], None),
+                                                      ('3', {3, 4}, [3], 3)])
+def test_nfs_tries_version_4_then_3_unless_one_is_chosen(monkeypatch, version, works, tried, used):
+    from remote_fs_browser import nfs
+    fake = FakeLibnfs(works, {4: 'NFS4ERR_PERM', 3: 'mount failed: RPC timed out'})
+    monkeypatch.setattr(nfs, 'library', lambda: fake)
+    config = {'host': 'nas', 'export': '/tank/data', **({'version': version} if version is not None else {})}
+    if used is None:
+        with pytest.raises(nfs.NFSConnectError, match='insecure'):
+            nfs.NFSFilesystem(config)
+    else:
+        assert nfs.NFSFilesystem(config).version == used
+    assert fake.tried == tried and fake.destroyed == len(tried) - (used is not None)
+
+
+def test_nfs_reports_both_versions_when_neither_works(monkeypatch):
+    from remote_fs_browser import nfs
+    monkeypatch.setattr(nfs, 'library', lambda: FakeLibnfs(errors={4: 'NFS4ERR_PERM', 3: 'RPC timed out'}))
+    with pytest.raises(nfs.NFSConnectError) as caught:
+        nfs.NFSFilesystem({'host': 'nas', 'export': '/tank/data'})
+    assert 'refused this computer' in str(caught.value) and 'NFSv3: RPC timed out' in str(caught.value)
+    with pytest.raises(ValueError):
+        nfs.nfs_versions('2')
