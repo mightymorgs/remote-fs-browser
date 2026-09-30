@@ -13,7 +13,7 @@ import urllib.request
 
 def prepare(source, destination, username=None, password_file=None):
     from remote_fs_browser.auth import make_account, verify_account
-    from remote_fs_browser.policy import Policy, READ_OPERATIONS, WRITE_OPERATIONS
+    from remote_fs_browser.policy import Policy, READ_OPERATIONS, WRITE_OPERATIONS, HOST_OPERATIONS
     from remote_fs_browser.store import SavedLocations
 
     incoming = json.loads(Path(source).read_text(encoding='utf-8-sig'))
@@ -52,8 +52,10 @@ def prepare(source, destination, username=None, password_file=None):
     policy.setdefault('network_ranges', [])
     policy.setdefault('operations', READ_OPERATIONS + WRITE_OPERATIONS)
     Policy(**policy)
-    if any(op not in READ_OPERATIONS + WRITE_OPERATIONS for op in policy['operations']):
+    if any(op not in READ_OPERATIONS + WRITE_OPERATIONS + HOST_OPERATIONS for op in policy['operations']):
         raise ValueError('Unknown filesystem operation')
+    if 'mount_folder' in config and not (isinstance(config['mount_folder'], str) and Path(config['mount_folder']).is_absolute()):
+        raise ValueError('mount_folder must be an absolute directory path')
     for root in policy['local_roots']:
         if not Path(root).is_absolute() or not Path(root).is_dir():
             raise ValueError('Local roots must be existing absolute directories')

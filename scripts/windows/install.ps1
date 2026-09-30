@@ -3,6 +3,7 @@ param(
     [string]$Username,
     [string]$PasswordFile,
     [switch]$WithoutNfs,
+    [switch]$WithoutMounts,
     [switch]$SkipDependencies,
     [string]$Python = 'python'
 )
@@ -32,6 +33,8 @@ if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
 $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + $env:Path
 $Packages = @('install','python312','-y','--no-progress')
 if (!$WithoutNfs) { $Packages += @('git','cmake','mingw') }
+# rclone runs cloud connections and mounts; WinFsp (https://github.com/winfsp/winfsp) shows mounts as drive letters.
+if (!$WithoutMounts) { $Packages += @('rclone','winfsp') }
 Checked 'choco' $Packages
 $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' + $env:Path
 }

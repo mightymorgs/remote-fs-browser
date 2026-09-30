@@ -17,10 +17,12 @@ pages = [
     ('reference.html', 'Features and API', root / 'README.md'),
     ('deployment.html', 'Automated deployments', root / 'docs/DEPLOYMENT.md'),
     ('endpoints.html', 'Cloud storage and libvirt', root / 'docs/ENDPOINTS.md'),
+    ('mounts.html', 'Mount storage on this computer', root / 'docs/MOUNTS.md'),
     ('demo.html', 'Demo transcript', source / 'demo.md'),
 ]
 links = {'README.md': 'reference.html', 'QUICKSTART.md': 'quickstart.html',
-         'docs/DEPLOYMENT.md': 'deployment.html', 'docs/ENDPOINTS.md': 'endpoints.html'}
+         'docs/DEPLOYMENT.md': 'deployment.html', 'docs/ENDPOINTS.md': 'endpoints.html',
+         'docs/MOUNTS.md': 'mounts.html', 'MOUNTS.md': 'mounts.html'}
 local_pages = {name for name, _, _ in pages}
 
 

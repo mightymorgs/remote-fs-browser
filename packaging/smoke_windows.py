@@ -17,6 +17,9 @@ assert subprocess.check_output([exe, '--version'], text=True).strip() == f'remot
 subprocess.run([exe, 'setup', '--help'], check=True, stdout=subprocess.DEVNULL)
 subprocess.run([exe, 'downloads', '--help'], check=True, stdout=subprocess.DEVNULL)
 subprocess.run([exe, 'remotes', '--help'], check=True, stdout=subprocess.DEVNULL)
+subprocess.run([exe, 'mount', '--help'], check=True, stdout=subprocess.DEVNULL)
+rclone = Path('dist/remotefs/rclone.exe').resolve()
+assert 'rclone v1.' in subprocess.check_output([str(rclone), 'version'], text=True), 'bundled rclone.exe does not run'
 with tempfile.TemporaryDirectory(prefix='remotefs-release-') as folder:
     root = Path(folder)
     config = root/'config.json'
@@ -36,7 +39,7 @@ with tempfile.TemporaryDirectory(prefix='remotefs-release-') as folder:
         with client.open(urllib.request.Request(base+path, data=body, headers={'Content-Type':'application/json','Origin':base}), timeout=10) as response:
             return json.loads(response.read())
     with (root/'server.log').open('w') as log:
-        server = subprocess.Popen([exe, 'serve', '--config', str(config)], stdout=log, stderr=log)
+        server = subprocess.Popen([exe, 'serve', '--config', str(config), '--allow-mounts'], stdout=log, stderr=log)
         try:
             for attempt in range(40):
                 if server.poll() is not None:
@@ -56,6 +59,9 @@ with tempfile.TemporaryDirectory(prefix='remotefs-release-') as folder:
                 'options':{'access_key_id':'fixture-key','secret_access_key':'fixture-secret'}})
             assert remote['id'] in {row['id'] for row in request('/api/remotes')['remotes']}
             assert 'fixture-secret' not in json.dumps(request('/api/remotes/'+remote['id']))
+            mounts = request('/api/mounts')
+            assert mounts['enabled'] and mounts['method'] == 'winfsp' and mounts['rclone'], mounts
+            assert 'WinFsp' in mounts['notice']['text']
             session = request('/api/sessions', {'descriptor':{'type':'local','root':str(root)}})['id']
             request(f'/api/sessions/{session}/mkdir', {'path':'/Prepared ZIPs'})
             store = request('/api/downloads/stores', {'session':session,'path':'/Prepared ZIPs'})

@@ -73,6 +73,8 @@ def build_policy(args, config):
         values['operations'] = READ_OPERATIONS + WRITE_OPERATIONS
     else:
         values.setdefault('operations', READ_OPERATIONS + WRITE_OPERATIONS)
+    if getattr(args, 'allow_mounts', False) and 'mount' not in values['operations']:
+        values['operations'] = [*values['operations'], 'mount']
     return Policy(**values), kinds
 
 
@@ -110,6 +112,8 @@ def main(argv=None):
     access = parser.add_mutually_exclusive_group()
     access.add_argument('--read-only', action='store_true', help='Disable all filesystem changes')
     access.add_argument('--read-write', action='store_true', help='Enable filesystem changes (overrides configured operations)')
+    parser.add_argument('--allow-mounts', action='store_true', help='Let signed-in users mount SMB shares and cloud storage as folders/drives on this computer (needs rclone; WinFsp on Windows, FUSE on Linux)')
+    parser.add_argument('--mount-folder', help='Folder that holds mounts on macOS/Linux (default: ~/remotefs)')
     parser.add_argument('--username', help='Username for account setup or password reset')
     parser.add_argument('--password-stdin', action='store_true', help='Read the new password from standard input for account setup')
     parser.add_argument('--resolve-host', help=argparse.SUPPRESS)
@@ -125,6 +129,9 @@ def main(argv=None):
     library = bundled_library()
     if library:
         os.environ.setdefault('LIBNFS_LIBRARY', library)
+    if getattr(sys, 'frozen', False):
+        # The portable build ships rclone.exe beside remotefs.exe; prefer it for cloud browsing and mounts.
+        os.environ['PATH'] = str(Path(sys.executable).parent) + os.pathsep + os.environ.get('PATH', '')
     path = Path(args.config) if args.config else config_home() / 'config.json'
     config, created = load_or_create(path, explicit=bool(args.config) and args.command not in ('account', 'setup'))
     wizard = args.command == 'setup' or (args.command == 'serve' and not args.config and not args.no_defaults
@@ -184,7 +191,11 @@ def main(argv=None):
 
     from .remotes import RemoteStore
     remotes = RemoteStore(path.parent / 'remotes')
-    app = create_app(policy, account=config['account'], token=config.get('automation_token'), remote_store=remotes, root_kinds=kinds, saved_locations=saved,
+    mounts = None
+    if 'mount' in policy.operations:
+        from .mounts import MountManager
+        mounts = MountManager(path.parent / 'mounts', base=args.mount_folder or config.get('mount_folder'))
+    app = create_app(policy, account=config['account'], token=config.get('automation_token'), remote_store=remotes, root_kinds=kinds, saved_locations=saved, mount_manager=mounts,
                      staging_stores=config.get('staging_stores', {'Downloads': str(path.parent / 'staging')}),
                      staging_store_writer=save_staging_stores if config.get('staging_stores') != {} else None)
     bind = args.bind or config.get('bind', '127.0.0.1')
@@ -207,6 +218,12 @@ def main(argv=None):
     lines.append(f'{"Networks":16} {", ".join(policy.network_ranges) or "none (SMB/NFS disabled)"}')
     lines.append(f'{"Access":16} {access_mode}: {", ".join(policy.operations)}')
     lines.append(f'{"Remembered":16} {saved_note or f"{len(saved.records)} saved location(s) in {saved.path}"}')
+    if mounts is not None:
+        from .mounts import prerequisites
+        check = prerequisites()
+        where = 'drive letters' if check['method'] == 'winfsp' else str(mounts.base)
+        state = 'ready' if check['available'] else 'needs ' + ', '.join(m['name'] for m in check['missing'])
+        lines.append(f'{"Mounts":16} on, into {where} ({state})')
     from .discovery import share_enumeration_available
     if not share_enumeration_available():
         lines.append(f'{"SMB shares":16} enumeration unavailable (impacket not installed); shares can still be entered by name')

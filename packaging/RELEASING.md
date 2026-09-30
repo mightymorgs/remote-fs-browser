@@ -175,6 +175,19 @@ winget install --manifest packaging/winget/manifests/m/mightymorgs/remotefs/0.3.
 remotefs --version
 ```
 
+From the release that adds mounting (after 0.3.0), declare WinFsp as a dependency in the installer
+manifest so `winget install mightymorgs.remotefs` also installs it:
+
+```yaml
+Dependencies:
+  PackageDependencies:
+    - PackageIdentifier: WinFsp.WinFsp
+```
+
+rclone is bundled inside the zip and needs no dependency. When bumping the bundled rclone, update the
+version and SHA-256 (from the release's `SHA256SUMS`) in `release.yml`; when bumping WinFsp, update
+`WINFSP` in `src/remote_fs_browser/mounts.py` with the new installer URL and its SHA-256.
+
 For the initial publication, update the [existing submission](https://github.com/microsoft/winget-pkgs/pull/432620) while it is open instead of creating a duplicate. After acceptance, submit a new version update.
 
 Submit, either with wingetcreate (prompts for a GitHub token):

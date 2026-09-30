@@ -6,7 +6,7 @@ Run remotefs on a workstation, server or homelab node to access the storage that
 
 Version 0.3.0 adds cloud connections managed in the GUI or CLI, cross-storage Copy/Paste, and optional read-only libvirt inventory. It retains guided setup, password login, file editing and staged multipart downloads. The [cross-host dogfood report](docs/validation/2026-09-11-dogfood.md) records the completed browser workflows and network download checks. See [validation](VALIDATION.md) for scope and limitations.
 
-Install one Python service on a computer that can reach your shares, then use it from a browser—including over Tailscale. File servers need no remotefs agent. SMB/NFS connections stay inside the app: no operating-system mounts are created on the service host or viewing computer. Access is limited to reachable, permitted networks and valid server credentials. NFS requires libnfs 6+; see the [Tailscale quickstart](QUICKSTART.md#one-service-network-access-through-tailscale).
+Install one Python service on a computer that can reach your shares, then use it from a browser—including over Tailscale. File servers need no remotefs agent. SMB/NFS connections stay inside the app: no operating-system mounts are created unless you choose **Mount on this computer**, an opt-in that shows a share or cloud connection as a folder or drive on the service host. Access is limited to reachable, permitted networks and valid server credentials. NFS requires libnfs 6+; see the [Tailscale quickstart](QUICKSTART.md#one-service-network-access-through-tailscale).
 
 ## Cloud storage and libvirt
 
@@ -23,6 +23,7 @@ See [cloud and libvirt configuration](docs/ENDPOINTS.md) for source installation
 - A responsive manager with filtering, sorting, breadcrumbs, checkbox/range selection, context menus and keyboard shortcuts.
 - Direct file downloads or host-staged ZIP64 archives, optional byte splitting, HTTP Range support, packing pause/resume and explicit purge. In 0.2.2, choose ZIP preparation folders and create new ones from the browser.
 - A Python SDK, authenticated HTTP API and embeddable directory picker with credential-free descriptors.
+- Optional mounts (`remotefs serve --allow-mounts`): show an SMB share or cloud connection as a folder (macOS/Linux) or drive letter (Windows) on the service host, with no file-size limit. See [Mount storage on this computer](docs/MOUNTS.md).
 
 [Documentation site](https://mightymorgs.github.io/remote-fs-browser/) · [Product demo](https://mightymorgs.github.io/remote-fs-browser/#watch-it-install-and-run)
 
@@ -437,11 +438,11 @@ Uploads are staged beside the destination and committed after the full body arri
 
 Folder copies, recursive deletes and NFS folder moves run in steps. An error can leave partial results: refresh both locations before retrying. NFS folder moves create destinations exclusively and move files with server-side links before removing empty source folders. They are not atomic. Servers must support hard links for non-overwriting NFS file publication/moves. Symlinks, reparse points and special files are excluded; a recursive operation with hidden or truncated entries is rejected.
 
-Filesystem ownership, POSIX permissions and server ACLs remain authoritative. The app does not expose arbitrary shell commands, ownership changes, ACL editing, symlink creation or mount administration.
+Filesystem ownership, POSIX permissions and server ACLs remain authoritative. The app does not expose arbitrary shell commands, ownership changes, ACL editing or symlink creation. Mounting is limited to the opt-in rclone mounts described in [docs/MOUNTS.md](docs/MOUNTS.md).
 
 SMB authentication uses NTLM (including domain-qualified usernames). The SMB backend does not accept IPv6 literals; use IPv4 or a hostname resolving to an allowed IPv4 address. SMB enumeration uses Impacket's SRVS RPC over SMB2; traversal and streaming use smbprotocol's SMB2/3 session. NFS export enumeration uses mountd and may return no exports on NFSv4-only servers; enter the export manually in that case. NFS uses AUTH_SYS UID/GID behaviour from libnfs and the service account; NFS Kerberos is not configured.
 
-This project is a filesystem manager with an embeddable path picker. It does not provision mounts, manage backups, sync files, or abstract cloud object storage. It is a reference service and embedding SDK, not a hardened multi-tenant filesystem sandbox: see [security boundaries](SECURITY.md) and [validation](VALIDATION.md) before exposing it beyond a trusted network.
+This project is a filesystem manager with an embeddable path picker. It does not provision mounts unless mounting is explicitly enabled (see [docs/MOUNTS.md](docs/MOUNTS.md)), manage backups, sync files, or abstract cloud object storage. It is a reference service and embedding SDK, not a hardened multi-tenant filesystem sandbox: see [security boundaries](SECURITY.md) and [validation](VALIDATION.md) before exposing it beyond a trusted network.
 
 ## Development and licensing
 

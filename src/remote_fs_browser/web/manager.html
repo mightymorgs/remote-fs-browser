@@ -31,7 +31,7 @@
 .manager-part-row{grid-template-columns:minmax(0,1fr) 80px!important;gap:6px!important}
 }
 .manager-dialog{width:min(540px,calc(100vw - 32px));border:1px solid #cfd3da;border-radius:14px;padding:24px;background:#fbfbfc;color:#1c2024;font:14px/1.5 system-ui;box-shadow:0 26px 64px #14181e44}
-.manager-dialog::backdrop{background:#14181e44}.manager-dialog h2{font-size:18px;margin:0 0 16px}.manager-dialog p{white-space:pre-wrap;overflow-wrap:anywhere}.manager-dialog input,.manager-dialog textarea{width:100%;padding:10px;border:1px solid #c8ccd3;border-radius:8px;font:14px monospace}.dialog-buttons{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}.dialog-buttons button{padding:8px 14px;border:1px solid #c8ccd3;border-radius:8px;background:white;cursor:pointer}.dialog-buttons .primary{background:#3f6fd1;color:white}.manager-dialog.editor{width:min(900px,calc(100vw - 32px))}.editor textarea{height:55vh;resize:vertical}
+.manager-dialog::backdrop{background:#14181e44}.manager-dialog h2{font-size:18px;margin:0 0 16px}.manager-dialog p{white-space:pre-wrap;overflow-wrap:anywhere}.manager-dialog input,.manager-dialog textarea{width:100%;padding:10px;border:1px solid #c8ccd3;border-radius:8px;font:14px monospace}.dialog-buttons{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}.dialog-buttons button{padding:8px 14px;border:1px solid #c8ccd3;border-radius:8px;background:white;cursor:pointer}.dialog-buttons .primary{background:#3f6fd1;color:white}.manager-dialog.editor{width:min(900px,calc(100vw - 32px))}.manager-dialog .field{display:grid;gap:6px;margin:0 0 14px;font-size:13px;color:#4d545c}.manager-dialog select{padding:9px;border:1px solid #c8ccd3;border-radius:8px;font:14px system-ui;background:white}.manager-dialog .check{display:flex;align-items:center;gap:8px;font-size:14px}.manager-dialog .check input{width:auto}.manager-dialog .note{font-size:12px;color:#6a727c;margin:14px 0 0}.editor textarea{height:55vh;resize:vertical}
 </style></helmet>
 <sc-if value="{{ uploadStatus }}"><div role="status" style="position:fixed;bottom:50px;left:20px;z-index:100;background:#eef2fb;padding:12px;border:1px solid #b6c6e8;border-radius:8px">{{ uploadStatus }} <button onClick="{{ cancelUpload }}">Cancel upload</button></div></sc-if>
 
@@ -82,6 +82,22 @@
           <div style="display:flex;justify-content:space-between;padding:0 4px 6px"><span style="font:500 11px ui-monospace,monospace;color:#6a727c">CLOUD STORAGE</span><button onClick="{{ openCloud }}" style="border:0;background:transparent;color:#3f6fd1;cursor:pointer">Add / manage</button></div>
           <sc-for list="{{ cloudSidebar }}" as="remote"><button onClick="{{ remote.open }}" style="text-align:left;padding:8px;border:0;border-radius:8px;background:#edf2fc;color:#243c66;cursor:pointer;overflow:hidden;text-overflow:ellipsis">{{ remote.label }}</button></sc-for>
         </div>
+
+        <sc-if value="{{ mountsVisible }}">
+          <div style="display:flex;flex-direction:column;gap:4px;padding:0 12px" data-mounts="">
+            <div style="padding:0 4px 6px"><span style="font:500 11px ui-monospace,monospace;letter-spacing:.09em;color:#6a727c">MOUNTED ON THIS COMPUTER</span></div>
+            <sc-for list="{{ mountRows }}" as="mount">
+              <div style="display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:8px;background:#eef6f0">
+                <span style="width:8px;height:8px;border-radius:50%;background:{{ mount.dot }};flex:none"></span>
+                <span style="display:flex;flex-direction:column;min-width:0;flex:1">
+                  <span style="font-size:13.5px;color:#1f3b2a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ mount.label }}</span>
+                  <span title="{{ mount.target }}" style="font:11.5px ui-monospace,Menlo,Consolas,monospace;color:#5d7064;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ mount.detail }}</span>
+                </span>
+                <button type="button" onClick="{{ mount.eject }}" title="Eject {{ mount.label }} from this computer" style="border:0;background:transparent;padding:2px 4px;font-size:13px;color:#3f6fd1;cursor:pointer">Eject</button>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
 
         <div style="display:flex;flex-direction:column;gap:1px">
           <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding:0 12px 6px 16px">
