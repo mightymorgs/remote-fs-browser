@@ -4,6 +4,7 @@ param(
     [string]$PasswordFile,
     [switch]$WithoutNfs,
     [switch]$WithoutMounts,
+    [string]$MountOwner,
     [switch]$SkipDependencies,
     [string]$Python = 'python'
 )
@@ -15,15 +16,23 @@ $Config = (Resolve-Path -LiteralPath $Config).Path
 $BootstrapArgs = @()
 if ($Username) { $BootstrapArgs += @('--username', $Username) }
 if ($PasswordFile) { $BootstrapArgs += @('--password-file', (Resolve-Path -LiteralPath $PasswordFile).Path) }
-# Mounts appear only in the installing person's own Windows session; change mount_owner in config.json to hand
-# them to someone else. Use the account signed in to this session (the owner of its Explorer), not the elevated
-# account, which differs when UAC asked for an administrator's credentials.
+# Mounts appear only in one account's own Windows session (mount_owner in config.json). Use -MountOwner, else the
+# account signed in to this session (the owner of its Explorer), not the elevated account, which differs when UAC
+# asked for an administrator's credentials. A remote or non-interactive install has no Explorer: rather than guess,
+# it leaves mount_owner as it is, and the service refuses to mount until one is set.
 if (!$WithoutMounts) {
-    $Session = (Get-Process -Id $PID).SessionId
-    $Shell = Get-CimInstance Win32_Process -Filter "Name='explorer.exe' AND SessionId=$Session" | Select-Object -First 1
-    $Owner = if ($Shell) { Invoke-CimMethod -InputObject $Shell -MethodName GetOwner } else { $null }
-    $MountOwner = if ($Owner -and $Owner.User) { "$($Owner.Domain)\$($Owner.User)" } else { $Identity.Name }
-    $BootstrapArgs += @('--mount-owner', $MountOwner)
+    if (!$MountOwner) {
+        $Session = (Get-Process -Id $PID).SessionId
+        $Shell = Get-CimInstance Win32_Process -Filter "Name='explorer.exe' AND SessionId=$Session" | Select-Object -First 1
+        $Owner = if ($Shell) { Invoke-CimMethod -InputObject $Shell -MethodName GetOwner } else { $null }
+        if ($Owner -and $Owner.User) { $MountOwner = "$($Owner.Domain)\$($Owner.User)" }
+    }
+    if ($MountOwner) {
+        Write-Host "Mounts will belong to $MountOwner (keeps an existing mount_owner; change it in config.json)."
+        $BootstrapArgs += @('--mount-owner', $MountOwner)
+    } else {
+        Write-Warning 'No signed-in desktop session found, so no mount owner was recorded. Rerun with -MountOwner PC\name, or set mount_owner in config.json.'
+    }
 }
 
 $Prefix = 'C:\ProgramData\remote-fs-browser'
