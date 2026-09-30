@@ -508,3 +508,69 @@ def test_http_keeps_a_typed_login_so_the_mount_can_reconnect(tmp_path, monkeypat
     assert [c['auto'] for c in fake.calls] == [True, False]
     assert fake.calls[0]['descriptor']['credential_id'] == 'login-9' and store.added == [('token-user', '192.0.2.5', login)]
     assert 'credential_id' not in fake.calls[1]['descriptor']
+
+
+@pytest.mark.parametrize('detail,expected', [
+    ('nfs_mount_async failed. NFS4ERR_PERM', 'insecure'),
+    ('mount/mnt call failed with "RPC error: Server rejected the call: AUTH_ERROR (AUTH_TOOWEAK)"', 'refused this computer'),
+    ('mount_cb: NFS4ERR_NOENT', 'no export named /tank/data'),
+    ('Failed to connect: Connection refused', 'Nothing on nas is accepting'),
+    ('timed out', 'did not answer'),
+    ('', 'Could not connect to /tank/data on nas'),
+])
+def test_nfs_connection_errors_say_what_to_fix(detail, expected):
+    from remote_fs_browser.nfs import connect_error
+    error = connect_error('nas', '/tank/data', detail)
+    assert isinstance(error, ValueError) and error.shown and expected in str(error)
+    assert (detail in str(error)) if detail else not str(error).endswith(')')
+
+
+class FakeWindowsShares:
+    """mpr + netapi32 stand-ins: one IPC$ connection, then NetShareEnum's SHARE_INFO_1 array."""
+
+    def __init__(self, add_result=0, shares=(('review', 0, 'Review'), ('IPC$', 3, 'IPC'), ('media', 0, None))):
+        import ctypes
+        from ctypes import wintypes
+        self.add_result, self.calls, self.freed = add_result, [], 0
+
+        class Row(ctypes.Structure):
+            _fields_ = [('shi1_netname', wintypes.LPWSTR), ('shi1_type', wintypes.DWORD), ('shi1_remark', wintypes.LPWSTR)]
+        self.array = (Row * len(shares))(*[Row(*share) for share in shares])
+
+    def WNetAddConnection2W(self, resource, password, user, flags):
+        self.calls.append(('add', resource._obj.lpRemoteName, user, password))
+        return self.add_result
+
+    def WNetCancelConnection2W(self, remote, flags, force):
+        self.calls.append(('cancel', remote))
+        return 0
+
+    def NetShareEnum(self, server, level, buffer, maximum, read, total, resume):
+        import ctypes
+        self.calls.append(('enum', server, level))
+        buffer._obj.value = ctypes.addressof(self.array)
+        read._obj.value = total._obj.value = len(self.array)
+        return 0
+
+    def NetApiBufferFree(self, buffer):
+        self.freed += 1
+
+
+def test_windows_lists_disk_shares_with_its_own_api_and_closes_the_connection():
+    from remote_fs_browser.discovery import windows_smb_shares
+    fake = FakeWindowsShares()
+    result = windows_smb_shares('192.0.2.5', {'username': 'morgs', 'password': 'pw'}, api=(fake, fake))
+    assert result == {'shares': [{'name': 'review', 'description': 'Review'}, {'name': 'media', 'description': ''}], 'truncated': False}
+    assert fake.calls == [('add', '\\\\192.0.2.5\\IPC$', '192.0.2.5\\morgs', 'pw'), ('enum', '\\\\192.0.2.5', 1),
+                          ('cancel', '\\\\192.0.2.5\\IPC$')]
+    assert fake.freed == 1
+
+
+def test_windows_share_listing_explains_a_bad_login():
+    from remote_fs_browser.discovery import DiscoveryError, windows_smb_shares
+    fake = FakeWindowsShares(add_result=1326)
+    with pytest.raises(DiscoveryError, match='Incorrect username or password') as caught:
+        windows_smb_shares('nas', {'username': 'morgs', 'password': 'wrong'}, api=(fake, fake))
+    assert caught.value.shown and [c[0] for c in fake.calls] == ['add']
+    with pytest.raises(DiscoveryError, match='Windows error 999'):
+        windows_smb_shares('nas', {'username': 'morgs', 'password': 'x'}, api=(FakeWindowsShares(add_result=999),) * 2)

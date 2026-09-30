@@ -115,9 +115,13 @@ def worker(pipe, config, policy_values):
                             'PermissionError': 'Permission denied', 'IsADirectoryError': 'Destination is a folder',
                             'NotADirectoryError': 'Parent is not a folder', 'ValueError': str(error)}
                 pipe.send({'error': messages.get(kind, 'Filesystem operation failed; check path and permissions'), 'kind': kind})
-    except Exception:
+    except Exception as error:
         try:
-            pipe.send({'error': 'Connection failed; check policy, credentials and native dependencies'})
+            # Backends mark connection errors that are safe and useful to show, such as an NFS server's refusal.
+            if getattr(error, 'shown', False):
+                pipe.send({'error': str(error)[:500], 'kind': 'ValueError'})
+            else:
+                pipe.send({'error': 'Connection failed; check policy, credentials and native dependencies'})
         except (OSError, EOFError):
             pass
     finally:

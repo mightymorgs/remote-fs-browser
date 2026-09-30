@@ -1,5 +1,6 @@
 """Bounded, opt-in TCP discovery plus protocol-native share/export enumeration."""
 from concurrent.futures import ThreadPoolExecutor
+import os
 import ctypes as c
 import ipaddress
 from pathlib import PurePath
@@ -95,20 +96,93 @@ def discover(policy: Policy, scan=False, root_kinds=None, ranges=None, offset=0)
     return result
 
 
+class DiscoveryError(ValueError):
+    """Why shares could not be listed, in words the person signing in can act on."""
+    shown = True
+
+
 def share_enumeration_available():
     import importlib.util
-    return importlib.util.find_spec('impacket') is not None
+    return os.name == 'nt' or importlib.util.find_spec('impacket') is not None
+
+
+# Windows network API results that deserve their own message; anything else is reported by number.
+WINDOWS_SHARE_ERRORS = {
+    5: 'The server refused to list its shares for this login (access denied)',
+    53: 'The server could not be reached; check the address and that file sharing is on',
+    67: 'The server could not be reached; check the address and that file sharing is on',
+    86: 'Incorrect username or password',
+    1219: 'This computer already has a connection to that server with a different login; try again in a minute',
+    1326: 'Incorrect username or password',
+    1331: 'That account is disabled on the server',
+    1909: 'That account is locked out on the server',
+}
+
+
+def windows_smb_shares(host, credentials, api=None):
+    """List a server's disk shares with Windows' own API. impacket is not used on Windows: Defender quarantines
+    its bundled tools. The IPC$ connection lives in this service's logon session only and is closed at once."""
+    import ctypes
+    from ctypes import wintypes
+    from .backends import smb_username
+    mpr, netapi = api or (ctypes.WinDLL('mpr'), ctypes.WinDLL('netapi32'))
+
+    class NETRESOURCEW(ctypes.Structure):
+        _fields_ = [('dwScope', wintypes.DWORD), ('dwType', wintypes.DWORD), ('dwDisplayType', wintypes.DWORD),
+                    ('dwUsage', wintypes.DWORD), ('lpLocalName', wintypes.LPWSTR), ('lpRemoteName', wintypes.LPWSTR),
+                    ('lpComment', wintypes.LPWSTR), ('lpProvider', wintypes.LPWSTR)]
+
+    class SHARE_INFO_1(ctypes.Structure):
+        _fields_ = [('shi1_netname', wintypes.LPWSTR), ('shi1_type', wintypes.DWORD), ('shi1_remark', wintypes.LPWSTR)]
+
+    def failed(code):
+        return DiscoveryError(WINDOWS_SHARE_ERRORS.get(code, f'Could not list shares on {host} (Windows error {code})'))
+
+    server = '\\\\' + host
+    remote = server + '\\IPC$'
+    user = smb_username(host, credentials.get('username'), credentials.get('domain'), windows=True) or None
+    code = mpr.WNetAddConnection2W(ctypes.byref(NETRESOURCEW(dwType=0, lpRemoteName=remote)),
+                                   credentials.get('password') or None, user, 0)
+    if code:
+        raise failed(code)
+    try:
+        rows, resume, truncated = [], wintypes.DWORD(0), False
+        while True:
+            buffer, read, total = ctypes.c_void_p(), wintypes.DWORD(), wintypes.DWORD()
+            status = netapi.NetShareEnum(server, 1, ctypes.byref(buffer), 0xFFFFFFFF, ctypes.byref(read),
+                                         ctypes.byref(total), ctypes.byref(resume))
+            if status not in (0, 234):  # 234: ERROR_MORE_DATA
+                raise failed(status)
+            try:
+                if buffer.value:
+                    for row in ctypes.cast(buffer, ctypes.POINTER(SHARE_INFO_1 * read.value)).contents:
+                        if row.shi1_type & 0xFFFF == 0 and len(rows) < 1000:  # disk shares, not IPC$ or printers
+                            rows.append({'name': row.shi1_netname or '', 'description': row.shi1_remark or ''})
+            finally:
+                if buffer.value:
+                    netapi.NetApiBufferFree(buffer)
+            if len(rows) >= 1000:
+                truncated = True
+            if status == 0 or truncated:
+                return {'shares': rows, 'truncated': truncated}
+    finally:
+        mpr.WNetCancelConnection2W(remote, 0, True)
 
 
 def smb_shares(host, credentials):
+    if os.name == 'nt':
+        return windows_smb_shares(host, credentials)
     if not share_enumeration_available():
-        raise RuntimeError('SMB share enumeration needs the impacket package (pip install "remote-fs-browser[smb-enum]"); enter the share name instead')
-    from impacket.smbconnection import SMBConnection
+        raise DiscoveryError('SMB share enumeration needs the impacket package (pip install "remote-fs-browser[smb-enum]"); enter the share name instead')
+    from impacket.smbconnection import SMBConnection, SessionError
     from impacket.smb3structs import SMB2_DIALECT_21
     # Explicit SMB2 dialect prevents falling back to SMB1 browser services.
     connection = SMBConnection(host, host, sess_port=445, timeout=5, preferredDialect=SMB2_DIALECT_21)
     try:
-        connection.login(credentials.get('username', ''), credentials.get('password', ''), credentials.get('domain', ''))
+        try:
+            connection.login(credentials.get('username', ''), credentials.get('password', ''), credentials.get('domain', ''))
+        except SessionError as error:
+            raise DiscoveryError('Incorrect username or password' if 'LOGON_FAILURE' in str(error) else f'The server refused this login ({error})') from None
         from impacket.dcerpc.v5 import transport, srvs
         rpc = transport.SMBTransport(host, host, filename=r'\srvsvc', smb_connection=connection).get_dce_rpc()
         rows, resume, truncated = [], 0, False

@@ -25,10 +25,11 @@ def test_grouped_discovery_places_hosts_by_protocol(tmp_path):
     assert grouped(policy, roots, [], scanned=False)[1]['hint'].startswith('No networks')
 
 
+@pytest.mark.skipif(os.name == 'nt', reason='Windows lists shares with its own API, not impacket')
 def test_share_enumeration_reports_missing_impacket(monkeypatch):
     from remote_fs_browser import discovery
     monkeypatch.setattr(discovery, 'share_enumeration_available', lambda: False)
-    with pytest.raises(RuntimeError, match='smb-enum'):
+    with pytest.raises(discovery.DiscoveryError, match='smb-enum'):
         discovery.smb_shares('192.0.2.5', {})
 
 
