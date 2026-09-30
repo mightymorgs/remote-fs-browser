@@ -5,8 +5,8 @@ class Remotefs < Formula
 
   desc "Manage local, NAS and cloud files through a browser"
   homepage "https://github.com/mightymorgs/remote-fs-browser"
-  url "https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.3.0/remote_fs_browser-0.3.0.tar.gz"
-  sha256 "52d94539d69b8edb1942b8655de41f2d883f093f2d6e968a897160add1416b2c"
+  url "https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.4.0/remote_fs_browser-0.4.0.tar.gz"
+  sha256 "57a5d043c1731618b3fa169723c523953002be27edfa77f5f79bd72bc95de0ea"
   license "MIT"
 
   depends_on "rust" => :build # cryptography (via smbprotocol) builds from source
@@ -201,7 +201,7 @@ class Remotefs < Formula
     log_path var/"log/remotefs.log"
     error_log_path var/"log/remotefs.log"
     environment_variables LIBNFS_LIBRARY: HOMEBREW_PREFIX/"lib/libnfs.dylib",
-                          PATH: std_service_path_env
+                          PATH:           std_service_path_env
   end
 
   test do

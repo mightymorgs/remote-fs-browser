@@ -2,7 +2,7 @@
 
 Ordered checklist for cutting a release. Steps 1-3 are one-time setup; the
 rest repeat per version. Commands assume the repo root as the working
-directory and use `v0.3.0` as an example. That version is already published: substitute a new version before executing publishing commands.
+directory and use `v0.4.0` as an example. That version is already published: substitute a new version before executing publishing commands.
 
 ## 0. Required release contents
 
@@ -56,10 +56,10 @@ approval before anything is uploaded.
 ## 4. Bump the version
 
 ```sh
-sed -i '' 's/^version = ".*"/version = "0.3.0"/' pyproject.toml   # macOS sed
-git switch -c codex/release-v0.3.0
-git commit -am "Bump version to 0.3.0"
-git push -u origin codex/release-v0.3.0
+sed -i '' 's/^version = ".*"/version = "0.4.0"/' pyproject.toml   # macOS sed
+git switch -c codex/release-v0.4.0
+git commit -am "Bump version to 0.4.0"
+git push -u origin codex/release-v0.4.0
 ```
 
 Open a PR, wait for CI, merge it. Then:
@@ -75,11 +75,11 @@ Run the Release workflow manually on the release branch to build the Python dist
 ### Optional published release candidate
 
 ```sh
-git tag v0.3.0rc1
-git push origin v0.3.0rc1
+git tag v0.4.0rc1
+git push origin v0.4.0rc1
 ```
 
-For a rehearsal, the Python project version must also be a distinct PEP 440 prerelease (for example `0.3.0rc1`); a tag alone does not change package metadata. Do not upload the final version as a rehearsal.
+For a rehearsal, the Python project version must also be a distinct PEP 440 prerelease (for example `0.4.0rc1`); a tag alone does not change package metadata. Do not upload the final version as a rehearsal.
 
 Watch the **Release** workflow. When it finishes, verify from a clean machine
 or venv (TestPyPI does not host the dependencies, hence the extra index):
@@ -92,17 +92,17 @@ remotefs serve --help
 pipx uninstall remote-fs-browser
 ```
 
-Download the `remotefs-0.3.0rc1-windows-x64.zip` asset from the pre-release
+Download the `remotefs-0.4.0rc1-windows-x64.zip` asset from the pre-release
 and run `remotefs\remotefs.exe --version` on a Windows box if one is handy.
 
 ## 6. Tag the real release
 
 ```sh
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.4.0
+git push origin v0.4.0
 ```
 
-Confirm https://pypi.org/project/remote-fs-browser/0.3.0/ exists and the
+Confirm https://pypi.org/project/remote-fs-browser/0.4.0/ exists and the
 GitHub release lists the sdist, wheel and Windows zip.
 
 ## 7. Homebrew tap
@@ -113,16 +113,16 @@ The tap is published at `mightymorgs/homebrew-tap` with a `Formula/` directory.
 git clone git@github.com:mightymorgs/homebrew-tap.git
 cp packaging/homebrew/remotefs.rb homebrew-tap/Formula/remotefs.rb
 cd homebrew-tap
-git switch -c codex/remotefs-0.3.0
+git switch -c codex/remotefs-0.4.0
 ```
 
 Use the sdist attached to the GitHub release as the formula URL and checksum.
 This lets Homebrew install the release independently of PyPI publication:
 
 ```sh
-curl -fL -o /tmp/remote_fs_browser-0.3.0.tar.gz \
-  https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.3.0/remote_fs_browser-0.3.0.tar.gz
-shasum -a 256 /tmp/remote_fs_browser-0.3.0.tar.gz
+curl -fL -o /tmp/remote_fs_browser-0.4.0.tar.gz \
+  https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.4.0/remote_fs_browser-0.4.0.tar.gz
+shasum -a 256 /tmp/remote_fs_browser-0.4.0.tar.gz
 # Update url and sha256 in Formula/remotefs.rb for each release.
 ```
 
@@ -130,13 +130,13 @@ Generate the dependency resource blocks, then build and test:
 
 ```sh
 brew tap mightymorgs/tap "$PWD"          # or: brew tap mightymorgs/tap once pushed
-brew update-python-resources mightymorgs/tap/remotefs --package-name=remote-fs-browser --version=0.3.0 --ignore-main-package-cooldown
+brew update-python-resources mightymorgs/tap/remotefs --package-name=remote-fs-browser --version=0.4.0 --ignore-main-package-cooldown
 # This edits the formula in the installed tap; copy it back to this checkout if different.
 brew install --build-from-source mightymorgs/tap/remotefs
 brew test remotefs
 brew audit --strict --online remotefs
-git commit -am "remotefs 0.3.0"
-git push -u origin codex/remotefs-0.3.0
+git commit -am "remotefs 0.4.0"
+git push -u origin codex/remotefs-0.4.0
 ```
 
 Open a tap PR and wait for its clean source installation and smoke test before merging. Copy the final formula back to `packaging/homebrew/remotefs.rb` in the app repository through a separate PR.
@@ -156,26 +156,26 @@ Return to the application repository root before running these commands.
 Get the checksum of the Windows zip attached to the GitHub release:
 
 ```sh
-curl -sLo /tmp/remotefs-0.3.0-windows-x64.zip \
-  https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.3.0/remotefs-0.3.0-windows-x64.zip
-sha256sum /tmp/remotefs-0.3.0-windows-x64.zip          # Linux/macOS (shasum -a 256 on macOS)
+curl -sLo /tmp/remotefs-0.4.0-windows-x64.zip \
+  https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.4.0/remotefs-0.4.0-windows-x64.zip
+sha256sum /tmp/remotefs-0.4.0-windows-x64.zip          # Linux/macOS (shasum -a 256 on macOS)
 ```
 
 ```powershell
-Get-FileHash -Algorithm SHA256 remotefs-0.3.0-windows-x64.zip   # Windows
+Get-FileHash -Algorithm SHA256 remotefs-0.4.0-windows-x64.zip   # Windows
 ```
 
 Paste the hash into `InstallerSha256` in
-`packaging/winget/manifests/m/mightymorgs/remotefs/0.3.0/mightymorgs.remotefs.installer.yaml`
+`packaging/winget/manifests/m/mightymorgs/remotefs/0.4.0/mightymorgs.remotefs.installer.yaml`
 and verify the installer URL and all three manifest version fields. Validate and test-install on Windows:
 
 ```powershell
-winget validate --manifest packaging/winget/manifests/m/mightymorgs/remotefs/0.3.0
-winget install --manifest packaging/winget/manifests/m/mightymorgs/remotefs/0.3.0
+winget validate --manifest packaging/winget/manifests/m/mightymorgs/remotefs/0.4.0
+winget install --manifest packaging/winget/manifests/m/mightymorgs/remotefs/0.4.0
 remotefs --version
 ```
 
-From the release that adds mounting (after 0.3.0), declare WinFsp as a dependency in the installer
+From the release that adds mounting (after 0.4.0), declare WinFsp as a dependency in the installer
 manifest so `winget install mightymorgs.remotefs` also installs it:
 
 ```yaml
@@ -193,11 +193,11 @@ For the initial publication, update the [existing submission](https://github.com
 Submit, either with wingetcreate (prompts for a GitHub token):
 
 ```powershell
-wingetcreate submit packaging/winget/manifests/m/mightymorgs/remotefs/0.3.0
+wingetcreate submit packaging/winget/manifests/m/mightymorgs/remotefs/0.4.0
 ```
 
 or by forking https://github.com/microsoft/winget-pkgs and opening a PR that
-adds the same three files under `manifests/m/mightymorgs/remotefs/0.3.0/`.
+adds the same three files under `manifests/m/mightymorgs/remotefs/0.4.0/`.
 
 Acceptance depends on Microsoft validation and review. Report an open submission as pending, not available in the WinGet catalogue.
 
