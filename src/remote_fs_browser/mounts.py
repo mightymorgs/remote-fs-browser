@@ -292,11 +292,14 @@ class MountManager:
                 '--rc', '--rc-addr', f"127.0.0.1:{row['rc_port']}"]
         if self.method == 'winfsp':
             argv.append('--network-mode')
-            if windows_system_account():
-                # A drive mounted by the SYSTEM service is visible to every user; give signed-in users
-                # the access the mount allows, including "write extended attributes", which WinFsp omits by default.
-                access = 'FR' if row['read_only'] else 'FA'
-                argv += ['-o', f'FileSecurity=D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;{access};;;AU)']
+            if row['read_only']:
+                # WinFsp's FUSE layer cannot mark a volume read-only, and rclone reports a delete on a
+                # read-only VFS as done without doing it. Read-only rights make Windows refuse changes itself.
+                argv += ['-o', 'FileSecurity=D:P(A;;FRFX;;;WD)']
+            elif windows_system_account():
+                # A drive mounted by the SYSTEM service is visible to every user; give signed-in users full
+                # access, including "write extended attributes", which WinFsp omits by default.
+                argv += ['-o', 'FileSecurity=D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;AU)']
         if self.method == 'nfs':
             # Keep file handles valid if rclone restarts, so Finder windows don't go stale.
             argv += ['--nfs-cache-type', 'disk']

@@ -63,6 +63,7 @@ The Windows portable download bundles `rclone.exe`. Homebrew installs rclone as 
 - On Linux and macOS a mount belongs to the account running the service. A service installed as root creates mounts under root's home folder unless `mount_folder` points elsewhere.
 - rclone's `nfsmount` is marked experimental by the rclone project.
 - NFS mounts pass every file operation through one connection, so they are slower than a native NFS mount for many small files. Large files stream at close to network speed.
+- On Windows, a read-only mount refuses changes from ordinary accounts with "Access is denied". An elevated administrator bypasses that check, so deleting a file on a read-only drive appears to succeed, but nothing is deleted.
 - Cloud storage has no real rename for large folders; renaming them through a mount copies and deletes, which is slow.
 
 WinFsp - Windows File System Proxy, Copyright (C) Bill Zissimopoulos — https://github.com/winfsp/winfsp. rclone is MIT-licensed, copyright Nick Craig-Wood — https://rclone.org.

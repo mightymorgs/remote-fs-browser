@@ -66,6 +66,7 @@ def test_command_per_platform_keeps_the_rc_password_out_of_argv(tmp_path, system
         assert extra in argv
     assert ('--network-mode' in argv) == (system == 'win32')
     assert ('locallocks' in argv) == (system == 'darwin')  # rclone's NFS server has no lock manager
+    assert ('FileSecurity=D:P(A;;FRFX;;;WD)' in argv) == (system == 'win32')  # read-only rights on Windows
 
 
 def test_folder_targets_stay_inside_the_mount_folder_and_never_collide(tmp_path):
