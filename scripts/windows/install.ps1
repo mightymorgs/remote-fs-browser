@@ -15,6 +15,8 @@ $Config = (Resolve-Path -LiteralPath $Config).Path
 $BootstrapArgs = @()
 if ($Username) { $BootstrapArgs += @('--username', $Username) }
 if ($PasswordFile) { $BootstrapArgs += @('--password-file', (Resolve-Path -LiteralPath $PasswordFile).Path) }
+# Mounts appear only in this account's own Windows session; change mount_owner in config.json to hand them to someone else.
+if (!$WithoutMounts) { $BootstrapArgs += @('--mount-owner', $Identity.Name) }
 
 $Prefix = 'C:\ProgramData\remote-fs-browser'
 $Source = (Resolve-Path "$PSScriptRoot/../..").Path

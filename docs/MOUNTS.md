@@ -52,7 +52,9 @@ Every mount is a separate rclone process started by the service, with a private 
 The Windows portable download bundles `rclone.exe`. Homebrew installs rclone as a dependency; on Linux install it from your distribution or https://rclone.org/install/.
 
 **Where mounts appear**
-- Windows: the next free drive letter (Z: downwards) or the one you choose. A service running as SYSTEM (the Windows service installer) creates drives that every signed-in user can see and use.
+- Windows: the next free drive letter (Z: downwards) or the one you choose. The drive belongs to one Windows account: only that account can open it, and it appears only in that account's own sign-in session.
+  - When you run `remotefs serve` yourself, that account is you.
+  - The Windows service installer runs remotefs as SYSTEM and records the account that ran the installer as `mount_owner` in `config.json`. The service starts each mount inside that account's session, so the owner has to be signed in to Windows. Other people signed in to the same computer don't see the drive or its `\\rclone\…` path. To give mounts to a different account, change `mount_owner` (for example `"PC\\morgan"`) and restart the service. Without a `mount_owner`, the service refuses to mount rather than mounting for everyone.
 - macOS/Linux: a folder under `~/remotefs` of the account running the service, named after the mount.
 
 **Disk space.** Reads cache only the parts of files you open. Writes are staged in the cache before upload, so writing a 30 GB file needs about 30 GB free on the drive holding the service's configuration folder. The cache lives in the `mounts/cache` folder next to `config.json`.

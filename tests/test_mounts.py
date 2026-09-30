@@ -57,7 +57,7 @@ def manager(tmp_path, system):
 def test_command_per_platform_keeps_the_rc_password_out_of_argv(tmp_path, system, verb, extra):
     m = manager(tmp_path, system)
     row = {'label': 'Projects', 'target': 'Z:' if system == 'win32' else '/mnt/p', 'read_only': True,
-           'rc_port': 5572, 'rc_pass': 'secret-rc-password'}
+           'rc_port': 5572, 'rc_pass': 'secret-rc-password', 'owner_sid': 'S-1-5-21-7-1001'}
     argv = m.command(row, 'Projects', tmp_path / 'c.conf', tmp_path / 'l.log')
     assert argv[:3] == ['rclone', verb, 'remote:Projects'] and argv[3] == row['target']
     assert '--read-only' in argv and 'full' in argv and '--rc' in argv
@@ -66,7 +66,7 @@ def test_command_per_platform_keeps_the_rc_password_out_of_argv(tmp_path, system
         assert extra in argv
     assert ('--network-mode' in argv) == (system == 'win32')
     assert ('locallocks' in argv) == (system == 'darwin')  # rclone's NFS server has no lock manager
-    assert ('FileSecurity=D:P(A;;FRFX;;;WD)' in argv) == (system == 'win32')  # read-only rights on Windows
+    assert ('FileSecurity=D:P(A;;FRFX;;;S-1-5-21-7-1001)' in argv) == (system == 'win32')  # owner only, read-only
 
 
 def test_folder_targets_stay_inside_the_mount_folder_and_never_collide(tmp_path):
@@ -248,3 +248,84 @@ def test_eject_removes_the_empty_mount_folder_even_after_finder_touched_it(tmp_p
     (Path(kept) / 'real.txt').write_text('never deleted')
     m.release(kept)
     assert (Path(kept) / 'real.txt').exists()
+
+
+class FakeSessions:
+    """Stands in for winsession: one signed-in owner, whose token starts processes."""
+
+    def __init__(self, tmp_path, signed_in=True):
+        self.tmp_path, self.signed_in, self.started, self.closed = tmp_path, signed_in, [], 0
+
+    def session_of(self, account):
+        return 3 if self.signed_in and account.lower().endswith('morgan') else None
+
+    def current_sid(self):
+        return 'S-1-5-18'
+
+    def UserSession(self, session):
+        api = self
+
+        class Session:
+            def sid(self):
+                return 'S-1-5-21-7-1001'
+
+            def profile(self):
+                return str(api.tmp_path / 'Users' / 'morgan')
+
+            def environment(self):
+                return {'USERPROFILE': self.profile(), 'RCLONE_CONFIG': 'ignored'}
+
+            def start(self, argv, env, cwd):
+                api.started.append((argv, env, cwd))
+                return FakeProcess()
+
+            def close(self):
+                api.closed += 1
+        return Session()
+
+
+def windows_service(monkeypatch, tmp_path, owner, sessions):
+    monkeypatch.setattr(mounts, 'windows_system_account', lambda: True)
+    monkeypatch.setattr(mounts, 'prerequisites', lambda *a: {'available': True, 'missing': []})
+    monkeypatch.setattr(mounts, 'obscure', lambda binary, secret: 'obscured')
+    m = MountManager(tmp_path / 'state', binary='rclone', system='win32', owner=owner, sessions=sessions,
+                     popen=lambda *a, **k: pytest.fail('the SYSTEM service must not start rclone as itself'))
+    monkeypatch.setattr(m, 'choose_target', lambda label, requested=None: 'Z:')
+    return m
+
+
+SMB = ({'type': 'smb', 'host': '192.0.2.5', 'share': 'Projects', 'path': '/'}, {'username': 'u', 'password': 'p'})
+
+
+def test_windows_service_mounts_only_in_the_owners_session(tmp_path, monkeypatch):
+    sessions = FakeSessions(tmp_path)
+    m = windows_service(monkeypatch, tmp_path, 'PC\\morgan', sessions)
+    monkeypatch.setattr(m, 'rc', lambda row, command, **kw: {'diskCache': {}})
+    row = m.mount('alice', *SMB, None, 'Projects', read_only=False)
+    argv, env, cwd = sessions.started[0]
+    files = tmp_path / 'Users' / 'morgan' / 'AppData' / 'Local' / 'remotefs' / 'mounts'
+    assert cwd == str(files) and (files / f"{row['id']}.conf").exists()
+    assert 'FileSecurity=D:P(A;;FA;;;S-1-5-21-7-1001)' in argv and not any('WD)' in a or 'AU)' in a for a in argv)
+    assert argv[argv.index('--cache-dir') + 1] == str(files / 'cache')
+    assert env['RCLONE_RC_PASS'] and 'RCLONE_CONFIG' not in env and env['USERPROFILE']
+    assert sessions.closed == 1 and row['status']['state'] == 'mounted'
+
+
+def test_windows_service_refuses_without_an_owner_or_when_they_are_signed_out(tmp_path, monkeypatch):
+    with pytest.raises(MountError, match='mount_owner'):
+        windows_service(monkeypatch, tmp_path, None, FakeSessions(tmp_path)).mount('alice', *SMB, None, 'P', read_only=False)
+    with pytest.raises(MountError, match='Sign in to Windows as PC'):
+        windows_service(monkeypatch, tmp_path, 'PC\\morgan', FakeSessions(tmp_path, signed_in=False)).mount(
+            'alice', *SMB, None, 'P', read_only=False)
+
+
+def test_account_names_match_with_or_without_the_computer_name():
+    from remote_fs_browser.winsession import same_account
+    assert same_account('PC\\Morgan', 'morgan') and same_account('morgan', 'pc\\morgan')
+    assert not same_account('PC\\morgan', 'OTHER\\morgan') and not same_account('PC\\morgan', 'PC\\sam')
+
+
+@pytest.mark.skipif(os.name != 'nt', reason='Windows API binding')
+def test_windows_api_binding_reads_this_accounts_sid():
+    from remote_fs_browser import winsession
+    assert winsession.current_sid().startswith('S-1-5-')

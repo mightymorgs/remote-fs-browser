@@ -199,7 +199,8 @@ def free_port():
 class MountManager:
     """Owns the rclone mount processes started by this service."""
 
-    def __init__(self, directory, base=None, binary=None, system=None, popen=subprocess.Popen, bridge=None):
+    def __init__(self, directory, base=None, binary=None, system=None, popen=subprocess.Popen, bridge=None,
+                 owner=None, sessions=None):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.system = system or sys.platform
@@ -212,6 +213,10 @@ class MountManager:
         self.processes = {}
         self.bridges = {}
         self.bridge = bridge
+        # The Windows account whose own session gets mounts when the service runs as SYSTEM.
+        self.owner = owner
+        self.sessions = sessions
+        self.files = {}
         self.records = {}
         self.cleanup_stale()
 
@@ -235,6 +240,12 @@ class MountManager:
             raise PermissionError('Mount not found')
         return row
 
+    def visible(self, row, stats=None):
+        if row.get('as_user'):
+            # The drive exists only in the owner's session, which this service cannot see into.
+            return (stats if stats is not None else self.rc(row, 'vfs/stats', timeout=2)) is not None
+        return self.mounted(row['target'])
+
     def mounted(self, target):
         if self.method == 'winfsp':
             return os.path.exists(target + '\\')
@@ -248,7 +259,7 @@ class MountManager:
         stats = self.rc(row, 'vfs/stats', timeout=2)  # one VFS per process, so no fs parameter
         cache = (stats or {}).get('diskCache', {})
         pending = int(cache.get('uploadsInProgress', 0)) + int(cache.get('uploadsQueued', 0))
-        return {'state': 'mounted' if self.mounted(row['target']) else 'starting', 'pending_uploads': pending}
+        return {'state': 'mounted' if self.visible(row, stats) else 'starting', 'pending_uploads': pending}
 
     def rc(self, row, command, timeout=5, **params):
         request = urllib.request.Request(f"http://127.0.0.1:{row['rc_port']}/{command}", data=json.dumps(params).encode(),
@@ -286,20 +297,17 @@ class MountManager:
     def command(self, row, remote_path, conf, log):
         verb = 'nfsmount' if self.method == 'nfs' else 'mount'
         argv = [self.binary, verb, f'remote:{remote_path}', row['target'], '--config', str(conf),
-                '--vfs-cache-mode', 'full', '--cache-dir', str(self.directory / 'cache'),
+                '--vfs-cache-mode', 'full', '--cache-dir', str(Path(row.get('files', self.directory)) / 'cache'),
                 '--dir-cache-time', '30s', '--volname', row['label'],
                 '--log-file', str(log), '--log-level', 'NOTICE',
                 '--rc', '--rc-addr', f"127.0.0.1:{row['rc_port']}"]
         if self.method == 'winfsp':
             argv.append('--network-mode')
-            if row['read_only']:
-                # WinFsp's FUSE layer cannot mark a volume read-only, and rclone reports a delete on a
-                # read-only VFS as done without doing it. Read-only rights make Windows refuse changes itself.
-                argv += ['-o', 'FileSecurity=D:P(A;;FRFX;;;WD)']
-            elif windows_system_account():
-                # A drive mounted by the SYSTEM service is visible to every user; give signed-in users full
-                # access, including "write extended attributes", which WinFsp omits by default.
-                argv += ['-o', 'FileSecurity=D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;AU)']
+            # Only the mount's owner may use the drive, including through its \\server\share path. Read-only
+            # rights make Windows refuse changes itself: WinFsp's FUSE layer cannot mark a volume read-only,
+            # and rclone reports a delete on a read-only VFS as done without doing it.
+            access = 'FRFX' if row['read_only'] else 'FA'
+            argv += ['-o', f"FileSecurity=D:P(A;;{access};;;{row.get('owner_sid') or 'WD'})"]
         if self.method == 'nfs':
             # Keep file handles valid if rclone restarts, so Finder windows don't go stale.
             argv += ['--nfs-cache-type', 'disk']
@@ -317,31 +325,43 @@ class MountManager:
             if not check['available']:
                 raise MountError('; '.join(f"{m['name']} is needed: {m['install']}" for m in check['missing']))
             key = 'mount-' + secrets.token_hex(8)
-            if descriptor.get('type') == 'nfs':
-                self.bridges[key] = self.start_bridge(descriptor)
+            user = self.user_session() if self.method == 'winfsp' else None
             row = None
             try:
+                files = Path(user.profile()) / 'AppData' / 'Local' / 'remotefs' / 'mounts' if user else self.directory
+                files.mkdir(parents=True, exist_ok=True)
+                self.files[key] = files
+                if descriptor.get('type') == 'nfs':
+                    self.bridges[key] = self.start_bridge(descriptor)
                 section, remote_path = remote_for(descriptor, credentials, endpoint_config, self.binary, self.bridges.get(key))
                 clean = {k: v for k, v in descriptor.items() if k != 'credential_id'}
                 row = dict(principal=principal, label=safe_label(label), read_only=bool(read_only), method=self.method,
                            started=time.time(), descriptor=clean, rc_port=free_port(), rc_pass=secrets.token_urlsafe(24))
                 row['target'] = self.choose_target(row['label'], target)
                 row['remote_path'] = remote_path
-                conf = self.directory / f'{key}.conf'
+                row['files'] = str(files)
+                if self.method == 'winfsp':
+                    row['as_user'] = user is not None
+                    row['owner_sid'] = user.sid() if user else self.session_api().current_sid()
+                conf = files / f'{key}.conf'
                 config = configparser.RawConfigParser()
                 config['remote'] = section
                 output = io.StringIO()
                 config.write(output)
                 write_private(conf, output.getvalue())
-                log = self.directory / f'{key}.log'
+                log = files / f'{key}.log'
                 # The rc login goes through the environment, which other local users cannot read, not argv.
-                env = {k: v for k, v in os.environ.items() if not k.startswith('RCLONE_')}
+                env = {k: v for k, v in (user.environment() if user else os.environ).items() if not k.startswith('RCLONE_')}
                 env.update(RCLONE_RC_USER='remotefs', RCLONE_RC_PASS=row['rc_pass'])
+                argv = self.command(row, remote_path, conf, log)
                 options = ({'creationflags': getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)} if self.method == 'winfsp'
                            else {'start_new_session': True})
                 try:
-                    process = self.popen(self.command(row, remote_path, conf, log), stdin=subprocess.DEVNULL,
-                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, **options)
+                    if user:
+                        process = user.start(argv, env, str(files))
+                    else:
+                        process = self.popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                             stderr=subprocess.DEVNULL, env=env, **options)
                 except OSError:
                     raise MountError('Could not start rclone') from None
             except BaseException:
@@ -349,6 +369,9 @@ class MountManager:
                     self.release(row['target'])
                 self.forget(key)
                 raise
+            finally:
+                if user:
+                    user.close()
             row['pid'] = process.pid
             self.records[key], self.processes[key] = row, process
             self.save()
@@ -358,7 +381,7 @@ class MountManager:
                     self.release(row['target'])
                     self.forget(key)
                     raise MountError(f'The mount did not start; see {log}')
-                if self.mounted(row['target']):
+                if self.visible(row):
                     return self.public(key, row)
                 time.sleep(0.25)
             self.stop(key, wait_uploads=0, keep_if_busy=False)
@@ -432,6 +455,25 @@ class MountManager:
         except OSError:
             pass
 
+    def session_api(self):
+        if self.sessions is None:
+            from . import winsession
+            self.sessions = winsession
+        return self.sessions
+
+    def user_session(self):
+        """The mount owner's Windows session when this service runs as SYSTEM; None otherwise."""
+        if not windows_system_account():
+            return None
+        if not self.owner:
+            raise MountError('The remotefs service needs a mount owner before it can mount: set "mount_owner" in '
+                             'config.json to the Windows account that may use mounts, then restart remotefs')
+        api = self.session_api()
+        session = api.session_of(self.owner)
+        if session is None:
+            raise MountError(f'Sign in to Windows as {self.owner} first; mounts appear only in that account’s own session')
+        return api.UserSession(session)
+
     def start_bridge(self, descriptor):
         from .davbridge import Bridge
         try:
@@ -445,7 +487,7 @@ class MountManager:
         bridge = self.bridges.pop(key, None)
         if bridge:
             bridge.stop()
-        (self.directory / f'{key}.conf').unlink(missing_ok=True)
+        (Path(self.files.pop(key, self.directory)) / f'{key}.conf').unlink(missing_ok=True)
         self.save()
 
     def cleanup_stale(self):
@@ -462,7 +504,7 @@ class MountManager:
                     time.sleep(0.25)
             if row.get('target'):
                 self.release(row['target'])
-            (self.directory / f'{key}.conf').unlink(missing_ok=True)
+            (Path(row.get('files', self.directory)) / f'{key}.conf').unlink(missing_ok=True)
         self.records = {}
         if stale:
             self.save()

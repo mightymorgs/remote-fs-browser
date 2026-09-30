@@ -194,7 +194,8 @@ def main(argv=None):
     mounts = None
     if 'mount' in policy.operations:
         from .mounts import MountManager
-        mounts = MountManager(path.parent / 'mounts', base=args.mount_folder or config.get('mount_folder'))
+        mounts = MountManager(path.parent / 'mounts', base=args.mount_folder or config.get('mount_folder'),
+                              owner=config.get('mount_owner'))
     app = create_app(policy, account=config['account'], token=config.get('automation_token'), remote_store=remotes, root_kinds=kinds, saved_locations=saved, mount_manager=mounts,
                      staging_stores=config.get('staging_stores', {'Downloads': str(path.parent / 'staging')}),
                      staging_store_writer=save_staging_stores if config.get('staging_stores') != {} else None)
@@ -222,6 +223,8 @@ def main(argv=None):
         from .mounts import prerequisites
         check = prerequisites()
         where = 'drive letters' if check['method'] == 'winfsp' else str(mounts.base)
+        if mounts.owner:
+            where += f' for {mounts.owner}'
         state = 'ready' if check['available'] else 'needs ' + ', '.join(m['name'] for m in check['missing'])
         lines.append(f'{"Mounts":16} on, into {where} ({state})')
     from .discovery import share_enumeration_available

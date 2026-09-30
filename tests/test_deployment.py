@@ -88,3 +88,12 @@ def test_first_install_requires_account(inputs):
     with pytest.raises(ValueError, match='first deployment'):
         deployment.prepare(source, target)
     assert not target.exists()
+
+
+def test_installer_records_the_mount_owner_once(inputs):
+    source, target, password = inputs
+    config, changed = deployment.prepare(source, target, 'admin', password, mount_owner='PC\\morgan')
+    assert changed and config['mount_owner'] == 'PC\\morgan'
+    write_private(target, json.dumps(config))
+    again, changed = deployment.prepare(source, target, 'admin', password, mount_owner='PC\\someone-else')
+    assert not changed and again['mount_owner'] == 'PC\\morgan'
