@@ -963,7 +963,7 @@ class Component extends DCLogic {
       mountRows: this.state.mountInfo.mounts.map(row => {
         const pending = row.status?.pending_uploads || 0, up = row.status?.state === 'mounted'
         return {...row, dot: up ? (pending ? '#d98b3a' : '#3a9a5b') : '#b0b6bf',
-          detail: `${row.target}${row.read_only ? ' · read-only' : ''}${pending ? ` · ${pending} uploading` : up ? '' : ' · ' + (row.status?.state || 'stopped')}`,
+          detail: `${row.target}${row.read_only ? ' · read-only' : ''}${pending ? ` · ${pending} uploading` : up ? '' : ' · ' + (row.status?.reason || row.status?.state || 'stopped')}`,
           eject: () => this.unmountFolder(row).catch(error => this.say(error.message))}
       }),
       cloudSidebar: (this.state.endpoints || []).filter(r=>r.type==='rclone').map(r=>({...r, open:()=>this.goTo(this.fromDescriptor(r))})),
@@ -1219,7 +1219,7 @@ class Component extends DCLogic {
     if(!choice)return
     const session=await this.sessionFor(place), descriptor=place.descriptor
     this.say(`Mounting ${choice.label}…`)
-    const row=await this.api('/mounts',{session:session.id,path:this.currentPath(place),label:choice.label,read_only:choice.readOnly,
+    const row=await this.api('/mounts',{session:session.id,path:this.currentPath(place),label:choice.label,read_only:choice.readOnly,auto:choice.auto,
       target:choice.target||undefined,credentials:this.auth.get(`${descriptor.type}:${descriptor.host}`)})
     await this.reloadMounts()
     this.say(`Mounted at ${row.target}${row.read_only?' (read-only)':''}.`)
@@ -1243,14 +1243,17 @@ class Component extends DCLogic {
       }
       const write=document.createElement('input');write.type='checkbox';write.checked=true
       const writeRow=document.createElement('label');writeRow.className='check';writeRow.append(write,' Allow changes (untick for read-only)')
-      form.append(writeRow)
+      const again=document.createElement('input');again.type='checkbox';again.checked=true
+      const againRow=document.createElement('label');againRow.className='check'
+      againRow.append(again,info.method==='winfsp'?' Reconnect automatically (after restarts and each time you sign in)':' Reconnect automatically (after restarts)')
+      form.append(writeRow,againRow)
       if(info.notice){const note=document.createElement('p');note.className='note';const link=document.createElement('a');link.href=info.notice.url;link.target='_blank';link.rel='noopener';link.textContent=info.notice.text;note.append('Drive letters use ',link,'.');form.append(note)}
       const buttons=document.createElement('div');buttons.className='dialog-buttons'
       const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=()=>dialog.close()
       const ok=document.createElement('button');ok.textContent='Mount';ok.className='primary'
       buttons.append(cancel,ok);form.append(buttons);dialog.append(form);document.body.append(dialog)
       form.onsubmit=e=>{e.preventDefault();dialog.close('ok')}
-      dialog.onclose=()=>{const ok=dialog.returnValue==='ok';dialog.remove();resolve(ok?{label:name.value.trim(),readOnly:!write.checked,target:letter?.value}:null)}
+      dialog.onclose=()=>{const ok=dialog.returnValue==='ok';dialog.remove();resolve(ok?{label:name.value.trim(),readOnly:!write.checked,auto:again.checked,target:letter?.value}:null)}
       dialog.showModal();name.select()
     })
   }
