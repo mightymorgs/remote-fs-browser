@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "remote-fs-browser"
 version = "0.4.0"
-description = "A browser file manager for local, NAS and cloud storage"
+description = "Self-hosted control plane to find, browse, copy and mount local, SMB, NFS and cloud storage"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"

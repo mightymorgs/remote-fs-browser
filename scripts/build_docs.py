@@ -10,7 +10,7 @@ source = root / 'docs/site'
 out = root / '_site'
 out.mkdir(exist_ok=True)
 pages = [
-    ('index.html', 'Your storage. One place to work.', source / 'home.html'),
+    ('index.html', 'One control plane for all your storage', source / 'home.html'),
     ('guide.html', 'How it works', source / 'guide.md'),
     ('install.html', 'Install', source / 'install.md'),
     ('quickstart.html', 'Quickstart', root / 'QUICKSTART.md'),
@@ -45,10 +45,10 @@ for filename, title, path in pages:
     script = '<script src="tour.js" defer></script>' if home else ''
     (out / filename).write_text(f'''<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Browse local folders, SMB and NFS, connect rclone cloud storage and inspect libvirt pools. The complete remotefs guide, feature tour and setup instructions.">
+<meta name="description" content="remotefs is a self-hosted control plane for your storage: find, browse, copy and mount local disks, SMB, NFS and cloud storage from a browser, CLI, HTTP API or Python SDK.">
 <title>{escape(title)} — remotefs</title><link rel="stylesheet" href="site.css">{script}</head>
 <body><a class="skip" href="#main">Skip to content</a><header class="site-header"><a class="brand" href="index.html">remotefs</a><nav aria-label="Main navigation"><a href="guide.html">How it works</a><a href="endpoints.html">Storage endpoints</a><a href="install.html">Install</a><a href="reference.html">Reference</a><a href="https://github.com/mightymorgs/remote-fs-browser">GitHub</a></nav></header>
-<main id="main" class="{'home' if home else 'document'}">{body}</main><footer class="site-footer"><span>remotefs / Your storage, through your service.</span><span>MIT licensed · <a href="deployment.html">Deployment guide</a> · <a href="https://github.com/mightymorgs/remote-fs-browser">Source on GitHub</a></span></footer></body></html>''')
+<main id="main" class="{'home' if home else 'document'}">{body}</main><footer class="site-footer"><span>remotefs / One control plane for all your storage.</span><span>MIT licensed · <a href="deployment.html">Deployment guide</a> · <a href="https://github.com/mightymorgs/remote-fs-browser">Source on GitHub</a></span></footer></body></html>''')
 (out / '.nojekyll').touch()
 for asset in ('demo-poster.jpg', 'walkthrough-poster.jpg', 'walkthrough.vtt', 'promo.vtt', 'site.css', 'tour.js'):
     shutil.copyfile(source / asset, out / asset)
