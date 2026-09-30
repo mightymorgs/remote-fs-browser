@@ -1,6 +1,8 @@
 # Install remotefs
 
-## Version 0.3.0
+## Version 0.4.0
+
+Version 0.4.0 can mount an SMB share, NFS export or cloud connection as a folder or drive on the service host, and reconnects those mounts after restarts and Windows sign-in. Mounting uses rclone, plus WinFsp on Windows (the app offers to install it) or fuse3 on Linux; see [mounts](https://github.com/mightymorgs/remote-fs-browser/blob/main/docs/MOUNTS.md). Windows hosts now list SMB shares, and NFS connections try NFSv4, then NFSv3.
 
 Cloud connection management and cross-storage Copy/Paste are included in 0.3.0. Homebrew includes rclone. For other installations, install [rclone](https://rclone.org/install/) on the service host for cloud access. Libvirt inventory needs the native libvirt development packages and `pipx install --force 'remote-fs-browser[libvirt]'`. See the [endpoint guide](endpoints.html).
 
@@ -23,7 +25,7 @@ Upgrade with `brew update` followed by `brew upgrade mightymorgs/tap/remotefs`. 
 
 ### Windows — portable download
 
-[Download remotefs 0.3.0 for Windows x64](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.3.0/remotefs-0.3.0-windows-x64.zip). Extract the ZIP, open PowerShell in the extracted `remotefs` folder, and run:
+[Download remotefs 0.4.0 for Windows x64](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.4.0/remotefs-0.4.0-windows-x64.zip). Extract the ZIP, open PowerShell in the extracted `remotefs` folder, and run:
 
 ```powershell
 .\remotefs.exe
@@ -79,7 +81,7 @@ With Git, Python 3.11+ and pipx installed:
 ```sh
 git clone https://github.com/mightymorgs/remote-fs-browser.git
 cd remote-fs-browser
-git checkout v0.3.0
+git checkout v0.4.0
 pipx install .
 remotefs
 ```

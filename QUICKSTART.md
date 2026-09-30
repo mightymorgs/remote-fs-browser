@@ -16,7 +16,7 @@ Homebrew installs Python and libnfs for you.
 
 ### Windows x64
 
-Download the [0.3.0 portable ZIP](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.3.0/remotefs-0.3.0-windows-x64.zip) and extract it. Open PowerShell inside the extracted `remotefs` folder. Use `.\remotefs.exe` in place of `remotefs` in the commands below. Python and libnfs are bundled.
+Download the [0.4.0 portable ZIP](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.4.0/remotefs-0.4.0-windows-x64.zip) and extract it. Open PowerShell inside the extracted `remotefs` folder. Use `.\remotefs.exe` in place of `remotefs` in the commands below. Python and libnfs are bundled.
 
 The [WinGet submission](https://github.com/microsoft/winget-pkgs/pull/432620) is awaiting review. Once accepted, install with:
 
