@@ -169,8 +169,7 @@ Merge a `kubernetes` entry into the policy's `endpoints` map as for rclone and r
       "cluster": {
         "type": "kubernetes",
         "namespaces": ["apps", "media"],
-        "kubeconfig": "/etc/rancher/k3s/k3s.yaml",
-        "read_only": true
+        "kubeconfig": "/etc/rancher/k3s/k3s.yaml"
       }
     }
   }
@@ -179,7 +178,7 @@ Merge a `kubernetes` entry into the policy's `endpoints` map as for rclone and r
 
 - `namespaces` is required and nothing outside it is listed or reachable.
 - `kubeconfig` and `context` are optional. Without a `kubeconfig`, kubectl uses its own defaults, which inside a pod means that pod's service account. `kubectl` may name an absolute path to the binary.
-- `read_only` defaults to `true`. Set it to `false` to allow uploads, text saves, new folders, rename (within one container) and delete.
+- Writes are on by default: uploads, text saves, new folders, rename (within one container) and delete, subject to the service policy and the container's own permissions. Set `read_only` to `true` to browse and copy out only.
 
 The service host needs `kubectl`. Files are read and written with `kubectl exec` running short POSIX shell scripts, so any container with `sh` and coreutils or BusyBox works; distroless containers without a shell are reported as such and cannot be browsed. Nothing is installed in the pod. Saves go to a temporary file beside the target and are renamed into place, keeping an existing file's mode and, where the container allows it, its owner, so a half-written config never lands. Links are followed for browsing, but deleting a folder removes links inside it without touching what they point at. Namespaces, pods and containers are inventory: they cannot be renamed or deleted here.
 

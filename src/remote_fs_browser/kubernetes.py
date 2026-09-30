@@ -278,7 +278,7 @@ class KubernetesFilesystem:
         return KubernetesReader(self, parts, inner, info['size'])
 
     def writable(self, path):
-        if self.config.get('read_only', True):
+        if self.config.get('read_only', False):
             raise PermissionError('Endpoint is read-only')
         parts, inner = self.split(path)
         if len(parts) < 3 or inner == '/':

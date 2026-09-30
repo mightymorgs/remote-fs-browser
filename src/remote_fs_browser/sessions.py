@@ -485,7 +485,7 @@ class Browser:
             supported = {'discover', 'list', 'stat'} if clean['type'] == 'libvirt' else {'discover', 'list', 'stat', 'read', 'copy'}
             if clean['type'] == 'rclone' and not endpoint.get('read_only', True):
                 supported.update(('write', 'mkdir', 'delete'))
-            if clean['type'] == 'kubernetes' and not endpoint.get('read_only', True):
+            if clean['type'] == 'kubernetes' and not endpoint.get('read_only', False):
                 supported.update(('write', 'mkdir', 'delete', 'rename'))
             session_policy = replace(self.policy, endpoints={**self.policy.endpoints, clean['endpoint']: endpoint}, operations=[op for op in self.policy.operations if op in supported])
         config = dict(clean)

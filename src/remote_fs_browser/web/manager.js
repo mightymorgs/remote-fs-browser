@@ -991,7 +991,7 @@ class Component extends DCLogic {
       addNote: this.state.addType==='rclone' ? 'Saved cloud folders work with the same previews, uploads, downloads and Copy/Paste as your other locations. Read-only connections allow copying out. Removing a connection never deletes its cloud files.' : this.state.addType==='libvirt'
         ? 'Choose a host-configured endpoint. Cloud writes require administrator opt-in; libvirt exposes read-only pool and volume metadata. Credentials stay on the service host.'
         : this.state.addType==='kubernetes'
-        ? 'Choose a host-configured cluster. Browse namespaces, running pods and their containers; volumes backed by Longhorn are marked. Files are read and written with kubectl exec, so the container needs sh. Writes require administrator opt-in.'
+        ? 'Choose a host-configured cluster. Browse namespaces, running pods and their containers; volumes backed by Longhorn are marked. Files are read and written with kubectl exec, so the container needs sh.'
         : (this.state.addType || 'smb') === 'smb'
         ? 'NTLM over SMB2/3 on port 445. A domain is applied as DOMAIN\\username, and IPv6 literals are not supported — use an IPv4 address.'
         : (this.state.addType || 'smb') === 'nfs'

@@ -83,8 +83,9 @@ def cluster(request, tmp_path):
     subprocess.run(['docker', 'rm', '-f', name], capture_output=True)
 
 
-def policy_for(endpoint, read_only=False):
-    return Policy(endpoints={'pods': {**endpoint, 'read_only': read_only}},
+def policy_for(endpoint, read_only=None):
+    config = endpoint if read_only is None else {**endpoint, 'read_only': read_only}
+    return Policy(endpoints={'pods': config},
                   operations=READ_OPERATIONS + WRITE_OPERATIONS, operation_timeout=30)
 
 
