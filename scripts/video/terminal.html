@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Terminal</title>
+<!-- A terminal window for filming. record_tour.py types each command here, runs it for real with bash
+     and prints the genuine output; this page only displays text it is given. -->
+<style>
+  html,body{height:100%;margin:0}
+  body{background:linear-gradient(140deg,#e7ecf5 0%,#f4f2ef 46%,#e4edf1 100%);display:grid;place-items:center;font:15px system-ui,sans-serif}
+  .win{width:1180px;height:640px;border-radius:14px;overflow:hidden;background:#0f1726;box-shadow:0 30px 80px rgba(20,30,60,.35),0 0 0 1px rgba(0,0,0,.2);display:flex;flex-direction:column}
+  .bar{height:38px;flex:none;background:#1b2436;display:flex;align-items:center;gap:8px;padding:0 14px;color:#9aa6bd;font-size:13px}
+  .dot{width:12px;height:12px;border-radius:50%}
+  .bar span.t{flex:1;text-align:center;margin-right:52px}
+  #screen{flex:1;overflow:hidden;padding:16px 20px;font:15.5px/1.55 "DejaVu Sans Mono",ui-monospace,Menlo,monospace;color:#dfe6f3;white-space:pre-wrap;word-break:break-all}
+  .p{color:#7fd29b}.p b{color:#8fb3ff;font-weight:400}
+  .cmt{color:#8a96ad}
+  .out{color:#c9d3e6}
+  .caret{display:inline-block;width:9px;height:1.15em;vertical-align:-3px;background:#dfe6f3;animation:blink 1s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+</style>
+</head>
+<body>
+<div class="win">
+  <div class="bar"><i class="dot" style="background:#ff5f57"></i><i class="dot" style="background:#febc2e"></i><i class="dot" style="background:#28c840"></i><span class="t">morgan@studio: ~ — remotefs</span></div>
+  <div id="screen"></div>
+</div>
+<script>
+  const screen = document.getElementById('screen')
+  let line = null
+  const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))
+  const scroll = () => { screen.scrollTop = screen.scrollHeight }
+  window.term = {
+    prompt() {
+      document.querySelector('.caret')?.remove()
+      line = document.createElement('div')
+      line.innerHTML = '<span class="p">morgan@studio <b>~</b> $</span> <span class="cmd"></span><span class="caret"></span>'
+      screen.append(line); scroll()
+    },
+    key(ch) { line.querySelector('.cmd').textContent += ch; scroll() },
+    comment(text) {
+      document.querySelector('.caret')?.remove()
+      const div = document.createElement('div'); div.className = 'cmt'; div.textContent = '# ' + text
+      screen.append(div); scroll()
+    },
+    out(text) {
+      document.querySelector('.caret')?.remove()
+      const div = document.createElement('div'); div.className = 'out'; div.textContent = text
+      screen.append(div); scroll()
+    },
+    clear() { screen.innerHTML = '' }
+  }
+</script>
+</body>
+</html>

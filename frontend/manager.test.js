@@ -138,3 +138,13 @@ test('mount option appears only for SMB, NFS and cloud locations when the servic
  assert.equal(m.mountable(m.fromDescriptor({type:'nfs',host:'nas',export:'/srv',version:4})),true)
  assert.equal(m.mountable(local),false)
 })
+
+test('rubber-band selection picks the rows it crosses in visible order',()=>{
+ const m=manager()
+ m.state.listing=[{name:'b.txt',type:'file'},{name:'a.txt',type:'file'},{name:'docs',type:'directory'},{name:'c.txt',type:'file'}]
+ // visible(): docs, a.txt, b.txt, c.txt at 0, 40, 80, 120
+ const tops=[0,40,80,120],heights=[40,40,40,40]
+ assert.deepEqual([...m.bandHits(tops,heights,50,95)],['a.txt','b.txt'])
+ assert.deepEqual([...m.bandHits(tops,heights,-10,5)],['docs'])
+ assert.deepEqual([...m.bandHits(tops,heights,160,200)],[])
+})

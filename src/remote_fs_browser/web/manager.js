@@ -7,7 +7,7 @@ const KINDS = {
 }
 
 class Component extends DCLogic {
-  state = {collapsed:window.innerWidth<700,view:'browse',selected:[],anchor:null,filter:'',sort:{key:'name',dir:1},clipboard:null,menu:null,toast:null,ranges:'',scan:'idle',probed:0,scanTotal:0,devices:[],mapped:[],roots:[],width:window.innerWidth,place:{host:'',share:'',folders:[]},creds:[],transfers:[],stores:[],pins:[],listing:[],session:null,mountInfo:{enabled:false,mounts:[]}}
+  state = {collapsed:window.innerWidth<700,view:'browse',selected:[],anchor:null,filter:'',sort:{key:'name',dir:1},clipboard:null,menu:null,toast:null,ranges:'',scan:'idle',probed:0,scanTotal:0,devices:[],mapped:[],roots:[],width:window.innerWidth,place:{host:'',share:'',folders:[]},creds:[],transfers:[],stores:[],pins:[],listing:[],session:null,mountInfo:{enabled:false,mounts:[]},band:null}
   filterRef = React.createRef()
   toView(view) {
     this.setState({ view: this.state.view === view ? 'browse' : view, menu: null })
@@ -105,6 +105,54 @@ class Component extends DCLogic {
     this.setState({ selected, anchor: entry.name })
   }
   selectAll(on) { this.setState({ selected: on ? this.visible().map(item => item.name) : [] }) }
+  /** Rows whose vertical span meets the band [top, bottom], both in list-content coordinates. */
+  bandHits(tops, heights, top, bottom) {
+    const names = this.visible().map(item => item.name)
+    return names.filter((_, i) => i < tops.length && tops[i] < bottom && tops[i] + heights[i] > top)
+  }
+  /** Finder-style rubber band: drag across the list to select; Shift or Cmd/Ctrl adds to the selection. */
+  startBand(event) {
+    if (event.button !== 0 || event.target.closest('[role=checkbox],[role=button],button,input,a')) return
+    const list = event.currentTarget, box = list.getBoundingClientRect()
+    const base = event.shiftKey || event.metaKey || event.ctrlKey ? [...this.state.selected] : []
+    const start = { x: event.clientX - box.left, y: event.clientY - box.top + list.scrollTop }
+    let moved = false, lastY = event.clientY, lastX = event.clientX, timer = null
+    const update = () => {
+      const box = list.getBoundingClientRect()
+      const x = Math.max(0, Math.min(lastX - box.left, box.width)), y = Math.max(0, Math.min(lastY - box.top, box.height)) + list.scrollTop
+      const rows = [...list.querySelectorAll('.manager-file-row')]
+      const tops = rows.map(row => row.getBoundingClientRect().top - box.top + list.scrollTop), heights = rows.map(row => row.offsetHeight)
+      const top = Math.min(start.y, y), bottom = Math.max(start.y, y)
+      const hits = this.bandHits(tops, heights, top, bottom)
+      const clip = v => Math.max(box.top, Math.min(v, box.bottom))
+      this.setState({
+        selected: [...new Set([...base, ...hits])], menu: null,
+        band: { left: box.left + Math.min(start.x, x), width: Math.abs(x - start.x), top: clip(box.top + top - list.scrollTop), bottom: clip(box.top + bottom - list.scrollTop) }
+      })
+    }
+    const move = moveEvent => {
+      lastX = moveEvent.clientX; lastY = moveEvent.clientY
+      if (!moved && Math.hypot(lastX - event.clientX, lastY - event.clientY) < 5) return
+      moved = true; moveEvent.preventDefault(); update()
+    }
+    // Keep extending the band while the pointer rests beyond the top or bottom edge.
+    timer = setInterval(() => {
+      if (!moved) return
+      const box = list.getBoundingClientRect(), step = lastY > box.bottom ? 14 : lastY < box.top ? -14 : 0
+      if (step) { list.scrollTop += step; update() }
+    }, 30)
+    const up = () => {
+      clearInterval(timer)
+      document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up)
+      if (!moved) return
+      this.setState({ band: null, anchor: this.state.selected[this.state.selected.length - 1] || null })
+      // The mouseup is followed by a click on the row or background; a drag must not open or clear.
+      const swallow = clickEvent => { clickEvent.stopPropagation(); clickEvent.preventDefault() }
+      window.addEventListener('click', swallow, { capture: true, once: true })
+      setTimeout(() => window.removeEventListener('click', swallow, { capture: true }), 0)
+    }
+    document.addEventListener('mousemove', move); document.addEventListener('mouseup', up)
+  }
 
   /* ---------- actions ---------- */
   say(text) {
@@ -733,7 +781,7 @@ class Component extends DCLogic {
       scanBatch: this.state.scanNotes || 'Scans run in batches of up to 256 addresses',
       devices: shown.map(device => {
         const state = this.state.mapped.find(host => host.key === `${device.protocol.toLowerCase()}:${device.ip}`)
-        const creds = device.protocol === 'NFS' ? 'none' : state?.creds || 'ask'
+        const creds = device.protocol === 'NFS' ? 'none' : state?.creds || (this.state.creds.some(row => row.host === device.ip) ? 'stored' : 'ask')
         const label = { shared: 'Shared', stored: 'Stored', session: 'Session only', none: 'AUTH_SYS', ask: 'Not saved' }[creds]
         return {
         credsLabel: label,
@@ -1072,6 +1120,9 @@ class Component extends DCLogic {
         if (job) this.grabPart(job, this.state.confirm.index, true)
       },
 
+      bandOpen: !!this.state.band,
+      bandStyle: this.state.band ? `left:${this.state.band.left}px;top:${this.state.band.top}px;width:${this.state.band.width}px;height:${this.state.band.bottom - this.state.band.top}px` : '',
+      startBand: event => this.startBand(event),
       menuOpen: !!menu,
       menuX: menu ? `${menu.x}px` : '0px',
       menuY: menu ? `${menu.y}px` : '0px',

@@ -1,0 +1,179 @@
+{
+  "version": "0.3.0",
+  "walkthrough": {
+    "asset": "remotefs-0.3.0-walkthrough.mp4",
+    "title": "remotefs 0.3.0 — full walkthrough",
+    "chapters": [
+      {
+        "capture": "01-sign-in",
+        "slug": "01-sign-in",
+        "title": "Sign in",
+        "summary": "Open remotefs in your browser and get your bearings."
+      },
+      {
+        "capture": "02-finder",
+        "slug": "02-work-like-finder",
+        "title": "Work like Finder",
+        "summary": "Shift-click ranges, ⌘-click, drag to select, right-click menus and shortcuts."
+      },
+      {
+        "capture": "03-organise",
+        "slug": "03-organise-files",
+        "title": "Organise files",
+        "summary": "New folders, copy and paste, rename, and edit text files in place."
+      },
+      {
+        "capture": "04-network-scan",
+        "slug": "04-find-network-shares",
+        "title": "Find network shares",
+        "summary": "Scan your network, see every file server by name, and map a share."
+      },
+      {
+        "capture": "05-mount",
+        "slug": "05-mount-and-unmount",
+        "title": "Mount and unmount",
+        "summary": "Server menus, unmounting, saved logins and several servers at once."
+      },
+      {
+        "capture": "06-shortlist",
+        "slug": "06-shortlist-favourites",
+        "title": "Shortlist favourites",
+        "summary": "Star folders and reopen them with one click, even after a reload."
+      },
+      {
+        "capture": "07-cloud",
+        "slug": "07-copy-across-storage",
+        "title": "Copy across storage",
+        "summary": "Add an S3 bucket, then copy between your computer, the cloud and the NAS.",
+        "speedups": [
+          {
+            "from": 2.5,
+            "to": 47.5,
+            "factor": 2.4
+          }
+        ]
+      },
+      {
+        "capture": "08-downloads",
+        "slug": "08-big-downloads",
+        "title": "Big downloads",
+        "summary": "Zip large folders on the server and download them in parts."
+      },
+      {
+        "capture": "09-vm",
+        "slug": "09-vm-storage",
+        "title": "VM storage",
+        "summary": "Read-only libvirt storage pools and volumes."
+      },
+      {
+        "capture": "10-cli",
+        "slug": "10-command-line",
+        "title": "Command line",
+        "summary": "Scan, connect, copy, cloud and ZIP jobs: the whole app from the terminal and scripts.",
+        "speed": 1.35
+      },
+      {
+        "capture": "11-embed",
+        "slug": "11-build-it-into-your-app",
+        "title": "Build it into your app",
+        "summary": "Mount the API in your FastAPI app and drop in the folder picker, using the repo’s templates.",
+        "speed": 1.2
+      }
+    ]
+  },
+  "marketing": {
+    "asset": "remotefs-0.3.0-promo.mp4",
+    "title": "remotefs 0.3.0",
+    "open": {
+      "title": "Every file server on your network.",
+      "subtitle": "Found, mapped and managed from one browser tab."
+    },
+    "shots": [
+      {
+        "capture": "04-network-scan",
+        "from": "scan",
+        "to": "scan-done",
+        "pad": 3.6,
+        "speed": 1.0,
+        "headline": "Scan your network",
+        "detail": "Every SMB server, by name."
+      },
+      {
+        "capture": "04-network-scan",
+        "from": "map",
+        "to": "shares",
+        "pad": 1.6,
+        "speed": 3.0,
+        "headline": "Map a share in seconds",
+        "detail": "No drivers. No mount commands."
+      },
+      {
+        "capture": "02-finder",
+        "from": "drag",
+        "seconds": 4.2,
+        "speed": 1.2,
+        "headline": "Select like Finder",
+        "detail": "Drag, Shift-click, ⌘-click."
+      },
+      {
+        "capture": "02-finder",
+        "from": "menu",
+        "seconds": 3.4,
+        "speed": 1.1,
+        "headline": "Right-click everything",
+        "detail": ""
+      },
+      {
+        "capture": "07-cloud",
+        "from": "copy",
+        "to": "paste",
+        "pad": 2.6,
+        "speed": 2.2,
+        "headline": "Copy to the cloud",
+        "detail": "The server moves the bytes."
+      },
+      {
+        "capture": "06-shortlist",
+        "from": "star",
+        "seconds": 3.0,
+        "speed": 1.3,
+        "headline": "Favourites that stick",
+        "detail": ""
+      },
+      {
+        "capture": "08-downloads",
+        "from": "zip",
+        "speed": 2.6,
+        "headline": "Huge folders, in easy parts",
+        "detail": "",
+        "to": "parts",
+        "pad": 2.5
+      },
+      {
+        "capture": "10-cli",
+        "from": "cli-scan",
+        "seconds": 14.0,
+        "speed": 2.3,
+        "headline": "Script it",
+        "detail": "Every feature has a CLI command."
+      },
+      {
+        "capture": "11-embed",
+        "from": "embed",
+        "seconds": 15.0,
+        "speed": 2.2,
+        "headline": "Build it into your app",
+        "detail": "One element. No passwords stored.",
+        "lead": 0
+      }
+    ],
+    "close": {
+      "title": "remotefs",
+      "lines": [
+        "Local disks · SMB · NFS · S3 and cloud · libvirt",
+        "pipx install remote-fs-browser",
+        "mightymorgs.github.io/remote-fs-browser"
+      ]
+    }
+  }
+}

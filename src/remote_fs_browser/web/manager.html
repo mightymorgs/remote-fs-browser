@@ -221,7 +221,7 @@
           <span></span>
         </div>
 
-        <div onContextMenu="{{ onBackgroundMenu }}" onClick="{{ onBackgroundClick }}" style="flex:1;min-height:0;overflow:auto;background:rgba(255,255,255,.7);backdrop-filter:blur(20px) saturate(1.4)">
+        <div onContextMenu="{{ onBackgroundMenu }}" onClick="{{ onBackgroundClick }}" onMouseDown="{{ startBand }}" data-file-list="" style="flex:1;min-height:0;overflow:auto;background:rgba(255,255,255,.7);backdrop-filter:blur(20px) saturate(1.4)">
           <sc-for list="{{ rows }}" as="row" hint-placeholder-count="10">
             <div onClick="{{ row.click }}" onDoubleClick="{{ row.open }}" onContextMenu="{{ row.menu }}" title="{{ row.title }}" class="manager-file-row" style="display:grid;grid-template-columns:{{ listCols }};gap:12px;align-items:center;padding:0 16px;min-height:40px;border-bottom:1px solid #f0f1f4;background:{{ row.bg }};cursor:default;user-select:none;opacity:{{ row.opacity }}" style-hover="background:{{ row.hoverBg }}">
               <span onClick="{{ row.check }}" role="checkbox" aria-checked="{{ row.selected }}" aria-label="Select {{ row.name }}" style="display:grid;place-items:center;width:32px;height:32px;cursor:pointer">
@@ -758,6 +758,10 @@
           </div>
         </form>
       </div>
+    </sc-if>
+
+    <sc-if value="{{ bandOpen }}">
+      <div aria-hidden="true" style="position:fixed;{{ bandStyle }};z-index:39;border:1px solid #3f6fd1;border-radius:2px;background:rgba(63,111,209,.14);pointer-events:none"></div>
     </sc-if>
 
     <sc-if value="{{ menuOpen }}">
