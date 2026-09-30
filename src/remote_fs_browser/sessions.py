@@ -12,10 +12,11 @@ CHUNK = 256 * 1024
 
 def worker(pipe, config, policy_values):
     import os
-    if os.name != 'nt' and config['type'] in ('rclone', 'libvirt'):
+    if os.name != 'nt' and config['type'] in ('rclone', 'libvirt', 'kubernetes'):
         os.setsid()
     from .backends import LocalFilesystem, SMBFilesystem
     from .endpoints import RcloneFilesystem, LibvirtFilesystem
+    from .kubernetes import KubernetesFilesystem
     from .nfs import NFSFilesystem
     from .discovery import discover, smb_shares, nfs_exports
     fs, files, uploads = None, {}, {}
@@ -32,7 +33,7 @@ def worker(pipe, config, policy_values):
             return
         if kind == 'local':
             config['root'] = policy.local_root(config['root'])
-        elif kind in ('rclone', 'libvirt'):
+        elif kind in ('rclone', 'libvirt', 'kubernetes'):
             config.update(policy.endpoint(config['endpoint'], kind))
             config['_timeout'] = max(0.1, policy.operation_timeout * 0.8)
         else:
@@ -47,7 +48,8 @@ def worker(pipe, config, policy_values):
                     raise PermissionError('SMB redirect leaves the permitted server')
             sys.addaudithook(socket_policy)
         fs = {'local': LocalFilesystem, 'smb': SMBFilesystem, 'nfs': NFSFilesystem,
-              'rclone': RcloneFilesystem, 'libvirt': LibvirtFilesystem}[kind](dict(config))
+              'rclone': RcloneFilesystem, 'libvirt': LibvirtFilesystem,
+              'kubernetes': KubernetesFilesystem}[kind](dict(config))
         config.clear()
         pipe.send({'ok': True})
         while pipe.poll(policy.idle_seconds):
@@ -111,6 +113,8 @@ def worker(pipe, config, policy_values):
                 import errno
                 kind = {errno.EEXIST: 'FileExistsError', errno.ENOENT: 'FileNotFoundError',
                         errno.EACCES: 'PermissionError', errno.EPERM: 'PermissionError'}.get(getattr(error, 'errno', None), type(error).__name__)
+                if getattr(error, 'shown', False):
+                    kind = 'ValueError'
                 messages = {'FileExistsError': 'Destination already exists', 'FileNotFoundError': 'File or folder not found',
                             'PermissionError': 'Permission denied', 'IsADirectoryError': 'Destination is a folder',
                             'NotADirectoryError': 'Parent is not a folder', 'ValueError': str(error)}
@@ -140,8 +144,8 @@ def worker(pipe, config, policy_values):
 class Worker:
     def __init__(self, config, policy):
         import tempfile
-        self.has_children = config['type'] in ('rclone', 'libvirt')
-        self.scratch = tempfile.TemporaryDirectory(prefix='remotefs-session-') if config['type'] == 'rclone' else None
+        self.has_children = config['type'] in ('rclone', 'libvirt', 'kubernetes')
+        self.scratch = tempfile.TemporaryDirectory(prefix='remotefs-session-') if config['type'] in ('rclone', 'kubernetes') else None
         if self.scratch:
             config = {**config, '_scratch': self.scratch.name}
         context = multiprocessing.get_context('spawn')
@@ -328,6 +332,9 @@ class FilesystemSession:
         path = normalize(path)
         if path == '/':
             raise PermissionError('The selected root cannot be deleted')
+        if (await self.stat(path)).get('fixed'):
+            # Inventory levels such as a pod or container are not folders to delete.
+            raise PermissionError('This location cannot be deleted')
         rows = await self.tree(path, recursive)
         for row in rows:
             if check:
@@ -418,15 +425,15 @@ def clean_descriptor(descriptor):
     """Only the fields that identify a location; never credentials or unknown keys."""
     kind = descriptor.get('type')
     fields = {'local': ('root',), 'smb': ('host', 'share'), 'nfs': ('host', 'export', 'version'),
-              'rclone': ('endpoint',), 'libvirt': ('endpoint',)}
+              'rclone': ('endpoint',), 'libvirt': ('endpoint',), 'kubernetes': ('endpoint',)}
     if kind not in fields:
-        raise ValueError('Choose local, smb, nfs, rclone or libvirt')
+        raise ValueError('Choose local, smb, nfs, rclone, libvirt or kubernetes')
     clean = {'type': kind, **{k: descriptor[k] for k in fields[kind] if k in descriptor}}
     if kind == 'smb' and (not clean.get('share') or any(c in clean['share'] for c in '/\\\x00')):
         raise ValueError('Use a share name without subfolders')
     if kind == 'nfs' and (not clean.get('export', '').startswith('/') or str(clean.get('version', 'auto')) not in ('3', '4', 'auto')):
         raise ValueError('Use an absolute NFS export and version 3, 4 or auto (NFSv4, then NFSv3)')
-    if kind in ('rclone', 'libvirt'):
+    if kind in ('rclone', 'libvirt', 'kubernetes'):
         import re
         if not isinstance(clean.get('endpoint'), str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', clean['endpoint']):
             raise ValueError('A configured endpoint name is required')
@@ -472,12 +479,14 @@ class Browser:
             raise ValueError('Session limit reached')
         clean = clean_descriptor(descriptor)
         session_policy = self.policy
-        if clean['type'] in ('rclone', 'libvirt'):
+        if clean['type'] in ('rclone', 'libvirt', 'kubernetes'):
             from dataclasses import replace
             endpoint = endpoint_config or self.policy.endpoint(clean['endpoint'], clean['type'])
             supported = {'discover', 'list', 'stat'} if clean['type'] == 'libvirt' else {'discover', 'list', 'stat', 'read', 'copy'}
             if clean['type'] == 'rclone' and not endpoint.get('read_only', True):
                 supported.update(('write', 'mkdir', 'delete'))
+            if clean['type'] == 'kubernetes' and not endpoint.get('read_only', True):
+                supported.update(('write', 'mkdir', 'delete', 'rename'))
             session_policy = replace(self.policy, endpoints={**self.policy.endpoints, clean['endpoint']: endpoint}, operations=[op for op in self.policy.operations if op in supported])
         config = dict(clean)
         ref = descriptor.get('credential_id')

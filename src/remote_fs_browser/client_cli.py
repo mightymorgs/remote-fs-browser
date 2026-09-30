@@ -136,8 +136,8 @@ def credentials(args):
 
 
 def location_flags(parser):
-    parser.add_argument('--type', choices=('local', 'smb', 'nfs', 'rclone', 'libvirt'))
-    parser.add_argument('--endpoint', help='Saved cloud connection ID or configured libvirt endpoint name')
+    parser.add_argument('--type', choices=('local', 'smb', 'nfs', 'rclone', 'libvirt', 'kubernetes'))
+    parser.add_argument('--endpoint', help='Saved cloud connection ID, or a configured libvirt or Kubernetes endpoint name')
     parser.add_argument('--root', help='Local root on the server, not this client')
     parser.add_argument('--host')
     parser.add_argument('--share')

@@ -51,8 +51,18 @@ class Policy:
                 pools = config.get('pools')
                 if not isinstance(pools, list) or not pools or any(not isinstance(p, str) or not p or normalize('/' + p) != '/' + p or '/' in p for p in pools):
                     raise ValueError('List the permitted libvirt pool names explicitly')
+            elif config.get('type') == 'kubernetes':
+                namespaces = config.get('namespaces')
+                if not isinstance(namespaces, list) or not namespaces or any(
+                        not isinstance(n, str) or not re.fullmatch(r'[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?', n) for n in namespaces):
+                    raise ValueError('List the permitted Kubernetes namespaces explicitly')
+                for key in ('kubeconfig', 'kubectl'):
+                    if key in config and not (isinstance(config[key], str) and Path(config[key]).is_absolute()):
+                        raise ValueError(f'The {key} path must be absolute')
+                if 'context' in config and not (isinstance(config['context'], str) and config['context'] and not config['context'].startswith('-')):
+                    raise ValueError('The Kubernetes context must be a name')
             else:
-                raise ValueError('Endpoint type must be rclone or libvirt')
+                raise ValueError('Endpoint type must be rclone, libvirt or kubernetes')
             if 'read_only' in config and not isinstance(config['read_only'], bool):
                 raise ValueError('read_only must be a boolean')
         self.local_roots = [str(Path(p).resolve(strict=True)) for p in self.local_roots]
