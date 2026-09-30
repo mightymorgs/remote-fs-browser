@@ -1,7 +1,19 @@
 <header class="hero">
-  <div><p class="release">Browser file manager / self-hosted</p><h1>Your storage.<br>One place to work.</h1><p class="lead">Open the NAS. Move the files. Grab the archive.<br>Connect your cloud storage and inspect your VM pools—all from one browser.</p><div class="actions"><a class="button primary" href="#tour">Take the feature tour</a><a class="button" href="install.html">Install remotefs</a></div></div>
-  <div class="connection-map" aria-label="Your browser connects to one remotefs service, which accesses local folders, SMB, NFS, rclone and libvirt"><div class="map-browser">Your browser <span>Any device with access to the service</span></div><div class="map-wire"></div><div class="map-service"><strong>remotefs</strong><span>One service. Your permissions.</span></div><div class="map-fan"><span>Local</span><span>SMB</span><span>NFS</span><span>rclone</span><span>libvirt</span></div><p>Need a real drive? <a href="mounts.html">Mount any share or cloud connection</a> on the service host.</p><p>Cloud and libvirt are included in <a href="endpoints.html">version 0.3.0</a>, with optional host dependencies.</p></div>
+  <div><p class="release">Self-hosted storage control plane / version 0.4.0</p><h1>Every share, bucket and disk.<br>One control plane.</h1><p class="lead">Install remotefs once on a computer that can reach your storage. Find the NAS, browse SMB, NFS and cloud side by side, copy between them, and mount any of them as a real drive, from a browser, the terminal or your own app.</p><div class="actions"><a class="button primary" href="install.html">Install remotefs</a><a class="button" href="#why">Why not mount it yourself?</a><a class="button" href="#tour">Take the feature tour</a></div></div>
+  <div class="connection-map" aria-label="Your browser, terminal or app connects to one remotefs service, which accesses local folders, SMB, NFS, cloud storage through rclone, and libvirt, and can mount them as drives"><div class="map-browser">Browser · CLI · API · SDK <span>Any device with access to the service</span></div><div class="map-wire"></div><div class="map-service"><strong>remotefs</strong><span>One service. Your policy. Your logins.</span></div><div class="map-fan"><span>Local</span><span>SMB</span><span>NFS</span><span>Cloud</span><span>libvirt</span></div><p>Need a real drive? <a href="mounts.html">Mount a share, export or bucket</a> on the service host, and it reconnects after a restart.</p><p>Runs on Linux, macOS and Windows. Five ways to install.</p></div>
 </header>
+<section class="why" id="why" aria-labelledby="why-heading">
+  <div class="section-heading"><div><h2 id="why-heading">Why not just mount it yourself?</h2><p>Because each protocol, each operating system and each reboot makes you do it again.</p></div></div>
+  <div class="why-grid">
+    <div><strong>Mount what your OS can’t</strong><span>remotefs has its own NFS client, so NFS works on every Windows 11 edition, including Home, which ships without one. NFS exports mount through remotefs’s own WebDAV bridge, and mounts run through rclone, so there is no 4 GB WebDAV file cap.</span></div>
+    <div><strong>Find it first</strong><span>Scan the ranges you allow for SMB and NFS servers, see DNS, NetBIOS and IP together, list shares and exports, and keep encrypted logins and a shortlist of favourite folders.</span></div>
+    <div><strong>Cloud in the same window</strong><span>Add S3, Dropbox, Google Drive, OneDrive, B2, Azure Blob or WebDAV in the app. Copy on the NAS, Paste in the bucket. No second tool, no local copy.</span></div>
+    <div><strong>Mounts that come back</strong><span>A share, export or bucket becomes a folder or drive every app can use, read-write or read-only. It reconnects after restarts, rclone exits and Windows sign-in. Tested on Linux and macOS; Windows drives are still being verified.</span></div>
+    <div><strong>One model, four interfaces</strong><span>The browser, a full CLI, an authenticated HTTP API and a Python SDK share the same service, policy and saved logins. Embed the directory picker to add storage selection to your own app.</span></div>
+    <div><strong>Easy to install anywhere</strong><span>Homebrew, PyPI, a portable Windows build, WinGet (awaiting acceptance) or source. Guided first-run setup, and systemd, launchd, Windows and Ansible deployments for always-on use.</span></div>
+  </div>
+  <p class="roadmap"><strong>Coming next:</strong> a k3s layer for browsing Longhorn volumes is in progress, followed by Proxmox and Hyper-V storage browsing. Today, remotefs lists libvirt storage pools and volumes read-only.</p>
+</section>
 <section id="tour" aria-labelledby="tour-heading">
   <div class="section-heading"><div><h2 id="tour-heading">See the whole workflow.</h2><p>Nine short chapters. Jump in anywhere.</p></div><button class="button" id="play-tour" hidden>Play tour</button></div>
   <div class="tour-shell">
@@ -23,7 +35,7 @@
 
 Choose network access
 Set your username and password
-Open http://127.0.0.1:8080/</pre><div class="terminal-note">Homebrew and Windows portable installs are available too.</div></div><p class="visual-note">Command guide • install optional host dependencies for cloud and libvirt</p></div>
+Open http://127.0.0.1:8080/</pre><div class="terminal-note">Homebrew, a portable Windows build, WinGet and source installs are available too.</div></div><p class="visual-note">Command guide • install optional host dependencies for cloud and libvirt</p></div>
     </article>
     <article class="scene" id="scene-discover" role="tabpanel" aria-labelledby="tab-discover" tabindex="0" hidden>
       <div class="scene-copy"><span class="scene-kind">Local roots + network shares</span><h3>Find it.<br>Connect to it.<br>Keep it handy.</h3><p>Scan permitted CIDR ranges for SMB and NFS. See DNS names, NetBIOS names and addresses together—or add a server directly.</p><p>Map shares, save encrypted SMB credentials and shortlist the folders you use most.</p><a href="reference.html#scan-map-and-remember-locations">Discovery and saved locations</a></div>

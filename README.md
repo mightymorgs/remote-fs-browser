@@ -1,31 +1,68 @@
-# Remote filesystem browser
+# remotefs
 
-**Manage local folders, SMB shares and NFS exports through one browser and HTTP API.**
+**A self-hosted control plane for your storage. Find, browse, move and mount local disks, SMB shares, NFS exports and cloud storage from one small service, through a browser, the CLI, an HTTP API or your own app.**
 
-Run remotefs on a workstation, server or homelab node to access the storage that machine can reach. Its home directory, mounted volumes and permitted network servers appear in one interface. The viewing computer needs only access to the service’s HTTP port; SMB and NFS connections run from the service host.
+Install remotefs once, on a computer that can reach your storage. It finds the file servers on your network, keeps your logins, and shows every location in one Finder-style file manager: copy from a NAS and paste into an S3 bucket, edit a config file on an NFS export, or pack a folder into a split ZIP for download. When an app needs a real drive, remotefs mounts the share, export or bucket as a folder or drive letter on that computer and brings it back after a restart. The file servers need no agent, and the viewing device needs only a browser.
 
-Version 0.4.0 adds **Mount on this computer**: an SMB share, NFS export or cloud connection shows up as a folder or drive on the service host, and reconnects after restarts and, on Windows, each time its owner signs in. It also lists SMB shares on Windows hosts, tries NFSv4 then NFSv3 automatically, and says why a server refused a connection. Version 0.3.0 added cloud connections managed in the GUI or CLI, cross-storage Copy/Paste, and optional read-only libvirt inventory. remotefs retains guided setup, password login, file editing and staged multipart downloads. The [cross-host dogfood report](docs/validation/2026-09-11-dogfood.md) records the completed browser workflows and network download checks. See [validation](VALIDATION.md) for scope and limitations.
+[Documentation site](https://mightymorgs.github.io/remote-fs-browser/) · [Feature walkthrough](https://mightymorgs.github.io/remote-fs-browser/#watch-it-install-and-run) · [What's new in 0.4.0](https://github.com/mightymorgs/remote-fs-browser/releases/tag/v0.4.0)
 
-Install one Python service on a computer that can reach your shares, then use it from a browser—including over Tailscale. File servers need no remotefs agent. SMB/NFS connections stay inside the app: no operating-system mounts are created unless you choose **Mount on this computer**, an opt-in that shows a share or cloud connection as a folder or drive on the service host. Access is limited to reachable, permitted networks and valid server credentials. NFS requires libnfs 6+; see the [Tailscale quickstart](QUICKSTART.md#one-service-network-access-through-tailscale).
+## Why remotefs instead of mounting things yourself
 
-## Cloud storage and libvirt
+| Doing it by hand | With remotefs |
+|---|---|
+| Each protocol has its own client, and each operating system does it differently. Windows 11 Home has no NFS client at all. | One service speaks SMB, NFS (its own libnfs client, including on every Windows edition), rclone cloud storage and local disks, the same way on Linux, macOS and Windows. |
+| You need to know server addresses and share names before you start. | **Scan network** finds SMB and NFS servers across the ranges you allow, shows DNS, NetBIOS and IP together, and lists each server's shares and exports. |
+| rclone can mount a bucket, but its configuration lives in the terminal and it has no NFS support. | Add S3, Dropbox, Google Drive, OneDrive, B2, Azure Blob or WebDAV in the app, then browse or mount it. NFS mounts go through remotefs's own loopback WebDAV bridge, so NFS exports mount wherever rclone runs. |
+| Windows' built-in WebDAV client caps files at 4 GB. | Mounts run through rclone, so there is no per-file size limit for disk images and video. (Windows drives are still being verified on real Windows machines.) |
+| Hand-made mounts drop after a reboot or a crashed helper. | Mounts reconnect when the service starts, when rclone exits unexpectedly and, on Windows, when their owner signs in. |
+| Moving files between a NAS and a cloud bucket means two tools and a local copy. | Copy in one location, Paste in another. Local, SMB, NFS and cloud work in any direction. |
+| Automation means scripting each protocol separately. | The CLI, HTTP API and Python SDK drive the same service, policy and saved logins as the browser. |
 
-Version 0.3.0 includes optional **cloud connections added through the GUI or CLI** (S3, Dropbox and other rclone providers) and **read-only libvirt storage pool/volume inventory**. They use the same manager, CLI, SDK and saved-location descriptors. Homebrew includes rclone; other installations need rclone on the service host for cloud storage; libvirt needs its native library and Python extra.
+remotefs is not a sync or backup tool, a multi-user file sharing portal, or a hardened multi-tenant sandbox. It is one account's workspace for the storage one computer can reach. See [what it does not do](#operation-and-protocol-limits) before putting it on an untrusted network.
+
+## What you get in 0.4.0
+
+**Reach everything**
+- Local folders and mounted volumes, SMB (SMB2/3 with NTLM, including domain logins), NFSv4 with automatic fallback to NFSv3, and cloud storage through rclone.
+- Cloud connections added in the GUI or CLI: Amazon S3 and compatible stores, Backblaze B2, Dropbox, Google Drive, OneDrive, Azure Blob and WebDAV/Nextcloud. Administrators can also expose any other rclone remote.
+- A network scanner for SMB and NFS servers, manual server entry, mapped hosts, encrypted saved logins and a shortlist of favourite folders.
+- Read-only libvirt inventory: storage pools and volumes with capacity and allocation, never guest files.
+
+**Work like a desktop file manager**
+- Finder-style drag-to-select (rubber band), checkbox and Shift ranges, right-click menus, filtering, sorting, breadcrumbs and keyboard shortcuts.
+- Upload, download, new files and folders, rename, move and delete, plus a built-in text editor for config files and notes.
+- Copy and Paste across local, NAS and cloud storage.
+
+**Move big data**
+- Direct downloads with HTTP Range support, or ZIP64 archives prepared on the service host, optionally split into parts, with pause, resume and explicit cleanup.
+
+**Mount it on the computer (new in 0.4.0)**
+- Right-click an SMB share, NFS export or cloud connection and choose **Mount on this computer**. Every app can then open and save files there. Read-write by default, with a read-only option.
+- Folders on macOS and Linux (tested on both) and drive letters on Windows through WinFsp, which remotefs offers to install. Windows drives belong only to the signed-in owner and are still being verified on real Windows machines.
+- Mounts reconnect after restarts, rclone exits and Windows sign-in. Eject waits for uploads to finish. Opt in with `remotefs serve --allow-mounts`; see [Mount storage on this computer](docs/MOUNTS.md).
+
+**Same features from the terminal, and in your own apps**
+- A full CLI: log in, scan, list shares, connect, then `ls`, `get`, `put`, `copy`, `rename`, `mkdir` and `remove`, plus saved locations, downloads, cloud remotes and mounts. JSON output suits scripts.
+- An authenticated HTTP API, an asynchronous Python SDK and an embeddable `<remote-fs-browser>` directory picker that hands your app a location descriptor with no password in it.
+
+**Install it anywhere**
+- Homebrew on macOS, PyPI (`pipx install remote-fs-browser`) on Linux, macOS and Windows, a portable Windows x64 build with no Python needed, WinGet (awaiting acceptance), or from source. systemd, launchd, Windows startup tasks and Ansible playbooks run it as an always-on service.
+- CI runs on Intel and ARM Linux, Intel and Apple Silicon macOS, and Windows, with real SMB and NFS servers in containers. See [validation](VALIDATION.md).
+
+**On the roadmap**
+- A k3s layer for browsing Longhorn volumes (in progress), then Proxmox and Hyper-V storage browsing. None of these ship in 0.4.0.
+
+## Cloud storage and libvirt details
+
+Cloud connections and libvirt use the same manager, CLI, SDK and saved-location descriptors as local and network storage. Homebrew includes rclone; other installations need rclone on the service host for cloud storage; libvirt needs its native library and Python extra.
 
 Rclone supports browsing, metadata, downloads, copying out and ZIP preparation. Copy/paste works across local, NAS and cloud connections. Uploads, text saves, folder creation and deletion require write permission; cloud rename/cut is not exposed. Libvirt lists explicitly permitted pools and volumes with capacity/allocation metadata; it does not browse guest files or alter disks.
 
 See [cloud and libvirt configuration](docs/ENDPOINTS.md) for source installation, dependencies, S3/Dropbox setup, capability differences and limits.
 
-## What is included
+## Access model
 
-- Local, SMB and NFS browsing, metadata, uploads, downloads, new files/folders, text editing, copy, move, rename and recursive deletion, subject to policy and filesystem permissions.
-- CIDR scanning with DNS names, NetBIOS names and IP addresses shown together; manual connections, mapped hosts, encrypted saved SMB credentials and folder shortlists.
-- A responsive manager with filtering, sorting, breadcrumbs, checkbox/range selection, context menus and keyboard shortcuts.
-- Direct file downloads or host-staged ZIP64 archives, optional byte splitting, HTTP Range support, packing pause/resume and explicit purge. In 0.2.2, choose ZIP preparation folders and create new ones from the browser.
-- A Python SDK, authenticated HTTP API and embeddable directory picker with credential-free descriptors.
-- Optional mounts (`remotefs serve --allow-mounts`): show an SMB share, NFS export or cloud connection as a folder (macOS/Linux) or drive letter (Windows) on the service host, with no file-size limit. Read-write by default, with a read-only option. New in 0.4.0, and mounts reconnect after restarts and Windows sign-in. See [Mount storage on this computer](docs/MOUNTS.md).
-
-[Documentation site](https://mightymorgs.github.io/remote-fs-browser/) · [Feature walkthrough](https://mightymorgs.github.io/remote-fs-browser/#watch-it-install-and-run)
+The viewing computer needs only access to the service's HTTP port; SMB, NFS and cloud connections run from the service host, including over Tailscale. SMB and NFS connections stay inside the app unless you choose **Mount on this computer**. Access is limited to permitted networks and valid server credentials. NFS requires libnfs 6+; see the [Tailscale quickstart](QUICKSTART.md#one-service-network-access-through-tailscale). The [cross-host dogfood report](docs/validation/2026-09-11-dogfood.md) records completed browser workflows and network download checks.
 
 ## Quick start
 
