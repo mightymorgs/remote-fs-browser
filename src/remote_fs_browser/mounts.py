@@ -300,6 +300,9 @@ class MountManager:
         if self.method == 'nfs':
             # Keep file handles valid if rclone restarts, so Finder windows don't go stale.
             argv += ['--nfs-cache-type', 'disk']
+            # rclone's NFS server has no lock manager; keep locks on this Mac so apps that lock on save
+            # (TextEdit, Office) don't wait on lock requests nobody answers.
+            argv += ['-o', 'locallocks']
         if row['read_only']:
             argv.append('--read-only')
         return argv
