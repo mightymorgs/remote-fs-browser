@@ -32,7 +32,7 @@ Add an S3 bucket, then copy between your computer, the cloud and the NAS. The se
 
 ## 9:39 — Mount as a drive
 
-Mount a NAS folder or cloud bucket as a folder or drive that every app can use, read-write or read-only. The NAS folder is mounted read-write and the S3 bucket read-only. A terminal copies a 96 MB video onto the NAS mount and edits a text file, and `rm` on the S3 mount is refused with "Read-only file system". Back in the browser, the new file and the edit are read over SMB, then both mounts are ejected. Needs `remotefs serve --allow-mounts`; mounting ships in the next release. Filmed on Linux; macOS is tested; Windows drives belong to your own account and are not yet verified on a real Windows computer. [How mounts work](mounts.html).
+Mount a NAS folder or cloud bucket as a folder or drive that every app can use, read-write or read-only. The NAS folder is mounted read-write and the S3 bucket read-only. A terminal copies a 96 MB video onto the NAS mount and edits a text file, and `rm` on the S3 mount is refused with "Read-only file system". Back in the browser, the new file and the edit are read over SMB, then both mounts are ejected. Needs `remotefs serve --allow-mounts`; mounting is available from version 0.4.0. Filmed on Linux; macOS is tested; Windows drives belong to your own account and are not yet verified on a real Windows computer. [How mounts work](mounts.html).
 
 ## 12:06 — Big downloads
 

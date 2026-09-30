@@ -2,7 +2,7 @@
 
 Remotefs runs on a computer that can reach your storage. Your browser, terminal client and integrations connect to that service. Files are read or written by the service host using its permitted roots, network connections and configured endpoints.
 
-Version 0.3.0 supports local folders, SMB, NFS, optional rclone cloud connections and read-only libvirt pool/volume inventory. The next release adds optional mounts, which show any of those shares or cloud connections as a folder or drive on the service host. See the [endpoint guide](endpoints.html) for installation, configuration and the complete capability table.
+Version 0.4.0 supports local folders, SMB, NFS, optional rclone cloud connections, read-only libvirt pool/volume inventory and optional mounts, which show any of those shares or cloud connections as a folder or drive on the service host. See the [endpoint guide](endpoints.html) for installation, configuration and the complete capability table.
 
 ## Set up the service
 
@@ -58,7 +58,7 @@ When another program needs the files, such as a video editor, a disk-image tool 
 
 Mounts are read-write by default; untick **Allow changes** for a read-only mount. They appear under **Mounted on this computer** in the sidebar, as a folder under `~/remotefs` on macOS and Linux or a drive letter on Windows. There is no file-size limit. **Eject** waits for uploads to finish. The CLI has the same controls: `remotefs mount`, `remotefs mounts` and `remotefs unmount`.
 
-Mounting uses rclone on the service host, plus FUSE on Linux or WinFsp on Windows. NFS mounts go through rclone too, via a private local link, so they behave the same on every system. On Windows the drive belongs only to your own account and sign-in session; this has not yet been checked on a real Windows computer. Mounting is new since 0.3.0 and ships in the next release.
+Mounting uses rclone on the service host, plus FUSE on Linux or WinFsp on Windows. NFS mounts go through rclone too, via a private local link, so they behave the same on every system. On Windows the drive belongs only to your own account and sign-in session; this has not yet been checked on a real Windows computer. Mounting is available from version 0.4.0, and mounts reconnect by themselves after restarts unless you untick **Reconnect automatically**.
 
 [Mount storage on this computer](mounts.html).
 

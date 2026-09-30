@@ -6,8 +6,6 @@ Version 0.4.0 can mount an SMB share, NFS export or cloud connection as a folder
 
 Cloud connection management and cross-storage Copy/Paste are included in 0.3.0. Homebrew includes rclone. For other installations, install [rclone](https://rclone.org/install/) on the service host for cloud access. Libvirt inventory needs the native libvirt development packages and `pipx install --force 'remote-fs-browser[libvirt]'`. See the [endpoint guide](endpoints.html).
 
-**Mounting (next release).** To show shares and cloud connections as folders or drives on the service host, you need rclone plus `fuse3` on Linux (`sudo apt install fuse3`) or WinFsp on Windows, which the app offers to install. macOS needs only rclone 1.65+, which Homebrew installs. Start the service with `--allow-mounts`. See [Mount storage on this computer](mounts.html).
-
 Existing pipx installations can update with `pipx upgrade remote-fs-browser`; Homebrew users can run `brew update && brew upgrade mightymorgs/tap/remotefs`. Restart your service after upgrading.
 
 ## Install a package
