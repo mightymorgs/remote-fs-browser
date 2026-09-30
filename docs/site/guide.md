@@ -58,7 +58,7 @@ When another program needs the files, such as a video editor, a disk-image tool 
 
 Mounts are read-write by default; untick **Allow changes** for a read-only mount. They appear under **Mounted on this computer** in the sidebar, as a folder under `~/remotefs` on macOS and Linux or a drive letter on Windows. There is no file-size limit. **Eject** waits for uploads to finish. The CLI has the same controls: `remotefs mount`, `remotefs mounts` and `remotefs unmount`.
 
-Mounting uses rclone on the service host, plus FUSE on Linux or WinFsp on Windows. NFS mounts go through rclone too, via a private local link, so they behave the same on every system. On Windows the drive belongs only to your own account and sign-in session; this has not yet been checked on a real Windows computer. Mounting is available from version 0.4.0, and mounts reconnect by themselves after restarts unless you untick **Reconnect automatically**.
+Mounting uses rclone on the service host, plus FUSE on Linux or WinFsp on Windows. NFS mounts go through rclone too, via a private local link, so they behave the same on every system. On Windows the drive belongs only to your own account and sign-in session, and it comes back each time you sign in. Mounting is available from version 0.4.0, and mounts reconnect by themselves after restarts unless you untick **Reconnect automatically**.
 
 [Mount storage on this computer](mounts.html).
 
