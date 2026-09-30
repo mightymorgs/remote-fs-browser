@@ -1146,7 +1146,7 @@ class Component extends DCLogic {
     try {this.setState({mountInfo:await this.api('/mounts')})} catch {this.setState({mountInfo:{enabled:false,mounts:[]}})}
   }
   mountable(place) {
-    return this.state.mountInfo.enabled && ['smb','rclone'].includes(place.descriptor?.type)
+    return this.state.mountInfo.enabled && ['smb','nfs','rclone'].includes(place.descriptor?.type)
   }
   /** Mount a share, folder or cloud connection as a folder (macOS/Linux) or drive letter (Windows) on the service's computer. */
   async mountFolder(place,name) {
@@ -1190,8 +1190,8 @@ class Component extends DCLogic {
         for(const value of ['', ...'ZYXWVUTSRQPONMLKJIHGFED'])letter.append(new Option(value?value+':':'Next free letter',value?value+':':''))
         const letterRow=document.createElement('label');letterRow.className='field';letterRow.append('Drive letter',letter);form.append(letterRow)
       }
-      const write=document.createElement('input');write.type='checkbox'
-      const writeRow=document.createElement('label');writeRow.className='check';writeRow.append(write,' Allow changes (otherwise read-only)')
+      const write=document.createElement('input');write.type='checkbox';write.checked=true
+      const writeRow=document.createElement('label');writeRow.className='check';writeRow.append(write,' Allow changes (untick for read-only)')
       form.append(writeRow)
       if(info.notice){const note=document.createElement('p');note.className='note';const link=document.createElement('a');link.href=info.notice.url;link.target='_blank';link.rel='noopener';link.textContent=info.notice.text;note.append('Drive letters use ',link,'.');form.append(note)}
       const buttons=document.createElement('div');buttons.className='dialog-buttons'

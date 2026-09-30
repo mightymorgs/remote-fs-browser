@@ -586,7 +586,7 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         endpoint_config = await managed_endpoint(request, descriptor)
         if endpoint_config is None and descriptor.get('type') == 'rclone':
             endpoint_config = policy.endpoint(descriptor['endpoint'], 'rclone')
-        read_only = bool(data.get('read_only', True)) or 'write' not in session.policy.operations
+        read_only = bool(data.get('read_only', False)) or 'write' not in session.policy.operations
         label = data.get('label') or mount_label(request, descriptor)
         from .mounts import MountError
         try:

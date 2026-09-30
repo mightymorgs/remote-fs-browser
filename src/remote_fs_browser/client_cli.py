@@ -237,7 +237,7 @@ def parser():
     mount = command('mount', 'Mount a session folder as a folder or drive on the computer running the service')
     mount.add_argument('session')
     mount.add_argument('path', nargs='?', default='/')
-    mount.add_argument('--read-write', action='store_true', help='Allow changes through the mount (read-only by default)')
+    mount.add_argument('--read-only', action='store_true', help='Block changes through the mount (read/write by default when the session can write)')
     mount.add_argument('--label', help='Name shown for the mount')
     mount.add_argument('--target', help='Drive letter on Windows (for example Z:), or a folder name under the mount folder')
     credential_flags(mount)
@@ -334,7 +334,7 @@ def execute(args, client):
         required(args, 'host', 'username')
         return client.request('POST', cmd, {'host': args.host, 'credentials': credentials(args)})
     if cmd == 'mount':
-        data = {'session': args.session, 'path': args.path, 'read_only': not args.read_write}
+        data = {'session': args.session, 'path': args.path, 'read_only': args.read_only}
         for key in ('label', 'target'):
             if getattr(args, key):
                 data[key] = getattr(args, key)

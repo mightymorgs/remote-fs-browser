@@ -112,7 +112,7 @@ def main(argv=None):
     access = parser.add_mutually_exclusive_group()
     access.add_argument('--read-only', action='store_true', help='Disable all filesystem changes')
     access.add_argument('--read-write', action='store_true', help='Enable filesystem changes (overrides configured operations)')
-    parser.add_argument('--allow-mounts', action='store_true', help='Let signed-in users mount SMB shares and cloud storage as folders/drives on this computer (needs rclone; WinFsp on Windows, FUSE on Linux)')
+    parser.add_argument('--allow-mounts', action='store_true', help='Let signed-in users mount SMB shares, NFS exports and cloud storage as folders/drives on this computer (needs rclone; WinFsp on Windows, FUSE on Linux)')
     parser.add_argument('--mount-folder', help='Folder that holds mounts on macOS/Linux (default: ~/remotefs)')
     parser.add_argument('--username', help='Username for account setup or password reset')
     parser.add_argument('--password-stdin', action='store_true', help='Read the new password from standard input for account setup')

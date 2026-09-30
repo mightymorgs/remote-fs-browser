@@ -127,7 +127,7 @@ test('cloud clipboard paste retains the source connection and targets the visibl
  assert.equal(calls.length,1);assert.equal(m.state.clipboard.names[0],'album')
 })
 
-test('mount option appears only for SMB and cloud locations when the service allows mounts',()=>{
+test('mount option appears only for SMB, NFS and cloud locations when the service allows mounts',()=>{
  const m=manager()
  const smb=m.fromDescriptor({type:'smb',host:'192.0.2.1',share:'Projects',path:'/'}),local=m.fromDescriptor({type:'local',root:'/srv'})
  m.state.mountInfo={enabled:false,mounts:[]}
@@ -135,5 +135,6 @@ test('mount option appears only for SMB and cloud locations when the service all
  m.state.mountInfo={enabled:true,available:true,mounts:[]}
  assert.equal(m.mountable(smb),true)
  assert.equal(m.mountable(m.fromDescriptor({type:'rclone',endpoint:'cloud-1'})),true)
+ assert.equal(m.mountable(m.fromDescriptor({type:'nfs',host:'nas',export:'/srv',version:4})),true)
  assert.equal(m.mountable(local),false)
 })

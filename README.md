@@ -23,7 +23,7 @@ See [cloud and libvirt configuration](docs/ENDPOINTS.md) for source installation
 - A responsive manager with filtering, sorting, breadcrumbs, checkbox/range selection, context menus and keyboard shortcuts.
 - Direct file downloads or host-staged ZIP64 archives, optional byte splitting, HTTP Range support, packing pause/resume and explicit purge. In 0.2.2, choose ZIP preparation folders and create new ones from the browser.
 - A Python SDK, authenticated HTTP API and embeddable directory picker with credential-free descriptors.
-- Optional mounts (`remotefs serve --allow-mounts`): show an SMB share or cloud connection as a folder (macOS/Linux) or drive letter (Windows) on the service host, with no file-size limit. See [Mount storage on this computer](docs/MOUNTS.md).
+- Optional mounts (`remotefs serve --allow-mounts`): show an SMB share, NFS export or cloud connection as a folder (macOS/Linux) or drive letter (Windows) on the service host, with no file-size limit. See [Mount storage on this computer](docs/MOUNTS.md).
 
 [Documentation site](https://mightymorgs.github.io/remote-fs-browser/) · [Product demo](https://mightymorgs.github.io/remote-fs-browser/#watch-it-install-and-run)
 

@@ -1,6 +1,6 @@
 # Mount storage on this computer
 
-remotefs can show an SMB share or a cloud connection as a normal folder or drive on **the computer running the remotefs service**. Finder, File Explorer and every other app can then open, save and copy files there directly. This includes large files: there is no per-file size limit, so disk images and video work.
+remotefs can show an SMB share, an NFS export or a cloud connection as a normal folder or drive on **the computer running the remotefs service**. Finder, File Explorer and every other app can then open, save and copy files there directly. This includes large files: there is no per-file size limit, so disk images and video work.
 
 Mounting is off by default. Turn it on when you start the service:
 
@@ -12,12 +12,12 @@ For installed services, add `"mount"` to `policy.operations` in `config.json` an
 
 ## Mount and eject
 
-- **In the browser:** right-click a share in the sidebar, a folder, or the empty space in a folder, then choose **Mount on this computer…**. Pick a name (and a drive letter on Windows), and tick **Allow changes** if you want to write through the mount. Mounts are read-only unless you tick it. Active mounts appear under **Mounted on this computer** in the sidebar, with an **Eject** button.
+- **In the browser:** right-click a share in the sidebar, a folder, or the empty space in a folder, then choose **Mount on this computer…**. Pick a name (and a drive letter on Windows), and untick **Allow changes** if you want the mount to be read-only. Mounts allow changes by default. Active mounts appear under **Mounted on this computer** in the sidebar, with an **Eject** button.
 - **From the terminal:**
 
   ```sh
   remotefs connect --type smb --host 192.168.1.20 --share Projects --credential-id CREDENTIAL_ID
-  remotefs mount SESSION_ID /Clients --read-write --label "Client work"
+  remotefs mount SESSION_ID /Clients --label "Client work"   # add --read-only to block changes
   remotefs mounts                      # active mounts and anything this computer still needs
   remotefs unmount MOUNT_ID
   ```
@@ -32,10 +32,12 @@ Eject waits up to a minute for uploads to finish before unmounting. If uploads a
 | Cloud connection (S3, B2, Dropbox, Drive, OneDrive, WebDAV, Azure) | Yes | The saved rclone connection, limited to its bucket/folder prefix |
 | Host-configured rclone endpoint | Yes | Its configured remote and root |
 | Local folder | No | It is already on this computer |
-| NFS export | No | Use the computer's own NFS client (`mount -t nfs …`) |
+| NFS export or folder | Yes | remotefs reads the export with its own NFS client and hands it to rclone over a private loopback WebDAV link (rclone has no NFS client) |
 | Libvirt pool | No | Read-only inventory, not file content |
 
 A mount is limited to what its session allows: a read-only connection or service always mounts read-only.
+
+**NFS mounts.** Each NFS mount runs a small WebDAV server in its own process, listening only on 127.0.0.1 behind a random password, backed by the same libnfs connection remotefs uses for browsing. It needs nothing beyond what browsing NFS already needs, and it works the same way on Windows, macOS and Linux. The NFS server sees the service host's address, as it does when you browse. Symbolic links on the export are hidden, as they are in the browser.
 
 ## How it works on each system
 
@@ -60,6 +62,7 @@ The Windows portable download bundles `rclone.exe`. Homebrew installs rclone as 
 - Mounts are created on the computer running the service. To use one from a different computer, run remotefs on that computer, or share the mount with that computer's own tools.
 - On Linux and macOS a mount belongs to the account running the service. A service installed as root creates mounts under root's home folder unless `mount_folder` points elsewhere.
 - rclone's `nfsmount` is marked experimental by the rclone project.
+- NFS mounts pass every file operation through one connection, so they are slower than a native NFS mount for many small files. Large files stream at close to network speed.
 - Cloud storage has no real rename for large folders; renaming them through a mount copies and deletes, which is slow.
 
 WinFsp - Windows File System Proxy, Copyright (C) Bill Zissimopoulos — https://github.com/winfsp/winfsp. rclone is MIT-licensed, copyright Nick Craig-Wood — https://rclone.org.

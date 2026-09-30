@@ -2,7 +2,9 @@
 
 Windows mounts a drive letter through WinFsp (`rclone mount --network-mode`), Linux uses FUSE
 (`rclone mount`) and macOS uses rclone's built-in NFS server with the system NFS client
-(`rclone nfsmount`), so macOS needs no kernel extension. Each mount runs its own rclone process
+(`rclone nfsmount`), so macOS needs no kernel extension. rclone has no NFS client, so NFS shares
+reach rclone through a loopback WebDAV bridge backed by remotefs's own libnfs access (davbridge.py).
+Each mount runs its own rclone process
 with a private config, a persistent VFS cache and a loopback remote-control endpoint protected by
 a random password. The service asks rclone to finish pending uploads and quit, rather than killing
 it, so unmounting does not lose writes.
@@ -146,7 +148,7 @@ def obscure(binary, secret):
     return process.stdout.decode().strip()
 
 
-def remote_for(descriptor, credentials, endpoint_config, binary):
+def remote_for(descriptor, credentials, endpoint_config, binary, bridge=None):
     """The rclone [remote] section and the path inside it for a session descriptor."""
     kind = descriptor.get('type')
     path = normalize(descriptor.get('path', '/')).strip('/')
@@ -171,7 +173,11 @@ def remote_for(descriptor, credentials, endpoint_config, binary):
     if kind == 'local':
         raise MountError('Local folders are already on this computer')
     if kind == 'nfs':
-        raise MountError('Mount NFS exports with this computer’s NFS client; remotefs mounts SMB shares and cloud storage')
+        if bridge is None:
+            raise MountError('This NFS share is not available')
+        # The bridge already serves the chosen folder as its root.
+        return {'type': 'webdav', 'url': bridge.url, 'vendor': 'other', 'user': 'remotefs',
+                'pass': obscure(binary, bridge.password)}, ''
     raise MountError('This location cannot be mounted')
 
 
@@ -190,7 +196,7 @@ def free_port():
 class MountManager:
     """Owns the rclone mount processes started by this service."""
 
-    def __init__(self, directory, base=None, binary=None, system=None, popen=subprocess.Popen):
+    def __init__(self, directory, base=None, binary=None, system=None, popen=subprocess.Popen, bridge=None):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.system = system or sys.platform
@@ -201,6 +207,8 @@ class MountManager:
         self.lock = threading.RLock()
         self.state_path = self.directory / 'mounts.json'
         self.processes = {}
+        self.bridges = {}
+        self.bridge = bridge
         self.records = {}
         self.cleanup_stale()
 
@@ -299,32 +307,39 @@ class MountManager:
             check = prerequisites(self.binary, self.system)
             if not check['available']:
                 raise MountError('; '.join(f"{m['name']} is needed: {m['install']}" for m in check['missing']))
-            section, remote_path = remote_for(descriptor, credentials, endpoint_config, self.binary)
             key = 'mount-' + secrets.token_hex(8)
-            clean = {k: v for k, v in descriptor.items() if k != 'credential_id'}
-            row = dict(principal=principal, label=safe_label(label), read_only=bool(read_only), method=self.method,
-                       started=time.time(), descriptor=clean, rc_port=free_port(), rc_pass=secrets.token_urlsafe(24))
-            row['target'] = self.choose_target(row['label'], target)
-            row['remote_path'] = remote_path
-            conf = self.directory / f'{key}.conf'
-            config = configparser.RawConfigParser()
-            config['remote'] = section
-            output = io.StringIO()
-            config.write(output)
-            write_private(conf, output.getvalue())
-            log = self.directory / f'{key}.log'
-            # The rc login goes through the environment, which other local users cannot read, not argv.
-            env = {k: v for k, v in os.environ.items() if not k.startswith('RCLONE_')}
-            env.update(RCLONE_RC_USER='remotefs', RCLONE_RC_PASS=row['rc_pass'])
-            options = ({'creationflags': getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)} if self.method == 'winfsp'
-                       else {'start_new_session': True})
+            if descriptor.get('type') == 'nfs':
+                self.bridges[key] = self.start_bridge(descriptor)
+            row = None
             try:
-                process = self.popen(self.command(row, remote_path, conf, log), stdin=subprocess.DEVNULL,
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, **options)
-            except OSError:
-                conf.unlink(missing_ok=True)
-                self.release(row['target'])
-                raise MountError('Could not start rclone') from None
+                section, remote_path = remote_for(descriptor, credentials, endpoint_config, self.binary, self.bridges.get(key))
+                clean = {k: v for k, v in descriptor.items() if k != 'credential_id'}
+                row = dict(principal=principal, label=safe_label(label), read_only=bool(read_only), method=self.method,
+                           started=time.time(), descriptor=clean, rc_port=free_port(), rc_pass=secrets.token_urlsafe(24))
+                row['target'] = self.choose_target(row['label'], target)
+                row['remote_path'] = remote_path
+                conf = self.directory / f'{key}.conf'
+                config = configparser.RawConfigParser()
+                config['remote'] = section
+                output = io.StringIO()
+                config.write(output)
+                write_private(conf, output.getvalue())
+                log = self.directory / f'{key}.log'
+                # The rc login goes through the environment, which other local users cannot read, not argv.
+                env = {k: v for k, v in os.environ.items() if not k.startswith('RCLONE_')}
+                env.update(RCLONE_RC_USER='remotefs', RCLONE_RC_PASS=row['rc_pass'])
+                options = ({'creationflags': getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0)} if self.method == 'winfsp'
+                           else {'start_new_session': True})
+                try:
+                    process = self.popen(self.command(row, remote_path, conf, log), stdin=subprocess.DEVNULL,
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env, **options)
+                except OSError:
+                    raise MountError('Could not start rclone') from None
+            except BaseException:
+                if row and row.get('target'):
+                    self.release(row['target'])
+                self.forget(key)
+                raise
             row['pid'] = process.pid
             self.records[key], self.processes[key] = row, process
             self.save()
@@ -397,9 +412,19 @@ class MountManager:
         except OSError:
             pass
 
+    def start_bridge(self, descriptor):
+        from .davbridge import Bridge
+        try:
+            return (self.bridge or Bridge)(descriptor)
+        except (OSError, RuntimeError, ValueError) as error:
+            raise MountError(f'Could not reach the NFS share: {error}') from None
+
     def forget(self, key):
         self.records.pop(key, None)
         self.processes.pop(key, None)
+        bridge = self.bridges.pop(key, None)
+        if bridge:
+            bridge.stop()
         (self.directory / f'{key}.conf').unlink(missing_ok=True)
         self.save()
 

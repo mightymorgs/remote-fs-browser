@@ -41,7 +41,7 @@ def test_rclone_remote_copies_the_connection_and_joins_its_root(tmp_path):
     assert path == 'bucket/team/photos'
 
 
-@pytest.mark.parametrize('descriptor', [{'type': 'local', 'root': '/srv'}, {'type': 'nfs', 'host': 'nas', 'export': '/x'},
+@pytest.mark.parametrize('descriptor', [{'type': 'local', 'root': '/srv'}, {'type': 'nfs', 'host': 'nas', 'export': '/x'},  # NFS needs its bridge
                                         {'type': 'libvirt', 'endpoint': 'kvm'}])
 def test_unmountable_types_explain_themselves(descriptor):
     with pytest.raises(MountError):
@@ -188,7 +188,7 @@ def test_http_mounts_are_off_unless_the_service_allows_them(tmp_path):
         assert response.status_code == 403 and '--allow-mounts' in response.json()['detail']
 
 
-def test_http_mount_defaults_to_read_only_and_passes_the_session_location(tmp_path, monkeypatch):
+def test_http_mount_defaults_to_read_write_and_passes_the_session_location(tmp_path, monkeypatch):
     monkeypatch.setattr(mounts, 'prerequisites', lambda *a: {'method': 'fuse', 'available': True, 'missing': [], 'rclone': '1.75'})
     fake = FakeManager()
     policy = Policy(local_roots=[str(tmp_path)], operations=READ_OPERATIONS + WRITE_OPERATIONS + HOST_OPERATIONS)
@@ -200,9 +200,9 @@ def test_http_mount_defaults_to_read_only_and_passes_the_session_location(tmp_pa
         response = client.post('/api/mounts', headers=HEADERS, json={'session': session['id'], 'path': '/Jobs'})
         assert response.status_code == 422 and 'already on this computer' in response.json()['detail']
         call = fake.calls[0]
-        assert call['read_only'] is True and call['label'] == 'Jobs' and call['descriptor']['path'] == '/Jobs'
-        client.post('/api/mounts', headers=HEADERS, json={'session': session['id'], 'read_only': False})
-        assert fake.calls[1]['read_only'] is False
+        assert call['read_only'] is False and call['label'] == 'Jobs' and call['descriptor']['path'] == '/Jobs'
+        client.post('/api/mounts', headers=HEADERS, json={'session': session['id'], 'read_only': True})
+        assert fake.calls[1]['read_only'] is True
         assert client.post('/api/mounts', headers=HEADERS, json={'session': 'missing'}).status_code == 404
 
 
