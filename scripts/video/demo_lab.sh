@@ -4,7 +4,7 @@
 # a libvirt test-driver pool, demo files, and a remotefs config. Never run this on a real machine:
 # it adds loopback addresses, a routing rule and /etc/hosts entries.
 #
-# Needs: iproute2, samba (smbd/nmbd), rclone, a venv with remote-fs-browser[libvirt], moto[server], pillow.
+# Needs: iproute2, samba (smbd/nmbd), rclone, fuse3 (for the mount chapter), a venv with remote-fs-browser[libvirt], moto[server], pillow.
 #   LAB=/tmp/rfs-lab VENV=/opt/rfv scripts/video/demo_lab.sh
 set -euo pipefail
 LAB=${LAB:-/tmp/rfs-lab}
@@ -97,5 +97,5 @@ config['staging_stores'] = {'Studio scratch': staging}
 json.dump(config, open(path, 'w'), indent=2)
 EOF
 echo "Lab ready. Start the service with:"
-echo "  $VENV/bin/remotefs serve --config $CONF --no-defaults --read-write --root $HOME_DIR --root $STAGING --allow-network 192.168.50.0/24 --port 8080"
+echo "  $VENV/bin/remotefs serve --config $CONF --no-defaults --read-write --root $HOME_DIR --root $STAGING --allow-network 192.168.50.0/24 --port 8080 --allow-mounts --mount-folder $HOME_DIR/remotefs"
 echo "Sign in as morgan / $PASS. SMB login: $SMB_USER / $SMB_PASS"

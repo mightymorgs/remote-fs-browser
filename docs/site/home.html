@@ -1,9 +1,9 @@
 <header class="hero">
   <div><p class="release">Browser file manager / self-hosted</p><h1>Your storage.<br>One place to work.</h1><p class="lead">Open the NAS. Move the files. Grab the archive.<br>Connect your cloud storage and inspect your VM pools—all from one browser.</p><div class="actions"><a class="button primary" href="#tour">Take the feature tour</a><a class="button" href="install.html">Install remotefs</a></div></div>
-  <div class="connection-map" aria-label="Your browser connects to one remotefs service, which accesses local folders, SMB, NFS, rclone and libvirt"><div class="map-browser">Your browser <span>Any device with access to the service</span></div><div class="map-wire"></div><div class="map-service"><strong>remotefs</strong><span>One service. Your permissions.</span></div><div class="map-fan"><span>Local</span><span>SMB</span><span>NFS</span><span>rclone</span><span>libvirt</span></div><p>Cloud and libvirt are included in <a href="endpoints.html">version 0.3.0</a>, with optional host dependencies.</p></div>
+  <div class="connection-map" aria-label="Your browser connects to one remotefs service, which accesses local folders, SMB, NFS, rclone and libvirt"><div class="map-browser">Your browser <span>Any device with access to the service</span></div><div class="map-wire"></div><div class="map-service"><strong>remotefs</strong><span>One service. Your permissions.</span></div><div class="map-fan"><span>Local</span><span>SMB</span><span>NFS</span><span>rclone</span><span>libvirt</span></div><p>Need a real drive? <a href="mounts.html">Mount any share or cloud connection</a> on the service host.</p><p>Cloud and libvirt are included in <a href="endpoints.html">version 0.3.0</a>, with optional host dependencies.</p></div>
 </header>
 <section id="tour" aria-labelledby="tour-heading">
-  <div class="section-heading"><div><h2 id="tour-heading">See the whole workflow.</h2><p>Eight short chapters. Jump in anywhere.</p></div><button class="button" id="play-tour" hidden>Play tour</button></div>
+  <div class="section-heading"><div><h2 id="tour-heading">See the whole workflow.</h2><p>Nine short chapters. Jump in anywhere.</p></div><button class="button" id="play-tour" hidden>Play tour</button></div>
   <div class="tour-shell">
     <div class="tour-tabs" role="tablist" aria-label="Feature chapters">
       <button id="tab-setup" role="tab" aria-selected="true" aria-controls="scene-setup">1. Set up</button>
@@ -11,12 +11,13 @@
       <button id="tab-manage" role="tab" aria-selected="false" aria-controls="scene-manage" tabindex="-1">3. Manage</button>
       <button id="tab-downloads" role="tab" aria-selected="false" aria-controls="scene-downloads" tabindex="-1">4. Download</button>
       <button id="tab-cloud" role="tab" aria-selected="false" aria-controls="scene-cloud" tabindex="-1">5. Cloud</button>
-      <button id="tab-libvirt" role="tab" aria-selected="false" aria-controls="scene-libvirt" tabindex="-1">6. VM storage</button>
-      <button id="tab-cli" role="tab" aria-selected="false" aria-controls="scene-cli" tabindex="-1">7. Terminal</button>
-      <button id="tab-embed" role="tab" aria-selected="false" aria-controls="scene-embed" tabindex="-1">8. Integrate</button>
+      <button id="tab-mount" role="tab" aria-selected="false" aria-controls="scene-mount" tabindex="-1">6. Mount</button>
+      <button id="tab-libvirt" role="tab" aria-selected="false" aria-controls="scene-libvirt" tabindex="-1">7. VM storage</button>
+      <button id="tab-cli" role="tab" aria-selected="false" aria-controls="scene-cli" tabindex="-1">8. Terminal</button>
+      <button id="tab-embed" role="tab" aria-selected="false" aria-controls="scene-embed" tabindex="-1">9. Integrate</button>
     </div>
     <article class="scene" id="scene-setup" role="tabpanel" aria-labelledby="tab-setup" tabindex="0">
-      <div class="scene-copy"><span class="scene-kind">Start on the computer that can reach your files</span><h3>Install once.<br>Open anywhere.</h3><p>Run remotefs, choose your network access and set up a login. Other devices connect to that service in their browser.</p><p>Local folders, SMB and NFS work without mounting network shares in your operating system.</p><a href="quickstart.html">Follow the first-run guide</a></div>
+      <div class="scene-copy"><span class="scene-kind">Start on the computer that can reach your files</span><h3>Install once.<br>Open anywhere.</h3><p>Run remotefs, choose your network access and set up a login. Other devices connect to that service in their browser.</p><p>Local folders, SMB and NFS work without mounting network shares in your operating system. When you do want a drive, turn on mounts.</p><a href="quickstart.html">Follow the first-run guide</a></div>
       <div class="scene-visual"><div class="terminal"><div class="window-title">Service host / Python 3.11+</div><pre><span>$</span> pipx install remote-fs-browser
 <span>$</span> remotefs
 
@@ -39,6 +40,16 @@ Open http://127.0.0.1:8080/</pre><div class="terminal-note">Homebrew and Windows
     <article class="scene" id="scene-cloud" role="tabpanel" aria-labelledby="tab-cloud" tabindex="0" hidden>
       <div class="scene-copy"><span class="scene-kind">New in 0.3.0 / optional rclone</span><h3>Your cloud.<br>The same browser.</h3><p>Add S3, Dropbox, Google Drive, OneDrive, B2 and more in the app or CLI. Save a connection, then browse its buckets and folders beside your local disks and NAS.</p><p>Copy files or folders, open another connection, and Paste here. Upload, preview, edit text and download from the same window. Choose read-only per connection; cloud rename/cut is unavailable.</p><a href="endpoints.html#add-cloud-storage-in-the-gui">Add your cloud storage</a></div>
       <div class="scene-visual"><div class="provider-grid"><strong>Amazon S3<small>+ compatible object stores</small></strong><strong>Dropbox<small>Shared folders and files</small></strong><strong>Google Drive<small>Configured rclone remote</small></strong><strong>OneDrive<small>Configured rclone remote</small></strong><strong>Backblaze B2<small>Object storage</small></strong><a href="https://rclone.org/overview/">More providers<small>See rclone’s capabilities</small></a></div><div class="endpoint-strip"><code>Add connection</code><span>Browse folders</span><span>Copy → Paste here</span></div><p class="visual-note">Provider support comes from rclone. Credentials stay on the service host.</p></div>
+    </article>
+    <article class="scene" id="scene-mount" role="tabpanel" aria-labelledby="tab-mount" tabindex="0" hidden>
+      <div class="scene-copy"><span class="scene-kind">Next release / optional rclone mounts</span><h3>Need a real drive?<br>Mount it.</h3><p>Right-click an SMB share, NFS export, folder or cloud connection and choose Mount on this computer. Every app on the service host can then open, save and copy files there, with no file-size limit.</p><p>Mounts are read-write by default; untick Allow changes for read-only. Eject waits for uploads to finish. Linux and macOS are tested; Windows drives belong to your own account and are still being verified.</p><a href="mounts.html">Mount storage on this computer</a></div>
+      <div class="scene-visual"><div class="terminal"><div class="window-title">Service host / remotefs serve --allow-mounts</div><pre><span>$</span> ls ~/remotefs
+Harbour Lane Rebrand  Studio S3
+<span>$</span> cp ~/Footage/drone-flyover-4k.mov \
+    ~/remotefs/"Harbour Lane Rebrand"/
+<span>$</span> rm ~/remotefs/"Studio S3"/README.md
+rm: cannot remove '…/README.md':
+    Read-only file system</pre><div class="terminal-note">Windows: a drive letter such as Z:, visible only to your account.</div></div><p class="visual-note">Filmed in the walkthrough on Linux • rclone + FUSE, WinFsp or macOS NFS</p></div>
     </article>
     <article class="scene" id="scene-libvirt" role="tabpanel" aria-labelledby="tab-libvirt" tabindex="0" hidden>
       <div class="scene-copy"><span class="scene-kind">New in 0.3.0 / optional libvirt</span><h3>Know what’s<br>in the pool.</h3><p>Connect a configured hypervisor. Browse approved storage pools, list volumes and inspect capacity and allocation with Get info.</p><p>This is read-only storage inventory. It does not mount VM disks or browse files inside running guests.</p><a href="endpoints.html#libvirt-pools-and-volumes-not-guest-files">Set up libvirt access</a></div>
@@ -65,7 +76,7 @@ Open http://127.0.0.1:8080/</pre><div class="terminal-note">Homebrew and Windows
   "path": "/projects"
 }</pre><div class="terminal-note">Use the descriptor against the service that defines this endpoint.</div></div><a class="deploy-link" href="deployment.html">Run it as an always-on service</a></div>
     </article>
-    <div class="tour-footer"><span id="tour-position" aria-live="polite">Chapter 1 of 8</span><span>Illustrated guide + actual product footage</span><div><button id="tour-prev" aria-label="Previous chapter" hidden>Previous</button><button id="tour-next" aria-label="Next chapter" hidden>Next</button></div></div>
+    <div class="tour-footer"><span id="tour-position" aria-live="polite">Chapter 1 of 9</span><span>Illustrated guide + actual product footage</span><div><button id="tour-prev" aria-label="Previous chapter" hidden>Previous</button><button id="tour-next" aria-label="Next chapter" hidden>Next</button></div></div>
   </div>
   <noscript><p>JavaScript enables chapter navigation. <a href="guide.html">Read the complete guide without JavaScript.</a></p></noscript>
 </section>

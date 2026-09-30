@@ -2,6 +2,8 @@
 
 remotefs can show an SMB share, an NFS export or a cloud connection as a normal folder or drive on **the computer running the remotefs service**. Finder, File Explorer and every other app can then open, save and copy files there directly. This includes large files: there is no per-file size limit, so disk images and video work.
 
+Mounting is new since 0.3.0 and ships in the next release; until then, install from the `main` branch (`pipx install git+https://github.com/mightymorgs/remote-fs-browser`). It has been tested on Linux and macOS. Windows mounts are supported, but the per-account drive described below has not yet been checked on a real Windows computer, so treat Windows as a preview for now.
+
 Mounting is off by default. Turn it on when you start the service:
 
 ```sh

@@ -29,10 +29,10 @@
         "summary": "Scan your network, see every file server by name, and map a share."
       },
       {
-        "capture": "05-mount",
-        "slug": "05-mount-and-unmount",
-        "title": "Mount and unmount",
-        "summary": "Server menus, unmounting, saved logins and several servers at once."
+        "capture": "05-servers",
+        "slug": "05-servers-and-logins",
+        "title": "Servers and saved logins",
+        "summary": "Server menus, disconnecting, saved logins and several servers at once."
       },
       {
         "capture": "06-shortlist",
@@ -54,27 +54,33 @@
         ]
       },
       {
-        "capture": "08-downloads",
-        "slug": "08-big-downloads",
+        "capture": "08-mount-drive",
+        "slug": "08-mount-as-a-drive",
+        "title": "Mount as a drive",
+        "summary": "Mount a NAS folder or cloud bucket as a folder or drive that every app can use, read-write or read-only."
+      },
+      {
+        "capture": "09-downloads",
+        "slug": "09-big-downloads",
         "title": "Big downloads",
         "summary": "Zip large folders on the server and download them in parts."
       },
       {
-        "capture": "09-vm",
-        "slug": "09-vm-storage",
+        "capture": "10-vm",
+        "slug": "10-vm-storage",
         "title": "VM storage",
         "summary": "Read-only libvirt storage pools and volumes."
       },
       {
-        "capture": "10-cli",
-        "slug": "10-command-line",
+        "capture": "11-cli",
+        "slug": "11-command-line",
         "title": "Command line",
         "summary": "Scan, connect, copy, cloud and ZIP jobs: the whole app from the terminal and scripts.",
         "speed": 1.35
       },
       {
-        "capture": "11-embed",
-        "slug": "11-build-it-into-your-app",
+        "capture": "12-embed",
+        "slug": "12-build-it-into-your-app",
         "title": "Build it into your app",
         "summary": "Mount the API in your FastAPI app and drop in the folder picker, using the repo’s templates.",
         "speed": 1.2
@@ -133,6 +139,15 @@
         "detail": "The server moves the bytes."
       },
       {
+        "capture": "08-mount-drive",
+        "from": "mount",
+        "to": "mounted",
+        "pad": 2.0,
+        "speed": 1.6,
+        "headline": "Mount it as a drive",
+        "detail": "Any app. Any file size."
+      },
+      {
         "capture": "06-shortlist",
         "from": "star",
         "seconds": 3.0,
@@ -141,7 +156,7 @@
         "detail": ""
       },
       {
-        "capture": "08-downloads",
+        "capture": "09-downloads",
         "from": "zip",
         "speed": 2.6,
         "headline": "Huge folders, in easy parts",
@@ -150,7 +165,7 @@
         "pad": 2.5
       },
       {
-        "capture": "10-cli",
+        "capture": "11-cli",
         "from": "cli-scan",
         "seconds": 14.0,
         "speed": 2.3,
@@ -158,7 +173,7 @@
         "detail": "Every feature has a CLI command."
       },
       {
-        "capture": "11-embed",
+        "capture": "12-embed",
         "from": "embed",
         "seconds": 15.0,
         "speed": 2.2,
@@ -170,7 +185,7 @@
     "close": {
       "title": "remotefs",
       "lines": [
-        "Local disks · SMB · NFS · S3 and cloud · libvirt",
+        "Local disks · SMB · NFS · S3 and cloud · libvirt · mounts",
         "pipx install remote-fs-browser",
         "mightymorgs.github.io/remote-fs-browser"
       ]
