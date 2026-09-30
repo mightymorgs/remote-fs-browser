@@ -286,7 +286,7 @@ def promo(fonts, args, edit):
     x0, y0, x1, y1 = FRAME
     for i, shot in enumerate(spec['shots']):
         cap = Capture(args.capture / shot['capture'])
-        start = cap.marks[shot['from']] - 0.3
+        start = cap.marks[shot['from']] - shot.get('lead', 0.3)
         end = cap.marks[shot['to']] + shot.get('pad', 0) if 'to' in shot else cap.marks[shot['from']] + shot['seconds']
         end = min(end, cap.duration)
         listing = work / f'shot-{i}.txt'
