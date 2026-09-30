@@ -2,6 +2,8 @@
 
 remotefs can show an SMB share, an NFS export or a cloud connection as a normal folder or drive on **the computer running the remotefs service**. Finder, File Explorer and every other app can then open, save and copy files there directly. This includes large files: there is no per-file size limit, so disk images and video work.
 
+Mounting is available from version 0.4.0. It has been tested on Linux, macOS and Windows 11. On Windows, testing covered the remotefs service running as SYSTEM with the drive appearing only in the owner's own session, another account unable to see it, mounting refused while the owner is signed out, and the drive coming back after the owner signs in again.
+
 Mounting is off by default. Turn it on when you start the service:
 
 ```sh

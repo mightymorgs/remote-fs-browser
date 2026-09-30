@@ -196,7 +196,7 @@ async def network_scan(r, page):
     await r.type(page.get_by_label('Password', exact=True), SMB_PASS, cps=24, pause=0.4)
     await r.click(text(page, 'Save these credentials for this host'), dx=0.1, pause=0.6)
     await submit_smb(r, page)
-    r.caption('Shares appear in the sidebar', 'No drive letters and no mount commands. Nothing is mounted on your computer or the server.')
+    r.caption('Shares appear in the sidebar', 'Browsing needs no drive letters or mount commands. Mount a share as a drive only when you want one.')
     r.mark('shares')
     for share in ['Projects', 'Media', 'Archive']:
         await r.hover(text(page, share), dx=0.3, pause=0.5)
@@ -207,7 +207,7 @@ async def network_scan(r, page):
     await r.stop()
 
 
-@chapter('05-mount', 'Mount and unmount')
+@chapter('05-servers', 'Servers and saved logins')
 async def mount(r, page):
     await r.start()
     r.caption('Right-click a server for its options', 'List shares, reconnect as someone else, copy its address, forget the saved login, or unmount.')
@@ -215,7 +215,7 @@ async def mount(r, page):
     await r.right_click(host, dx=0.4, pause=0.8)
     for item in ['Reconnect as a different user', 'Copy IP address', 'Forget stored credentials']:
         await r.hover(menu_item(page, item), dx=0.3, pause=0.5)
-    r.caption('Unmount when you are done', 'The connection closes. Nothing was ever mounted on your computer, and your files stay put.')
+    r.caption('Unmount when you are done', 'The connection closes and your files stay put on the server.')
     r.mark('unmount')
     await r.click(menu_item(page, 'Unmount'), dx=0.3, pause=1.6)
     r.caption('Saved logins reconnect in one click', 'The scan shows which servers already have a stored login.')
@@ -300,7 +300,75 @@ async def cloud(r, page):
     await r.stop()
 
 
-@chapter('08-downloads', 'Big downloads')
+def mount_row(page, label):
+    return page.locator('[data-mounts] div').filter(has_text=label).filter(has=page.get_by_role('button', name='Eject')).last
+
+
+@chapter('08-mount-drive', 'Mount as a drive')
+async def mount_drive(r, page):
+    await open_manager(page)
+    await r.start()
+    r.caption('Mount a share as a folder or drive', 'Right-click a share or folder and choose Mount on this computer. Here: a client folder on the NAS.')
+    await r.click(page.locator('button').filter(has_text='Harbour Lane Rebrand').filter(visible=True).first, dx=0.3, pause=1.2)
+    r.mark('mount')
+    await r.right_click((700, 520), pause=0.7)
+    await r.click(menu_item(page, 'Mount on this computer…'), dx=0.3, pause=1.0)
+    r.caption('Read-write by default', 'Name the mount, and untick Allow changes if it should be read-only. Windows also lets you pick a drive letter.')
+    await r.hover(text(page, 'Allow changes (untick for read-only)', exact=False), dx=0.2, pause=1.0)
+    await r.click(button(page, 'Mount'), pause=2.4)
+    r.mark('mounted')
+    r.caption('It shows up under Mounted on this computer', 'Linux and macOS get a folder under ~/remotefs; Windows gets a drive letter for your account only.')
+    await r.hover(text(page, 'MOUNTED ON THIS COMPUTER', exact=False), dx=0.2, pause=1.4)
+    r.caption('Cloud storage mounts too, read-only if you like', 'Open the S3 connection, mount it and untick Allow changes.')
+    await r.click(text(page, 'Studio S3'), dx=0.3, pause=1.2)
+    await r.right_click((700, 520), pause=0.7)
+    await r.click(menu_item(page, 'Mount on this computer…'), dx=0.3, pause=0.9)
+    await r.click(text(page, 'Allow changes (untick for read-only)', exact=False), dx=0.1, pause=0.8)
+    await r.click(button(page, 'Mount'), pause=2.4)
+    await r.hover(text(page, 'read-only', exact=False), dx=0.3, pause=1.4)
+
+    env = lab_env(); env['HOME'] = '/home/morgan'
+    shell = Shell('/home/morgan', env); await shell.open()
+    await shell.run('printf %s "$REMOTEFS_PASSWORD" | remotefs login --username morgan --password-stdin >/dev/null')
+    await page.goto(TERMINAL); await page.wait_for_timeout(500)
+    r.caption('Every app sees an ordinary folder', 'Open, save and copy with any program. There is no file-size limit, so video and disk images work.')
+    r.mark('terminal')
+    await terminal(r, page, shell, [
+        '# the mounts are real folders on this computer',
+        'ls ~/remotefs',
+        'cd ~/remotefs/"Harbour Lane Rebrand" && ls',
+        'cp ~/Footage/drone-flyover-4k.mov . && du -h drone-flyover-4k.mov',
+        'echo "- Drone footage added from the edit suite" >> brief.md',
+    ])
+    r.caption('Read-only means read-only', 'The S3 mount opens files but refuses changes.')
+    await terminal(r, page, shell, [
+        'ls ~/remotefs/"Studio S3"/"Launch kit"',
+        'rm ~/remotefs/"Studio S3"/"Launch kit"/README.md',
+        "remotefs mounts | jq -r '.mounts[] | [.label, .target, .read_only] | @tsv'",
+        'cd ~',
+    ])
+    await open_manager(page)
+    r.caption('Changes land on the NAS', 'The service uploads in the background. The dot turns green when everything has arrived.')
+    await r.click(page.locator('button').filter(has_text='Harbour Lane Rebrand').filter(visible=True).first, dx=0.3, pause=1.0)
+    r.fast(3)
+    for _ in range(60):
+        info = await page.evaluate("fetch('/api/mounts',{credentials:'include'}).then(r=>r.json())")
+        if all(not (m.get('status') or {}).get('pending_uploads') for m in info.get('mounts', [])):
+            break
+        await r.wait(1.0)
+    r.normal()
+    await r.click(text(page, 'Harbour Lane Rebrand'), dx=0.3, pause=1.0)
+    await r.hover(row(page, 'drone-flyover-4k.mov'), dx=0.3, pause=0.9)
+    await r.click(row(page, 'brief.md'), dx=0.3, pause=2.0)
+    await r.press('Escape', ['Esc'], pause=0.6)
+    r.caption('Eject when you are done', 'Eject waits for uploads to finish. The service also ejects its mounts when it stops.')
+    r.mark('eject')
+    await r.click(mount_row(page, 'Studio S3').get_by_role('button', name='Eject'), pause=1.4)
+    await r.click(mount_row(page, 'Harbour Lane Rebrand').get_by_role('button', name='Eject'), pause=1.8)
+    await r.stop()
+
+
+@chapter('09-downloads', 'Big downloads')
 async def downloads(r, page):
     await open_manager(page)
     await r.start()
@@ -341,7 +409,7 @@ async def downloads(r, page):
     await r.stop()
 
 
-@chapter('09-vm', 'VM storage')
+@chapter('10-vm', 'VM storage')
 async def vm(r, page):
     await open_manager(page)
     await r.start()
@@ -408,7 +476,7 @@ def lab_env():
 TERMINAL = 'file://' + str(Path(__file__).resolve().parent / 'terminal.html')
 
 
-@chapter('10-cli', 'Command line')
+@chapter('11-cli', 'Command line')
 async def cli(r, page):
     shell = Shell('/home/morgan', lab_env()); await shell.open()
     await page.goto(TERMINAL); await page.wait_for_timeout(500)
@@ -455,7 +523,7 @@ async def cli(r, page):
     await r.stop()
 
 
-@chapter('11-embed', 'Build it into your app')
+@chapter('12-embed', 'Build it into your app')
 async def embed(r, page):
     shell = Shell(str(Path(__file__).resolve().parents[2]), lab_env()); await shell.open()
     await page.goto(TERMINAL); await page.wait_for_timeout(500)

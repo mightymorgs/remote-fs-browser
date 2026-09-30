@@ -1,0 +1,46 @@
+WEBVTT
+
+00:00:00.000 --> 00:00:02.550
+Every file server on your network.
+Found, mapped and managed from one browser tab.
+
+00:00:02.550 --> 00:00:09.154
+Scan your network
+Every SMB server, by name.
+
+00:00:09.154 --> 00:00:18.123
+Map a share in seconds
+No drivers. No setup on the NAS.
+
+00:00:18.123 --> 00:00:21.423
+Select like Finder
+Drag, Shift-click, ⌘-click.
+
+00:00:21.423 --> 00:00:24.337
+Right-click everything
+
+00:00:24.337 --> 00:00:29.776
+Copy to the cloud
+The server moves the bytes.
+
+00:00:29.776 --> 00:00:39.008
+Mount it as a drive
+Any app. Any file size.
+
+00:00:39.008 --> 00:00:41.096
+Favourites that stick
+
+00:00:41.096 --> 00:00:55.424
+Huge folders, in easy parts
+
+00:00:55.424 --> 00:01:01.192
+Script it
+Every feature has a CLI command.
+
+00:01:01.192 --> 00:01:07.560
+Build it into your app
+One element. No passwords stored.
+
+00:01:07.560 --> 00:01:12.060
+remotefs
+Local disks · SMB · NFS · S3 and cloud · libvirt · mounts · pipx install remote-fs-browser · mightymorgs.github.io/remote-fs-browser

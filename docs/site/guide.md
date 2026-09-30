@@ -2,7 +2,7 @@
 
 Remotefs runs on a computer that can reach your storage. Your browser, terminal client and integrations connect to that service. Files are read or written by the service host using its permitted roots, network connections and configured endpoints.
 
-Version 0.3.0 supports local folders, SMB, NFS, optional rclone cloud connections and read-only libvirt pool/volume inventory. See the [endpoint guide](endpoints.html) for installation, configuration and the complete capability table.
+Version 0.4.0 supports local folders, SMB, NFS, optional rclone cloud connections, read-only libvirt pool/volume inventory and optional mounts, which show any of those shares or cloud connections as a folder or drive on the service host. See the [endpoint guide](endpoints.html) for installation, configuration and the complete capability table.
 
 ## Set up the service
 
@@ -16,7 +16,7 @@ To connect from another device, deliberately bind the service to a reachable int
 
 **This computer** lists the service host's permitted local roots and mounted volumes. **Scan network** checks selected CIDR ranges for SMB and NFS services and shows DNS names, NetBIOS names and IP addresses when available. You can enter a server directly when discovery is unavailable.
 
-Choose **Map**, authenticate to an SMB share or select an NFS export, and open a folder. SMB credentials can be saved encrypted. A **shortlist** remembers the location separately from the current connection. Mapping and unmounting SMB/NFS manage application sessions, not operating-system mounts. NFS requires libnfs 6+.
+Choose **Map**, authenticate to an SMB share or select an NFS export, and open a folder. SMB credentials can be saved encrypted. A **shortlist** remembers the location separately from the current connection. Mapping and unmounting SMB/NFS manage application sessions, not operating-system mounts; to get a real folder or drive, see [Mount it as a folder or drive](#mount-it-as-a-folder-or-drive). NFS requires libnfs 6+.
 
 [Discovery, mapping and saved locations](reference.html#scan-map-and-remember-locations).
 
@@ -51,6 +51,16 @@ Choose **Cloud storage → Add / manage**, select a provider, enter its credenti
 Browse, preview, download, copy out and prepare ZIPs. Writable endpoints can also upload, save text, create folders and delete, subject to the provider's capabilities. Tick Read-only when you only want to browse and copy out. Native cloud rename/cut is not exposed, and object stores do not necessarily preserve empty folders.
 
 [Set up S3, Dropbox and other rclone remotes](endpoints.html#add-cloud-storage-in-the-gui).
+
+## Mount it as a folder or drive
+
+When another program needs the files, such as a video editor, a disk-image tool or File Explorer, mount the location on the computer running remotefs. Start the service with `remotefs serve --allow-mounts` (or add `"mount"` to `policy.operations`), right-click an SMB share, NFS export, folder or cloud connection and choose **Mount on this computer…**.
+
+Mounts are read-write by default; untick **Allow changes** for a read-only mount. They appear under **Mounted on this computer** in the sidebar, as a folder under `~/remotefs` on macOS and Linux or a drive letter on Windows. There is no file-size limit. **Eject** waits for uploads to finish. The CLI has the same controls: `remotefs mount`, `remotefs mounts` and `remotefs unmount`.
+
+Mounting uses rclone on the service host, plus FUSE on Linux or WinFsp on Windows. NFS mounts go through rclone too, via a private local link, so they behave the same on every system. On Windows the drive belongs only to your own account and sign-in session, and it comes back each time you sign in. Mounting is available from version 0.4.0, and mounts reconnect by themselves after restarts unless you untick **Reconnect automatically**.
+
+[Mount storage on this computer](mounts.html).
 
 ## Inspect libvirt storage
 

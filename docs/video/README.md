@@ -1,6 +1,6 @@
 # Recording the feature tour
 
-The 0.3.0 tour is recorded from the real app, driven at human pace by Playwright, and edited automatically. It produces three kinds of output from one recording:
+The tour is recorded from the real app, driven at human pace by Playwright, and edited automatically. It produces three kinds of output from one recording:
 
 - **Walkthrough**: every chapter in one video, with embedded chapter markers.
 - **Chapter videos**: each chapter as its own short video with a title card, for hosting separately.
@@ -13,13 +13,13 @@ The 0.3.0 tour is recorded from the real app, driven at human pace by Playwright
 `scripts/video/demo_lab.sh` creates everything the tour films: three SMB servers on a private 192.168.50.0/24 loopback network (with DNS and NetBIOS names), a local S3-compatible server, a libvirt test-driver pool, fictional studio files and a remotefs config. It changes loopback addresses, routes and `/etc/hosts`, so run it only in a disposable container as root.
 
 ```sh
-apt-get install -y iproute2 samba smbclient rclone jq libvirt-dev pkg-config fonts-inter ffmpeg
+apt-get install -y iproute2 samba smbclient rclone jq libvirt-dev pkg-config fonts-inter ffmpeg fuse3
 python3 -m venv /opt/rfv
 /opt/rfv/bin/pip install -e '.[libvirt]' 'moto[server]' pillow playwright
 LAB=/tmp/rfs-lab scripts/video/demo_lab.sh      # prints the serve command and demo logins
 ```
 
-Start the service with the printed `remotefs serve …` command and leave it running.
+Start the service with the printed `remotefs serve …` command and leave it running. It includes `--allow-mounts`, so the container needs `/dev/fuse` for the "Mount as a drive" chapter; mounts appear under `/home/morgan/remotefs`. If the container sets `AWS_CA_BUNDLE` (some proxied sandboxes do), start the service with `env -u AWS_CA_BUNDLE`: older rclone builds refuse S3 connections when it is set.
 
 ## 2. Record
 
