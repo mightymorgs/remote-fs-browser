@@ -233,3 +233,16 @@ def test_real_fuse_mount_of_a_cloud_connection(tmp_path):
         m.unmount('alice', row['id'])
     assert (source / 'new.txt').read_text() == 'written through the mount'
     assert not target.exists()
+
+
+def test_eject_removes_the_empty_mount_folder_even_after_finder_touched_it(tmp_path):
+    m = manager(tmp_path, 'darwin')
+    target = m.choose_target('Projects')
+    (Path(target) / '.DS_Store').write_bytes(b'finder')
+    (Path(target) / '._Icon').write_bytes(b'appledouble')
+    m.release(target)
+    assert not Path(target).exists()
+    kept = m.choose_target('Projects')
+    (Path(kept) / 'real.txt').write_text('never deleted')
+    m.release(kept)
+    assert (Path(kept) / 'real.txt').exists()

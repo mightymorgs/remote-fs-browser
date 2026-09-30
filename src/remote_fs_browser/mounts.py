@@ -40,6 +40,9 @@ WINFSP_NOTICE = {'text': 'WinFsp - Windows File System Proxy, Copyright (C) Bill
                  'url': 'https://github.com/winfsp/winfsp'}
 
 
+FINDER_LITTER = {'.DS_Store', '.localized'}
+
+
 class MountError(ValueError):
     """A mount request that cannot be carried out; the message is safe to show."""
 
@@ -406,9 +409,20 @@ class MountManager:
             tool = (['umount', target] if self.method == 'nfs' else
                     [shutil.which('fusermount3') or shutil.which('fusermount') or 'fusermount', '-u', '-z', target])
             subprocess.run(tool, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20)
+        # macOS finishes an NFS unmount a moment after the command returns.
+        for _ in range(20):
+            if not os.path.ismount(target):
+                break
+            time.sleep(0.25)
+        folder = Path(target)
+        if folder.parent != self.base or os.path.ismount(target):
+            return
         try:
-            if Path(target).parent == self.base and not os.path.ismount(target):
-                Path(target).rmdir()
+            # Finder writes .DS_Store (and ._ files on some volumes) into the folder once it is unmounted.
+            for item in folder.iterdir():
+                if item.name in FINDER_LITTER or item.name.startswith('._'):
+                    item.unlink()
+            folder.rmdir()
         except OSError:
             pass
 
