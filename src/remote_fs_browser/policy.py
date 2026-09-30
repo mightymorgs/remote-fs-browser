@@ -15,6 +15,8 @@ def normalize(path: str) -> str:
 
 READ_OPERATIONS = ['discover', 'list', 'stat', 'read']
 WRITE_OPERATIONS = ['write', 'mkdir', 'rename', 'delete', 'copy']
+# Acts on the service host rather than a storage session; opt-in (remotefs serve --allow-mounts).
+HOST_OPERATIONS = ['mount']
 
 
 @dataclass

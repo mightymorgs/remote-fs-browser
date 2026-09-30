@@ -11,15 +11,15 @@ import time
 import urllib.request
 
 
-def prepare(source, destination, username=None, password_file=None):
+def prepare(source, destination, username=None, password_file=None, mount_owner=None):
     from remote_fs_browser.auth import make_account, verify_account
-    from remote_fs_browser.policy import Policy, READ_OPERATIONS, WRITE_OPERATIONS
+    from remote_fs_browser.policy import Policy, READ_OPERATIONS, WRITE_OPERATIONS, HOST_OPERATIONS
     from remote_fs_browser.store import SavedLocations
 
     incoming = json.loads(Path(source).read_text(encoding='utf-8-sig'))
     target = Path(destination)
     previous = json.loads(target.read_text(encoding='utf-8-sig')) if target.exists() else {}
-    if not isinstance(incoming, dict) or set(incoming) - {'bind', 'port', 'policy', 'account', 'storage_key', 'token', 'staging_stores'}:
+    if not isinstance(incoming, dict) or set(incoming) - {'bind', 'port', 'policy', 'account', 'storage_key', 'token', 'staging_stores', 'mount_folder', 'mount_owner'}:
         raise ValueError('Unknown configuration fields')
     config = {**previous, **incoming}
     # A redeployment must not orphan the existing encrypted vault or its owner.
@@ -52,8 +52,16 @@ def prepare(source, destination, username=None, password_file=None):
     policy.setdefault('network_ranges', [])
     policy.setdefault('operations', READ_OPERATIONS + WRITE_OPERATIONS)
     Policy(**policy)
-    if any(op not in READ_OPERATIONS + WRITE_OPERATIONS for op in policy['operations']):
+    if any(op not in READ_OPERATIONS + WRITE_OPERATIONS + HOST_OPERATIONS for op in policy['operations']):
         raise ValueError('Unknown filesystem operation')
+    if 'mount_folder' in config and not (isinstance(config['mount_folder'], str) and Path(config['mount_folder']).is_absolute()):
+        raise ValueError('mount_folder must be an absolute directory path')
+    # The installer records the account that ran it; a value already in the config is kept.
+    if mount_owner and not config.get('mount_owner'):
+        config['mount_owner'] = mount_owner
+    if 'mount_owner' in config and not (isinstance(config['mount_owner'], str) and config['mount_owner'].strip()
+                                        and len(config['mount_owner']) <= 256):
+        raise ValueError('mount_owner must name a Windows account, for example PC\\morgan')
     for root in policy['local_roots']:
         if not Path(root).is_absolute() or not Path(root).is_dir():
             raise ValueError('Local roots must be existing absolute directories')
@@ -92,6 +100,7 @@ def main():
     parser.add_argument('--destination')
     parser.add_argument('--username')
     parser.add_argument('--password-file')
+    parser.add_argument('--mount-owner', help='Windows account whose own session gets mounts (kept if already set)')
     parser.add_argument('--check', action='store_true', help='Exit 2 if configuration would change; write nothing')
     parser.add_argument('--health-check', action='store_true')
     parser.add_argument('--systemd-write-paths', action='store_true')
@@ -106,7 +115,7 @@ def main():
         return
     if not args.destination:
         parser.error('--destination is required')
-    config, changed = prepare(args.config, args.destination, args.username, args.password_file)
+    config, changed = prepare(args.config, args.destination, args.username, args.password_file, args.mount_owner)
     if args.check:
         print('Configuration needs updating' if changed else 'Configuration unchanged')
         return 2 if changed else 0

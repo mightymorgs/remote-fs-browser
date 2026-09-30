@@ -80,7 +80,7 @@ class BodyLimit:
 
 
 def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
-               authorize: Callable | None = None, credential_resolver=None, root_kinds=None, saved_locations=None, account=None, staging_stores=None, staging_store_writer=None, remote_store=None):
+               authorize: Callable | None = None, credential_resolver=None, root_kinds=None, saved_locations=None, account=None, staging_stores=None, staging_store_writer=None, remote_store=None, mount_manager=None):
     if token is not None and (not isinstance(token, str) or len(token) < 32):
         raise ValueError('Automation tokens must contain at least 32 characters')
     if not account and not authenticate and (not token or len(token) < 32):
@@ -113,6 +113,8 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
                 await task
             await jobs.close()
             await browser.close()
+            if mount_manager is not None:
+                await asyncio.to_thread(mount_manager.shutdown)
     app = FastAPI(title='Remote filesystem browser', version=__version__, lifespan=lifespan)
     app.add_middleware(BodyLimit)
     app.state.jobs = jobs
@@ -487,6 +489,27 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
             credentials = saved_locations.resolve_host(request.state.principal, data['credential_id'], data['host'])
         return await browser.discover(host=data['host'], protocol=data['type'], credentials=credentials)
 
+    async def resolve_credentials(request, descriptor, reference, credentials=None):
+        """Inline credentials, or the saved ones a credential_id refers to for this principal."""
+        if not reference:
+            return credentials
+        if not credential_resolver:
+            raise PermissionError('No credential resolver configured')
+        if saved_locations and saved_locations.get(request.state.principal, reference).get('kind') == 'host':
+            if descriptor.get('type') != 'smb':
+                raise PermissionError('Host credentials require SMB')
+            credentials = saved_locations.resolve_host(request.state.principal, reference, descriptor.get('host', ''))
+        else:
+            credentials = credential_resolver(request.state.principal, reference)
+        if inspect.isawaitable(credentials):
+            credentials = await credentials
+        return credentials
+
+    async def managed_endpoint(request, descriptor):
+        if remote_store is not None and descriptor.get('type') == 'rclone' and descriptor.get('endpoint') in remote_store.records:
+            return await asyncio.to_thread(remote_store.endpoint, request.state.principal, descriptor['endpoint'])
+        return None
+
     @app.post('/api/sessions')
     @app.post('/sessions', include_in_schema=False)
     async def connect(request: Request):
@@ -500,21 +523,8 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         data = await request.json()
         descriptor = dict(data['descriptor'])
         reference = descriptor.pop('credential_id', None)
-        credentials = data.get('credentials')
-        if reference:
-            if not credential_resolver:
-                raise PermissionError('No credential resolver configured')
-            if saved_locations and saved_locations.get(request.state.principal, reference).get('kind') == 'host':
-                if descriptor.get('type') != 'smb':
-                    raise PermissionError('Host credentials require SMB')
-                credentials = saved_locations.resolve_host(request.state.principal, reference, descriptor.get('host', ''))
-            else:
-                credentials = credential_resolver(request.state.principal, reference)
-            if inspect.isawaitable(credentials):
-                credentials = await credentials
-        endpoint_config = None
-        if remote_store is not None and descriptor.get('type') == 'rclone' and descriptor.get('endpoint') in remote_store.records:
-            endpoint_config = await asyncio.to_thread(remote_store.endpoint, request.state.principal, descriptor['endpoint'])
+        credentials = await resolve_credentials(request, descriptor, reference, data.get('credentials'))
+        endpoint_config = await managed_endpoint(request, descriptor)
         session = await browser.connect(descriptor, credentials, endpoint_config=endpoint_config)
         if reference:
             session._descriptor['credential_id'] = reference
@@ -522,6 +532,87 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
         return {'id': session.id, 'descriptor': session.descriptor(), 'idle_seconds': policy.idle_seconds,
                 'operations': session.policy.operations, 'max_write_bytes': policy.max_write_bytes,
                 'rename_directories': 'rename' in session.policy.operations}
+
+    # ---------- mounts on the service host ----------
+    mount_checks = {'at': 0.0, 'value': None}
+
+    async def mount_prerequisites():
+        from .mounts import prerequisites
+        if mount_checks['value'] is None or time.monotonic() - mount_checks['at'] > 60:
+            mount_checks['value'] = await asyncio.to_thread(prerequisites, mount_manager.binary if mount_manager else None)
+            mount_checks['at'] = time.monotonic()
+        return mount_checks['value']
+
+    def mounts_enabled():
+        return mount_manager is not None and 'mount' in policy.operations
+
+    @app.get('/api/mounts')
+    async def mounts_list(request: Request):
+        await allowed(request, 'discover')
+        if not mounts_enabled():
+            return {'enabled': False, 'mounts': []}
+        info = await mount_prerequisites()
+        rows = await asyncio.to_thread(mount_manager.list, request.state.principal)
+        from .mounts import WINFSP_NOTICE
+        return {'enabled': True, **info, 'mounts': rows, 'notice': WINFSP_NOTICE if info['method'] == 'winfsp' else None}
+
+    @app.post('/api/mounts/winfsp')
+    async def mounts_install_winfsp(request: Request):
+        if not mounts_enabled():
+            raise PermissionError('Mounting is turned off on this service (start it with --allow-mounts)')
+        await allowed(request, 'mount')
+        if mount_manager.method != 'winfsp':
+            raise ValueError('WinFsp is only needed on Windows')
+        from .mounts import MountError, install_winfsp
+        try:
+            result = await asyncio.to_thread(install_winfsp, mount_manager.directory)
+        except MountError as error:
+            raise ValueError(str(error)) from None
+        mount_checks['value'] = None
+        return result
+
+    @app.post('/api/mounts')
+    async def mounts_add(request: Request):
+        if not mounts_enabled():
+            raise PermissionError('Mounting is turned off on this service (start it with --allow-mounts)')
+        data = await request.json()
+        session = get(request, data.get('session', ''))
+        descriptor = session.descriptor(data.get('path', '/'))
+        await allowed(request, 'mount', descriptor)
+        await allowed(request, 'list', descriptor)
+        if descriptor.get('host'):
+            descriptor['host'] = await asyncio.to_thread(policy.host, descriptor['host'])
+        credentials = await resolve_credentials(request, descriptor, descriptor.get('credential_id'), data.get('credentials'))
+        endpoint_config = await managed_endpoint(request, descriptor)
+        if endpoint_config is None and descriptor.get('type') == 'rclone':
+            endpoint_config = policy.endpoint(descriptor['endpoint'], 'rclone')
+        read_only = bool(data.get('read_only', False)) or 'write' not in session.policy.operations
+        label = data.get('label') or mount_label(request, descriptor)
+        from .mounts import MountError
+        try:
+            return await asyncio.to_thread(mount_manager.mount, request.state.principal, descriptor, credentials,
+                                           endpoint_config, label, read_only, data.get('target'))
+        except MountError as error:
+            raise ValueError(str(error)) from None
+
+    @app.delete('/api/mounts/{reference}')
+    async def mounts_remove(request: Request, reference: str, force: bool = False):
+        await allowed(request, 'discover')
+        if mount_manager is None:
+            raise HTTPException(404, 'Mount not found')
+        from .mounts import MountError
+        try:
+            return await asyncio.to_thread(mount_manager.unmount, request.state.principal, reference, force)
+        except MountError as error:
+            raise ValueError(str(error)) from None
+
+    def mount_label(request, descriptor):
+        tail = [part for part in descriptor.get('path', '/').split('/') if part]
+        if descriptor.get('type') == 'rclone' and remote_store is not None and descriptor.get('endpoint') in remote_store.records:
+            base = remote_store.records[descriptor['endpoint']]['label']
+        else:
+            base = descriptor.get('share') or descriptor.get('endpoint') or 'remotefs'
+        return tail[-1] if tail else base
 
     @app.post('/api/sessions/{id}/mkdir')
     @app.post('/sessions/{id}/mkdir', include_in_schema=False)

@@ -10,9 +10,9 @@ if [ "$(id -u)" != 0 ]; then echo 'Run as root to install the system service.' >
 if [ "$INSTALL_DEPENDENCIES" = 1 ]; then
 if command -v apt-get >/dev/null; then
   apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-venv git cmake build-essential
+  DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-venv git cmake build-essential rclone fuse3
 elif command -v dnf >/dev/null; then
-  dnf install -y python3 python3-pip git cmake gcc make
+  dnf install -y python3 python3-pip git cmake gcc make rclone fuse3
 else
   echo 'Install Python 3.11+, a C compiler, CMake and Git for this distribution.' >&2; exit 1
 fi

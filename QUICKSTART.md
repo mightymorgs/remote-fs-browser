@@ -134,7 +134,7 @@ Open **Scan network** and change **Ranges to probe** to select a permitted subne
 
 **Map** creates an application connection. **Unmount** closes it; neither action mounts a filesystem in the operating system on the service host or viewing computer. Save host credentials and add a network folder to the shortlist to reopen it after a page reload. Sidebar mappings themselves last only for the current page.
 
-Remotefs runs as a Python service with a browser-based JavaScript interface. Local access and SMB use Python packages; NFS additionally uses libnfs 6+. No kernel SMB/NFS mount or drive mapping is required.
+Remotefs runs as a Python service with a browser-based JavaScript interface. Local access and SMB use Python packages; NFS additionally uses libnfs 6+. No kernel SMB/NFS mount or drive mapping is required. To show a share or cloud connection as a folder or drive on this computer, start with `remotefs serve --allow-mounts` and right-click it → **Mount on this computer…** ([details](docs/MOUNTS.md)).
 
 ## Background operation and updates
 

@@ -14,7 +14,7 @@ from urllib.request import build_opener, HTTPCookieProcessor, HTTPRedirectHandle
 
 COMMANDS = ('login', 'logout', 'discover', 'scan', 'shares', 'connect', 'disconnect',
             'ls', 'stat', 'select', 'mkdir', 'rename', 'copy', 'remove', 'get', 'put',
-            'saved', 'credentials', 'downloads', 'remotes')
+            'saved', 'credentials', 'downloads', 'remotes', 'mount', 'unmount', 'mounts')
 
 
 class ClientParser(argparse.ArgumentParser):
@@ -234,6 +234,17 @@ def parser():
     mode.add_argument('--read-only', action='store_true')
     mode.add_argument('--read-write', action='store_true')
     remotes.add_argument('--options-stdin', action='store_true', help='Read provider fields as JSON from stdin; secrets never appear in command arguments')
+    mount = command('mount', 'Mount a session folder as a folder or drive on the computer running the service')
+    mount.add_argument('session')
+    mount.add_argument('path', nargs='?', default='/')
+    mount.add_argument('--read-only', action='store_true', help='Block changes through the mount (read/write by default when the session can write)')
+    mount.add_argument('--label', help='Name shown for the mount')
+    mount.add_argument('--target', help='Drive letter on Windows (for example Z:), or a folder name under the mount folder')
+    credential_flags(mount)
+    unmount = command('unmount', 'Unmount after pending uploads finish')
+    unmount.add_argument('id')
+    unmount.add_argument('--force', action='store_true', help='Unmount now; unfinished uploads resume the next time this location is mounted')
+    command('mounts', 'List mounts and what this service needs before it can mount')
     jobs = command('downloads', 'Manage staged ZIP jobs, including pause, resume and parts')
     jobs.add_argument('action', choices=('list', 'estimate', 'create', 'pause', 'resume', 'purge', 'forget', 'part'))
     jobs.add_argument('--id')
@@ -322,6 +333,18 @@ def execute(args, client):
             return client.request('POST', cmd, {'descriptor': location(args, client), 'credentials': credentials(args), 'label': args.label})
         required(args, 'host', 'username')
         return client.request('POST', cmd, {'host': args.host, 'credentials': credentials(args)})
+    if cmd == 'mount':
+        data = {'session': args.session, 'path': args.path, 'read_only': args.read_only}
+        for key in ('label', 'target'):
+            if getattr(args, key):
+                data[key] = getattr(args, key)
+        if args.username:
+            data['credentials'] = credentials(args)
+        return client.request('POST', 'mounts', data)
+    if cmd == 'unmount':
+        return client.request('DELETE', 'mounts/' + quote(args.id, safe=''), params={'force': 'true'} if args.force else None)
+    if cmd == 'mounts':
+        return client.request('GET', 'mounts')
     if cmd == 'remotes':
         route = 'remotes'
         if args.action in ('list', 'providers'):

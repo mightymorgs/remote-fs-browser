@@ -137,6 +137,25 @@ class NFSFilesystem:
         self.commit_write(source, destination, False)
         return {'path': destination}
 
+    def move(self, source, destination, overwrite=False):
+        """Move for the mount bridge: files as rename does (or replace when asked), folders too."""
+        split(source)
+        if overwrite:
+            self.commit_write(source, destination, True)
+            return {'path': normalize(destination)}
+        source, destination = self._path(source), self.destination(destination)
+        if not stat.S_ISDIR(self._stat(source).mode):
+            return self.rename(source, destination)
+        try:
+            self._stat(destination)
+            raise FileExistsError('Destination already exists')
+        except FileNotFoundError:
+            pass
+        # NFS has no no-replace RENAME. A folder created at the destination by another client
+        # between the check and the rename is replaced only if it is still empty.
+        self.check(self.lib.nfs_rename(self.ctx, source.encode(), destination.encode()))
+        return {'path': destination}
+
     def remove(self, path):
         split(path)
         path = self._path(path)

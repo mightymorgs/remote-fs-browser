@@ -2,7 +2,7 @@
 
 The installer scripts and Ansible playbooks install **the source checkout you run them from**. Check out the commit or tag you intend to deploy first. These updated automation options are included in v0.2.2 and newer.
 
-The service runs as root on Linux/macOS or SYSTEM on Windows. It uses Python to access local folders, SMB shares and NFS exports; connecting a share does not create an operating-system mount. Clients only need a browser. Set the policy to the directories and network ranges the service should expose.
+The service runs as root on Linux/macOS or SYSTEM on Windows. It uses Python to access local folders, SMB shares and NFS exports; connecting a share does not create an operating-system mount. To let users mount shares and cloud connections on the service host, add `"mount"` to `policy.operations` (and optionally set `"mount_folder"`); see [MOUNTS.md](MOUNTS.md). On Windows, mounts belong to one account: the installer records the account that ran it as `"mount_owner"`, and only that account's own sign-in session gets the drives. The Windows installer adds rclone and WinFsp unless you pass `-WithoutMounts`; the Linux installer adds rclone and fuse3. Clients only need a browser. Set the policy to the directories and network ranges the service should expose.
 
 ## Start with defaults — no configuration file needed
 

@@ -7,7 +7,7 @@ const KINDS = {
 }
 
 class Component extends DCLogic {
-  state = {collapsed:window.innerWidth<700,view:'browse',selected:[],anchor:null,filter:'',sort:{key:'name',dir:1},clipboard:null,menu:null,toast:null,ranges:'',scan:'idle',probed:0,scanTotal:0,devices:[],mapped:[],roots:[],width:window.innerWidth,place:{host:'',share:'',folders:[]},creds:[],transfers:[],stores:[],pins:[],listing:[],session:null}
+  state = {collapsed:window.innerWidth<700,view:'browse',selected:[],anchor:null,filter:'',sort:{key:'name',dir:1},clipboard:null,menu:null,toast:null,ranges:'',scan:'idle',probed:0,scanTotal:0,devices:[],mapped:[],roots:[],width:window.innerWidth,place:{host:'',share:'',folders:[]},creds:[],transfers:[],stores:[],pins:[],listing:[],session:null,mountInfo:{enabled:false,mounts:[]}}
   filterRef = React.createRef()
   toView(view) {
     this.setState({ view: this.state.view === view ? 'browse' : view, menu: null })
@@ -37,10 +37,10 @@ class Component extends DCLogic {
       if (key === 'backspace') this.remove()
     }
     document.addEventListener('keydown', this.onKey)
-    const [discovery] = await Promise.all([this.api('/discover'), this.reloadSaved(), this.pollJobs(), this.reloadRemotes()])
+    const [discovery] = await Promise.all([this.api('/discover'), this.reloadSaved(), this.pollJobs(), this.reloadRemotes(), this.reloadMounts()])
     this.setState({roots:discovery.roots, endpoints:discovery.endpoints || [], ranges:discovery.scan_ranges.join(', '), scan:'idle'})
     if (discovery.roots.length) this.goTo(this.fromDescriptor(discovery.roots[0]))
-    this.pollTimer = setInterval(() => {if (!document.hidden) this.pollJobs().catch(() => {})}, 5000)
+    this.pollTimer = setInterval(() => {if (!document.hidden) {this.pollJobs().catch(() => {}); if (this.state.mountInfo.mounts.length) this.reloadMounts()}}, 5000)
   }
   componentWillUnmount() {
     clearInterval(this.pollTimer); clearTimeout(this.toastTimer); this.scanCancelled = true
@@ -363,6 +363,7 @@ class Component extends DCLogic {
     if(one)rows.push({label:'Rename',on:this.can('rename'),run:()=>this.renameEntry(one)})
     const place=one?.type==='directory'?{...this.state.place,folders:[...this.state.place.folders,one.name]}:this.state.place
     rows.push({label:'Shortlist folder',on:!!place.descriptor&&this.state.savedAvailable,run:()=>this.pin(place,one?.name||place.share)})
+    if(this.mountable(place))rows.push({label:'Mount on this computer…',on:true,run:()=>this.mountFolder(place,one?.name||place.folders.at(-1)||place.share||place.descriptor?.label).catch(error=>this.say(error.message))})
     if(entries.length)rows.push({divider:true},{label:'Delete',on:this.can('delete'),run:()=>this.remove()},{label:'Get info',on:this.can('stat'),run:()=>this.info(entries)})
     return rows
   }
@@ -459,6 +460,7 @@ class Component extends DCLogic {
       { label: 'Open', keys: '', on: true, run: () => { this.setState({ menu: null }); this.openShare(host, name) } },
       { label: `Shortlist ${host.protocol === 'NFS' ? 'export' : 'share'}`, keys: '', on: true, run: () => this.pin(place, name.replace(/^\//, '').split('/').pop()) },
       { label: 'Copy path', keys: '', on: true, run: () => this.copyText(this.pathOf(place), 'Path') },
+      ...(this.mountable(place) ? [{ label: 'Mount on this computer…', keys: '', on: true, run: () => this.mountFolder(place, name.replace(/^\//, '').split('/').pop()).catch(error => this.say(error.message)) }] : []),
       { divider: true },
       { label: `Unmount ${host.label}`, keys: '', on: true, run: () => { this.setState({ menu: null }); this.unmount(host) } }
     ]
@@ -909,6 +911,13 @@ class Component extends DCLogic {
       saveCloud: ()=>this.saveCloud(),
       newCloud: ()=>this.setState({cloud:{provider:'s3'},cloudStatus:''}),
       cloudConnections: (this.state.cloudRemotes || []).map(r=>({...r, open:()=>this.goTo(this.fromDescriptor(r)), edit:()=>this.editCloud(r), forget:()=>this.forgetCloud(r)})),
+      mountsVisible: this.state.mountInfo.mounts.length > 0,
+      mountRows: this.state.mountInfo.mounts.map(row => {
+        const pending = row.status?.pending_uploads || 0, up = row.status?.state === 'mounted'
+        return {...row, dot: up ? (pending ? '#d98b3a' : '#3a9a5b') : '#b0b6bf',
+          detail: `${row.target}${row.read_only ? ' · read-only' : ''}${pending ? ` · ${pending} uploading` : up ? '' : ' · ' + (row.status?.state || 'stopped')}`,
+          eject: () => this.unmountFolder(row).catch(error => this.say(error.message))}
+      }),
       cloudSidebar: (this.state.endpoints || []).filter(r=>r.type==='rclone').map(r=>({...r, open:()=>this.goTo(this.fromDescriptor(r))})),
       openCloud: ()=>this.setState({view:'add',addType:'rclone'}),
       addEndpointName: this.state.add?.endpoint || '',
@@ -1132,6 +1141,77 @@ class Component extends DCLogic {
   async reloadSaved() {
     const [pins,credentials]=await Promise.all([this.api('/saved'),this.api('/credentials')])
     this.setState({pins:pins.locations.map(pin=>({...pin,place:this.fromDescriptor({...pin.descriptor,credential_id:pin.has_credentials?pin.id:undefined})})), creds:credentials.credentials.map(row=>({...row,note:`Saved for ${row.host}`})), savedAvailable:pins.available})
+  }
+  async reloadMounts() {
+    try {this.setState({mountInfo:await this.api('/mounts')})} catch {this.setState({mountInfo:{enabled:false,mounts:[]}})}
+  }
+  mountable(place) {
+    return this.state.mountInfo.enabled && ['smb','nfs','rclone'].includes(place.descriptor?.type)
+  }
+  /** Mount a share, folder or cloud connection as a folder (macOS/Linux) or drive letter (Windows) on the service's computer. */
+  async mountFolder(place,name) {
+    this.setState({menu:null})
+    const info=this.state.mountInfo
+    if(!info.available) {
+      const missing=info.missing||[], needs=missing.map(m=>`${m.name}: ${m.detail} ${m.install}`).join('\n\n')
+      if(!(missing.length===1&&missing[0].name==='WinFsp'))return this.dialog('Mounting needs one more thing',needs||'This computer cannot mount right now.')
+      const credit=info.notice?`\n\n${info.notice.text} (${info.notice.url})`:''
+      if(!await this.dialog('Install WinFsp',`Drive letters on Windows use WinFsp, a free file-system driver. remotefs downloads the official installer, checks it and runs it; Windows will ask for permission.${credit}`,null,'Install WinFsp'))return
+      this.say('Installing WinFsp…')
+      await this.api('/mounts/winfsp',{})
+      await this.reloadMounts()
+      if(!this.state.mountInfo.available)return this.dialog('WinFsp','WinFsp is installed. Restart remotefs, then mount again.')
+    }
+    const endpoint=place.descriptor?.endpoint
+    if(place.descriptor?.type==='rclone'&&(!name||name===endpoint))name=(this.state.endpoints||[]).find(r=>r.endpoint===endpoint)?.label
+    const choice=await this.mountDialog(name||'remotefs',this.state.mountInfo)
+    if(!choice)return
+    const session=await this.sessionFor(place), descriptor=place.descriptor
+    this.say(`Mounting ${choice.label}…`)
+    const row=await this.api('/mounts',{session:session.id,path:this.currentPath(place),label:choice.label,read_only:choice.readOnly,
+      target:choice.target||undefined,credentials:this.auth.get(`${descriptor.type}:${descriptor.host}`)})
+    await this.reloadMounts()
+    this.say(`Mounted at ${row.target}${row.read_only?' (read-only)':''}.`)
+  }
+  mountDialog(label,info) {
+    return new Promise(resolve=>{
+      const dialog=document.createElement('dialog');dialog.className='manager-dialog'
+      const form=document.createElement('form');form.method='dialog'
+      const heading=document.createElement('h2');heading.textContent='Mount on this computer'
+      const text=document.createElement('p')
+      text.textContent=info.method==='winfsp'?'Shows this location as a drive in File Explorer on the computer running remotefs.'
+        :`Shows this location as a folder in ${info.method==='nfs'?'Finder':'your file manager'} on the computer running remotefs.`
+      const name=document.createElement('input');name.value=label;name.required=true;name.setAttribute('aria-label','Mount name')
+      const nameRow=document.createElement('label');nameRow.className='field';nameRow.append('Name',name)
+      form.append(heading,text,nameRow)
+      let letter
+      if(info.method==='winfsp'){
+        letter=document.createElement('select');letter.setAttribute('aria-label','Drive letter')
+        for(const value of ['', ...'ZYXWVUTSRQPONMLKJIHGFED'])letter.append(new Option(value?value+':':'Next free letter',value?value+':':''))
+        const letterRow=document.createElement('label');letterRow.className='field';letterRow.append('Drive letter',letter);form.append(letterRow)
+      }
+      const write=document.createElement('input');write.type='checkbox';write.checked=true
+      const writeRow=document.createElement('label');writeRow.className='check';writeRow.append(write,' Allow changes (untick for read-only)')
+      form.append(writeRow)
+      if(info.notice){const note=document.createElement('p');note.className='note';const link=document.createElement('a');link.href=info.notice.url;link.target='_blank';link.rel='noopener';link.textContent=info.notice.text;note.append('Drive letters use ',link,'.');form.append(note)}
+      const buttons=document.createElement('div');buttons.className='dialog-buttons'
+      const cancel=document.createElement('button');cancel.type='button';cancel.textContent='Cancel';cancel.onclick=()=>dialog.close()
+      const ok=document.createElement('button');ok.textContent='Mount';ok.className='primary'
+      buttons.append(cancel,ok);form.append(buttons);dialog.append(form);document.body.append(dialog)
+      form.onsubmit=e=>{e.preventDefault();dialog.close('ok')}
+      dialog.onclose=()=>{const ok=dialog.returnValue==='ok';dialog.remove();resolve(ok?{label:name.value.trim(),readOnly:!write.checked,target:letter?.value}:null)}
+      dialog.showModal();name.select()
+    })
+  }
+  async unmountFolder(row) {
+    try {await this.api('/mounts/'+row.id,undefined,'DELETE')}
+    catch(error) {
+      if(!/still uploading/.test(error.message))throw error
+      if(!await this.dialog('Uploads still running',`${error.message}`,null,'Eject anyway'))return
+      await this.api('/mounts/'+row.id+'?force=true',undefined,'DELETE')
+    }
+    await this.reloadMounts()
+    this.say(`Ejected ${row.label}.`)
   }
   async reloadRemotes() {
     const info=await this.api('/remotes')

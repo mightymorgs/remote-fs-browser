@@ -28,6 +28,18 @@ The principal storage libraries are:
   licensing material is included in `licenses/libnfs/` and the source archive.
   The utility/example programs are not built into this application.
 
+- **rclone**, used for cloud connections and for mounting storage on this
+  computer: MIT, copyright Nick Craig-Wood. The portable download includes the
+  unmodified `rclone.exe` from the official release, with its licence and README
+  in `licenses/rclone/`.
+- **WinFsp** (optional, Windows mounts only): *WinFsp - Windows File System
+  Proxy, Copyright (C) Bill Zissimopoulos*, https://github.com/winfsp/winfsp.
+  WinFsp is not included in the download. When you mount a drive for the first
+  time, remotefs can download the official, unmodified WinFsp installer from
+  the WinFsp GitHub release, verify its SHA-256 checksum and run it. WinFsp is
+  licensed under GPLv3 with a FLOSS exception that permits its use with and
+  distribution alongside open-source software such as remotefs.
+
 The application dynamically loads `libnfs.dll` from beside `remotefs.exe`. You may
 replace that DLL with a modified, interface-compatible build. We impose no
 restriction on reverse engineering this application for debugging modifications

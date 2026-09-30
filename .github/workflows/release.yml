@@ -47,6 +47,22 @@ jobs:
           # cli.py points LIBNFS_LIBRARY at this file when running frozen.
           Copy-Item "${{ steps.libnfs.outputs.library }}" dist/remotefs/libnfs.dll
           if (!(Test-Path dist/remotefs/remotefs.exe)) { throw 'PyInstaller did not produce remotefs.exe' }
+      - name: Bundle pinned rclone.exe next to remotefs.exe
+        shell: pwsh
+        run: |
+          # Cloud browsing and mounts use this rclone (cli.py puts the executable's folder first on PATH).
+          # WinFsp is not bundled: remotefs installs the official installer on demand (see mounts.py).
+          $Version = 'v1.75.1'
+          $Sha256 = '200eb602c126d82aa38b51e0f6b9ae837473ff99b51278d3f6f837574c494d6e'
+          $Zip = "$env:RUNNER_TEMP/rclone.zip"
+          Invoke-WebRequest "https://github.com/rclone/rclone/releases/download/$Version/rclone-$Version-windows-amd64.zip" -OutFile $Zip
+          if ((Get-FileHash $Zip -Algorithm SHA256).Hash.ToLower() -ne $Sha256) { throw 'rclone archive checksum mismatch' }
+          Expand-Archive $Zip -DestinationPath "$env:RUNNER_TEMP/rclone"
+          $Folder = "$env:RUNNER_TEMP/rclone/rclone-$Version-windows-amd64"
+          Copy-Item "$Folder/rclone.exe" dist/remotefs/rclone.exe
+          New-Item -ItemType Directory -Force dist/remotefs/licenses/rclone | Out-Null
+          Copy-Item "$Folder/README.txt" dist/remotefs/licenses/rclone/README.txt
+          Invoke-WebRequest "https://raw.githubusercontent.com/rclone/rclone/$Version/COPYING" -OutFile dist/remotefs/licenses/rclone/COPYING
       - name: Bundle third-party licences and matching libnfs source
         shell: pwsh
         run: |
