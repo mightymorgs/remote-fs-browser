@@ -85,23 +85,41 @@ def connect_error(host, export, detail):
     return NFSConnectError(message + (f' ({detail.strip()})' if detail and detail.strip() else ''))
 
 
+def nfs_versions(version):
+    """The versions to try, in order: NFSv4 then NFSv3 unless one was chosen."""
+    if version in (None, '', 'auto'):
+        return (4, 3)
+    if str(version) not in ('3', '4'):
+        raise ValueError('Unsupported NFS version')
+    return (int(version),)
+
+
 class NFSFilesystem:
     def __init__(self, config):
         self.lib = library()
-        self.ctx = self.lib.nfs_init_context()
-        if not self.ctx:
-            raise RuntimeError('Could not allocate NFS context')
-        try:
-            if self.lib.nfs_set_version(self.ctx, int(config.get('version', 4))) != 0:
-                raise ValueError('Unsupported NFS version')
-            self.lib.nfs_set_timeout(self.ctx, 5000)
-            self.lib.nfs_set_dircache(self.ctx, 0)
-            if self.lib.nfs_mount(self.ctx, config['host'].encode(), config['export'].encode()) != 0:
+        self.ctx = None
+        failures = []
+        for version in nfs_versions(config.get('version')):
+            self.ctx = self.lib.nfs_init_context()
+            if not self.ctx:
+                raise RuntimeError('Could not allocate NFS context')
+            try:
+                if self.lib.nfs_set_version(self.ctx, version) != 0:
+                    raise ValueError('Unsupported NFS version')
+                self.lib.nfs_set_timeout(self.ctx, 5000)
+                self.lib.nfs_set_dircache(self.ctx, 0)
+                if self.lib.nfs_mount(self.ctx, config['host'].encode(), config['export'].encode()) == 0:
+                    self.version = version
+                    return
                 detail = self.lib.nfs_get_error(self.ctx)
-                raise connect_error(config['host'], config['export'], detail.decode(errors='replace') if detail else '')
-        except Exception:
+                failures.append((version, detail.decode(errors='replace') if detail else ''))
+            except Exception:
+                self.close()
+                raise
             self.close()
-            raise
+        # Describe the NFSv4 failure, which is usually the telling one, and keep what the fallback said.
+        detail = '; '.join(f'NFSv{version}: {text}' if len(failures) > 1 else text for version, text in failures if text)
+        raise connect_error(config['host'], config['export'], failures[0][1] + (f' | {detail}' if len(failures) > 1 else ''))
 
     def _stat(self, path):
         info = Stat()

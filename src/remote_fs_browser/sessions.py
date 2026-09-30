@@ -424,8 +424,8 @@ def clean_descriptor(descriptor):
     clean = {'type': kind, **{k: descriptor[k] for k in fields[kind] if k in descriptor}}
     if kind == 'smb' and (not clean.get('share') or any(c in clean['share'] for c in '/\\\x00')):
         raise ValueError('Use a share name without subfolders')
-    if kind == 'nfs' and (not clean.get('export', '').startswith('/') or int(clean.get('version', 4)) not in (3, 4)):
-        raise ValueError('Use an absolute NFS export and version 3 or 4')
+    if kind == 'nfs' and (not clean.get('export', '').startswith('/') or str(clean.get('version', 'auto')) not in ('3', '4', 'auto')):
+        raise ValueError('Use an absolute NFS export and version 3, 4 or auto (NFSv4, then NFSv3)')
     if kind in ('rclone', 'libvirt'):
         import re
         if not isinstance(clean.get('endpoint'), str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', clean['endpoint']):

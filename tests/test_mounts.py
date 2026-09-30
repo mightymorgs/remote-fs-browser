@@ -574,3 +574,59 @@ def test_windows_share_listing_explains_a_bad_login():
     assert caught.value.shown and [c[0] for c in fake.calls] == ['add']
     with pytest.raises(DiscoveryError, match='Windows error 999'):
         windows_smb_shares('nas', {'username': 'morgs', 'password': 'x'}, api=(FakeWindowsShares(add_result=999),) * 2)
+
+
+class FakeLibnfs:
+    """libnfs stand-in: each context remembers its version; mounting succeeds only for the listed versions."""
+
+    def __init__(self, works=(), errors=None):
+        self.works, self.errors, self.contexts, self.destroyed, self.tried = set(works), errors or {}, {}, 0, []
+
+    def nfs_init_context(self):
+        handle = len(self.contexts) + 1
+        self.contexts[handle] = None
+        return handle
+
+    def nfs_set_version(self, ctx, version):
+        self.contexts[ctx] = version
+        return 0
+
+    def nfs_set_timeout(self, ctx, value):
+        pass
+
+    nfs_set_dircache = nfs_set_timeout
+
+    def nfs_mount(self, ctx, host, export):
+        self.tried.append(self.contexts[ctx])
+        return 0 if self.contexts[ctx] in self.works else -1
+
+    def nfs_get_error(self, ctx):
+        return self.errors.get(self.contexts[ctx], '').encode()
+
+    def nfs_destroy_context(self, ctx):
+        self.destroyed += 1
+
+
+@pytest.mark.parametrize('version,works,tried,used', [(None, {4, 3}, [4], 4), ('auto', {3}, [4, 3], 3), (4, {3}, [4], None),
+                                                      ('3', {3, 4}, [3], 3)])
+def test_nfs_tries_version_4_then_3_unless_one_is_chosen(monkeypatch, version, works, tried, used):
+    from remote_fs_browser import nfs
+    fake = FakeLibnfs(works, {4: 'NFS4ERR_PERM', 3: 'mount failed: RPC timed out'})
+    monkeypatch.setattr(nfs, 'library', lambda: fake)
+    config = {'host': 'nas', 'export': '/tank/data', **({'version': version} if version is not None else {})}
+    if used is None:
+        with pytest.raises(nfs.NFSConnectError, match='insecure'):
+            nfs.NFSFilesystem(config)
+    else:
+        assert nfs.NFSFilesystem(config).version == used
+    assert fake.tried == tried and fake.destroyed == len(tried) - (used is not None)
+
+
+def test_nfs_reports_both_versions_when_neither_works(monkeypatch):
+    from remote_fs_browser import nfs
+    monkeypatch.setattr(nfs, 'library', lambda: FakeLibnfs(errors={4: 'NFS4ERR_PERM', 3: 'RPC timed out'}))
+    with pytest.raises(nfs.NFSConnectError) as caught:
+        nfs.NFSFilesystem({'host': 'nas', 'export': '/tank/data'})
+    assert 'refused this computer' in str(caught.value) and 'NFSv3: RPC timed out' in str(caught.value)
+    with pytest.raises(ValueError):
+        nfs.nfs_versions('2')

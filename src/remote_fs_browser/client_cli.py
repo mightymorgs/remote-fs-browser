@@ -142,7 +142,7 @@ def location_flags(parser):
     parser.add_argument('--host')
     parser.add_argument('--share')
     parser.add_argument('--export')
-    parser.add_argument('--nfs-version', type=int, choices=(3, 4), default=4)
+    parser.add_argument('--nfs-version', choices=('auto', '3', '4'), default='auto', help='auto tries NFSv4, then NFSv3')
     parser.add_argument('--path', default='/')
     parser.add_argument('--saved-id', help='Reuse a saved location and its credentials')
     credential_flags(parser)
@@ -168,7 +168,7 @@ def location(args, client):
     if args.type == 'local' and not args.root:
         raise ValueError('--type local requires --root')
     if args.type == 'nfs':
-        result['version'] = args.nfs_version
+        result['version'] = args.nfs_version if args.nfs_version == 'auto' else int(args.nfs_version)
     result = dict(clean_descriptor(result), path=args.path)
     if args.credential_id:
         result['credential_id'] = args.credential_id
