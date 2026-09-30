@@ -8,6 +8,9 @@ Each mount runs its own rclone process
 with a private config, a persistent VFS cache and a loopback remote-control endpoint protected by
 a random password. The service asks rclone to finish pending uploads and quit, rather than killing
 it, so unmounting does not lose writes.
+
+Mounts reconnect by default: the service remembers each one until it is ejected and mounts it again
+after a restart, after rclone exits and, on Windows, when the mount owner signs in again.
 """
 import base64
 import configparser
@@ -158,10 +161,13 @@ def remote_for(descriptor, credentials, endpoint_config, binary, bridge=None):
     if kind == 'smb':
         if not credentials or not credentials.get('username') or not credentials.get('password'):
             raise MountError('Sign in to this server with a username and password before mounting it')
-        section = {'type': 'smb', 'host': descriptor['host'], 'user': credentials['username'],
-                   'pass': obscure(binary, credentials['password'])}
-        if credentials.get('domain'):
-            section['domain'] = credentials['domain']
+        user, domain = credentials['username'], credentials.get('domain')
+        if '\\' in user and not domain:
+            # rclone takes the domain separately; "DOMAIN\\user" as one name signs in as nobody.
+            domain, user = user.split('\\', 1)
+        section = {'type': 'smb', 'host': descriptor['host'], 'user': user, 'pass': obscure(binary, credentials['password'])}
+        if domain:
+            section['domain'] = domain
         return section, '/'.join(part for part in (descriptor['share'], path) if part)
     if kind == 'rclone':
         if not endpoint_config:
@@ -197,10 +203,10 @@ def free_port():
 
 
 class MountManager:
-    """Owns the rclone mount processes started by this service."""
+    """Owns the rclone mount processes started by this service, and brings back the ones that reconnect."""
 
     def __init__(self, directory, base=None, binary=None, system=None, popen=subprocess.Popen, bridge=None,
-                 owner=None, sessions=None):
+                 owner=None, sessions=None, resolver=None, interval=15):
         self.directory = Path(directory)
         self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.system = system or sys.platform
@@ -218,21 +224,51 @@ class MountManager:
         self.sessions = sessions
         self.files = {}
         self.records = {}
+        # Mounts to bring back until they are ejected. resolver(principal, descriptor) returns the login,
+        # cloud endpoint and whether writes are still allowed, as the service's policy stands now.
+        self.saved_path = self.directory / 'saved-mounts.json'
+        self.saved = self.load_saved()
+        self.resolver = resolver
+        self.interval = interval
+        self.retries = {}  # key -> (monotonic time of the next attempt, delay, reason shown in the list)
+        self.stopping = threading.Event()
+        self.watcher = None
         self.cleanup_stale()
 
     # ------------------------------------------------------------------ bookkeeping
     def save(self):
         write_private(self.state_path, json.dumps(self.records, indent=1) + '\n')
 
+    def load_saved(self):
+        try:
+            saved = json.loads(self.saved_path.read_text())
+        except (OSError, ValueError):
+            return {}
+        return saved if isinstance(saved, dict) else {}
+
+    def save_saved(self):
+        write_private(self.saved_path, json.dumps(self.saved, indent=1) + '\n')
+
     def public(self, key, row):
         result = {k: row[k] for k in ('label', 'target', 'read_only', 'method', 'started', 'descriptor')}
         result['id'] = key
+        result['auto'] = key in self.saved
         result['status'] = self.status(key)
         return result
 
+    def waiting(self, key):
+        """A remembered mount that is not running yet: why, as far as the service knows."""
+        definition = self.saved[key]
+        _, _, reason = self.retries.get(key, (0, 0, None))
+        return {'id': key, 'label': definition['label'], 'target': definition['target'], 'read_only': definition['read_only'],
+                'method': self.method, 'started': None, 'auto': True,
+                'descriptor': {k: v for k, v in definition['descriptor'].items() if k != 'credential_id'},
+                'status': {'state': 'waiting', 'reason': reason or 'Reconnecting…', 'pending_uploads': 0}}
+
     def list(self, principal):
         with self.lock:
-            return [self.public(k, r) for k, r in self.records.items() if r['principal'] == principal]
+            rows = [self.public(k, r) for k, r in self.records.items() if r['principal'] == principal]
+            return rows + [self.waiting(k) for k, d in self.saved.items() if d['principal'] == principal and k not in self.records]
 
     def record(self, principal, key):
         row = self.records.get(key)
@@ -318,13 +354,15 @@ class MountManager:
             argv.append('--read-only')
         return argv
 
-    def mount(self, principal, descriptor, credentials, endpoint_config, label, read_only, target=None, timeout=30):
+    def mount(self, principal, descriptor, credentials, endpoint_config, label, read_only, target=None, timeout=30,
+              auto=False, key=None):
+        """Start one mount. With auto it is remembered, including its credential_id, and reconnects until ejected."""
         with self.lock:
             self.binary = self.binary or rclone_binary()
             check = prerequisites(self.binary, self.system)
             if not check['available']:
                 raise MountError('; '.join(f"{m['name']} is needed: {m['install']}" for m in check['missing']))
-            key = 'mount-' + secrets.token_hex(8)
+            key = key or 'mount-' + secrets.token_hex(8)
             user = self.user_session() if self.method == 'winfsp' else None
             row = None
             try:
@@ -382,18 +420,30 @@ class MountManager:
                     self.forget(key)
                     raise MountError(f'The mount did not start; see {log}')
                 if self.visible(row):
+                    if auto:
+                        self.saved[key] = dict(principal=principal, descriptor=dict(descriptor), label=row['label'],
+                                               read_only=row['read_only'], target=row['target'])
+                        self.save_saved()
                     return self.public(key, row)
                 time.sleep(0.25)
             self.stop(key, wait_uploads=0, keep_if_busy=False)
             raise MountError(f'The mount did not appear within {timeout} seconds; see {log}')
 
     def unmount(self, principal, key, force=False, wait=60):
+        """Eject: stop the mount if it is running and stop reconnecting it."""
         with self.lock:
-            self.record(principal, key)
-            pending = self.stop(key, wait_uploads=0 if force else wait, keep_if_busy=not force)
-            if pending:
-                raise MountError(f'{pending} file(s) are still uploading; try again shortly or unmount with force '
-                                 '(uploads resume the next time this location is mounted)')
+            definition = self.saved.get(key)
+            if key in self.records:
+                self.record(principal, key)
+                pending = self.stop(key, wait_uploads=0 if force else wait, keep_if_busy=not force)
+                if pending:
+                    raise MountError(f'{pending} file(s) are still uploading; try again shortly or unmount with force '
+                                     '(uploads resume the next time this location is mounted)')
+            elif not definition or definition['principal'] != principal:
+                raise PermissionError('Mount not found')
+            if self.saved.pop(key, None) is not None:
+                self.save_saved()
+            self.retries.pop(key, None)
             return {'unmounted': True}
 
     def stop(self, key, wait_uploads=60, keep_if_busy=False):
@@ -510,6 +560,61 @@ class MountManager:
             self.save()
 
     def shutdown(self, wait_uploads=60):
+        """Stop every mount; remembered mounts come back the next time the service starts."""
+        self.stopping.set()
+        if self.watcher is not None:
+            self.watcher.join(timeout=60)
+            self.watcher = None
         with self.lock:
             for key in list(self.records):
                 self.stop(key, wait_uploads, keep_if_busy=False)
+
+    # ------------------------------------------------------------------ reconnecting
+    def start(self):
+        """Begin bringing back remembered mounts; the service calls this once it is serving."""
+        if self.watcher is None:
+            self.stopping.clear()
+            self.watcher = threading.Thread(target=self.watch, name='remotefs-mounts', daemon=True)
+            self.watcher.start()
+
+    def watch(self):
+        while not self.stopping.is_set():
+            try:
+                self.reconnect()
+            except Exception:  # never let one bad pass end reconnecting for good
+                pass
+            self.stopping.wait(self.interval)
+
+    def reconnect(self, now=None):
+        """Mount each remembered mount that is not running: after a restart, a crash or the owner's sign-out."""
+        with self.lock:
+            now = time.monotonic() if now is None else now
+            for key in [k for k in self.saved if k in self.processes and self.processes[k].poll() is not None]:
+                # rclone exited (on Windows, the owner signed out and their session ended). Clear it, then remount.
+                self.release(self.records[key]['target'])
+                self.forget(key)
+            for key in [k for k in self.saved if k not in self.records]:
+                if self.stopping.is_set():
+                    return
+                if self.retries.get(key, (0,))[0] <= now:
+                    self.remount(key, now)
+
+    def remount(self, key, now):
+        definition = self.saved[key]
+        if self.method == 'winfsp' and windows_system_account() and self.owner \
+                and self.session_api().session_of(self.owner) is None:
+            # Not a failure: check again soon, without backing off, so the drive is back right after sign-in.
+            self.retries[key] = (now + self.interval, self.interval, f'Waiting for {self.owner} to sign in to Windows')
+            return
+        try:
+            if self.resolver is None:
+                raise MountError('This service cannot reconnect mounts')
+            credentials, endpoint_config, writable = self.resolver(definition['principal'], definition['descriptor'])
+            target = definition['target'] if self.method == 'winfsp' else Path(definition['target']).name
+            self.mount(definition['principal'], definition['descriptor'], credentials, endpoint_config, definition['label'],
+                       definition['read_only'] or not writable, target, auto=True, key=key)
+            self.retries.pop(key, None)
+        except Exception as error:
+            delay = min(max(self.retries.get(key, (0, 0))[1] * 2, self.interval), 300)
+            reason = str(error) if isinstance(error, (MountError, PermissionError)) and str(error) else 'Could not reconnect'
+            self.retries[key] = (now + delay, delay, f'{reason}; trying again in {int(delay)} seconds')

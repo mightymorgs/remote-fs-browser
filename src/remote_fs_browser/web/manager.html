@@ -457,6 +457,7 @@
             <sc-if value="{{ addNfs }}">
               <label style="display:grid;gap:6px;font-size:12px;color:#6a727c">NFS version
                 <select value="{{ addVersion }}" onChange="{{ setAddVersion }}" style="width:100%;padding:8px 11px;font:13.5px system-ui,sans-serif;color:#1c2024;border:1px solid #c8ccd3;border-radius:8px;background:rgba(255,255,255,.9)">
+                  <option value="auto">Automatic (NFSv4, then NFSv3)</option>
                   <option value="4">NFSv4</option>
                   <option value="3">NFSv3</option>
                 </select>
@@ -741,7 +742,8 @@
           <sc-if value="{{ promptNfs }}">
             <label style="display:grid;gap:6px;font-size:12px;color:#6a727c">NFS version
               <select value="{{ promptVersion }}" onChange="{{ setPromptVersion }}" style="width:100%;padding:8px 11px;font:14px system-ui,sans-serif;color:#1c2024;border:1px solid #c8ccd3;border-radius:8px;background:rgba(255,255,255,.9)">
-                <option value="4">NFSv4</option>
+                <option value="auto">Automatic (NFSv4, then NFSv3)</option>
+                  <option value="4">NFSv4</option>
                 <option value="3">NFSv3</option>
               </select>
             </label>

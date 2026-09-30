@@ -142,7 +142,7 @@ def location_flags(parser):
     parser.add_argument('--host')
     parser.add_argument('--share')
     parser.add_argument('--export')
-    parser.add_argument('--nfs-version', type=int, choices=(3, 4), default=4)
+    parser.add_argument('--nfs-version', choices=('auto', '3', '4'), default='auto', help='auto tries NFSv4, then NFSv3')
     parser.add_argument('--path', default='/')
     parser.add_argument('--saved-id', help='Reuse a saved location and its credentials')
     credential_flags(parser)
@@ -168,7 +168,7 @@ def location(args, client):
     if args.type == 'local' and not args.root:
         raise ValueError('--type local requires --root')
     if args.type == 'nfs':
-        result['version'] = args.nfs_version
+        result['version'] = args.nfs_version if args.nfs_version == 'auto' else int(args.nfs_version)
     result = dict(clean_descriptor(result), path=args.path)
     if args.credential_id:
         result['credential_id'] = args.credential_id
@@ -240,6 +240,8 @@ def parser():
     mount.add_argument('--read-only', action='store_true', help='Block changes through the mount (read/write by default when the session can write)')
     mount.add_argument('--label', help='Name shown for the mount')
     mount.add_argument('--target', help='Drive letter on Windows (for example Z:), or a folder name under the mount folder')
+    mount.add_argument('--no-reconnect', action='store_true',
+                       help='Mount only until the service stops (by default mounts come back after restarts and sign-in)')
     credential_flags(mount)
     unmount = command('unmount', 'Unmount after pending uploads finish')
     unmount.add_argument('id')
@@ -334,7 +336,7 @@ def execute(args, client):
         required(args, 'host', 'username')
         return client.request('POST', cmd, {'host': args.host, 'credentials': credentials(args)})
     if cmd == 'mount':
-        data = {'session': args.session, 'path': args.path, 'read_only': args.read_only}
+        data = {'session': args.session, 'path': args.path, 'read_only': args.read_only, 'auto': not args.no_reconnect}
         for key in ('label', 'target'):
             if getattr(args, key):
                 data[key] = getattr(args, key)

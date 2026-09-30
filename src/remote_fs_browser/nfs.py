@@ -42,6 +42,7 @@ def library():
         ('nfs_init_context', [], P), ('nfs_destroy_context', [P], None),
         ('nfs_set_version', [P, c.c_int], c.c_int), ('nfs_set_timeout', [P, c.c_int], None),
         ('nfs_set_dircache', [P, c.c_int], None), ('nfs_mount', [P, c.c_char_p, c.c_char_p], c.c_int),
+        ('nfs_get_error', [P], c.c_char_p),
         ('nfs_mkdir', [P, c.c_char_p], c.c_int),
         ('nfs_open2', [P, c.c_char_p, c.c_int, c.c_int, c.POINTER(P)], c.c_int),
         ('nfs_pwrite', [P, P, P, c.c_size_t, c.c_uint64], c.c_int),
@@ -62,22 +63,63 @@ def library():
     return lib
 
 
+class NFSConnectError(ValueError):
+    """Why an NFS server could not be used, in words the person connecting can act on."""
+    shown = True
+
+
+def connect_error(host, export, detail):
+    text = (detail or '').lower()
+    if any(word in text for word in ('perm', 'acces', 'auth', 'weak', 'denied', 'not permitted')):
+        message = (f'{host} refused this computer for {export}. Check that the export allows this computer\'s address. '
+                   'If this computer reaches the server through NAT (a virtual machine or container), the export also '
+                   'needs the "insecure" option, because NAT moves connections to ports above 1024')
+    elif 'no such' in text or 'noent' in text or 'not found' in text:
+        message = f'{host} has no export named {export}'
+    elif 'refused' in text:
+        message = f'Nothing on {host} is accepting NFS connections; check the address and that its NFS service is running'
+    elif 'timed out' in text or 'timeout' in text:
+        message = f'{host} did not answer; check the address, the NFS version and any firewall between them'
+    else:
+        message = f'Could not connect to {export} on {host}'
+    return NFSConnectError(message + (f' ({detail.strip()})' if detail and detail.strip() else ''))
+
+
+def nfs_versions(version):
+    """The versions to try, in order: NFSv4 then NFSv3 unless one was chosen."""
+    if version in (None, '', 'auto'):
+        return (4, 3)
+    if str(version) not in ('3', '4'):
+        raise ValueError('Unsupported NFS version')
+    return (int(version),)
+
+
 class NFSFilesystem:
     def __init__(self, config):
         self.lib = library()
-        self.ctx = self.lib.nfs_init_context()
-        if not self.ctx:
-            raise RuntimeError('Could not allocate NFS context')
-        try:
-            if self.lib.nfs_set_version(self.ctx, int(config.get('version', 4))) != 0:
-                raise ValueError('Unsupported NFS version')
-            self.lib.nfs_set_timeout(self.ctx, 5000)
-            self.lib.nfs_set_dircache(self.ctx, 0)
-            if self.lib.nfs_mount(self.ctx, config['host'].encode(), config['export'].encode()) != 0:
-                raise OSError('NFS connection failed')
-        except Exception:
+        self.ctx = None
+        failures = []
+        for version in nfs_versions(config.get('version')):
+            self.ctx = self.lib.nfs_init_context()
+            if not self.ctx:
+                raise RuntimeError('Could not allocate NFS context')
+            try:
+                if self.lib.nfs_set_version(self.ctx, version) != 0:
+                    raise ValueError('Unsupported NFS version')
+                self.lib.nfs_set_timeout(self.ctx, 5000)
+                self.lib.nfs_set_dircache(self.ctx, 0)
+                if self.lib.nfs_mount(self.ctx, config['host'].encode(), config['export'].encode()) == 0:
+                    self.version = version
+                    return
+                detail = self.lib.nfs_get_error(self.ctx)
+                failures.append((version, detail.decode(errors='replace') if detail else ''))
+            except Exception:
+                self.close()
+                raise
             self.close()
-            raise
+        # Describe the NFSv4 failure, which is usually the telling one, and keep what the fallback said.
+        detail = '; '.join(f'NFSv{version}: {text}' if len(failures) > 1 else text for version, text in failures if text)
+        raise connect_error(config['host'], config['export'], failures[0][1] + (f' | {detail}' if len(failures) > 1 else ''))
 
     def _stat(self, path):
         info = Stat()

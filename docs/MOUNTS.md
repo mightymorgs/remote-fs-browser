@@ -17,12 +17,26 @@ For installed services, add `"mount"` to `policy.operations` in `config.json` an
 
   ```sh
   remotefs connect --type smb --host 192.168.1.20 --share Projects --credential-id CREDENTIAL_ID
-  remotefs mount SESSION_ID /Clients --label "Client work"   # add --read-only to block changes
+  remotefs mount SESSION_ID /Clients --label "Client work"   # add --read-only to block changes, --no-reconnect for this run only
   remotefs mounts                      # active mounts and anything this computer still needs
   remotefs unmount MOUNT_ID
   ```
 
-Eject waits up to a minute for uploads to finish before unmounting. If uploads are still running, the app asks before ejecting anyway (`remotefs unmount --force`). Unfinished uploads are kept in the local cache and resume the next time the same location is mounted. When the service stops, it ejects its mounts the same way.
+### Mounts reconnect by themselves
+
+**Reconnect automatically** is ticked by default. remotefs then remembers the mount, with its name, drive letter or folder and read-only setting, and mounts it again:
+
+- when the remotefs service starts, for example after the computer restarts;
+- if rclone stops unexpectedly;
+- on Windows, each time the mount owner signs in. Signing out of Windows ends the drive; it comes back within about 15 seconds of signing in again.
+
+A mount that is waiting shows why in the sidebar, for example "Waiting for PC\\morgan to sign in to Windows", or the reason the last attempt failed. Failed attempts are retried with increasing gaps, up to every five minutes. **Eject** stops a mount and forgets it. Untick **Reconnect automatically**, or pass `--no-reconnect`, for a mount that lasts only until the service stops.
+
+A reconnecting SMB mount has to sign in to the server without you. If you typed the login rather than choosing a saved one, remotefs stores it with your other saved logins, encrypted with the service's storage key. You can remove it there. If a saved login is removed or no longer works, the mount waits and shows the error until you eject it or fix the login. Cloud connections and NFS exports need no stored login.
+
+Reconnecting follows the service's current policy: a mount comes back read-only if the service no longer allows writes, and does not come back at all while its server is outside the allowed networks.
+
+Eject waits up to a minute for uploads to finish before unmounting. If uploads are still running, the app asks before ejecting anyway (`remotefs unmount --force`). Unfinished uploads are kept in the local cache and resume the next time the same location is mounted. When the service stops, it unmounts everything the same way; reconnecting mounts come back when it starts again.
 
 ## What can be mounted
 
@@ -54,7 +68,7 @@ The Windows portable download bundles `rclone.exe`. Homebrew installs rclone as 
 **Where mounts appear**
 - Windows: the next free drive letter (Z: downwards) or the one you choose. The drive belongs to one Windows account: only that account can open it, and it appears only in that account's own sign-in session.
   - When you run `remotefs serve` yourself, that account is you.
-  - The Windows service installer runs remotefs as SYSTEM and records the account that ran the installer as `mount_owner` in `config.json`. The service starts each mount inside that account's session, so the owner has to be signed in to Windows. Other people signed in to the same computer don't see the drive or its `\\rclone\…` path. To give mounts to a different account, change `mount_owner` (for example `"PC\\morgan"`) and restart the service. Without a `mount_owner`, the service refuses to mount rather than mounting for everyone.
+  - The Windows service installer runs remotefs as SYSTEM and records the account that ran the installer as `mount_owner` in `config.json`. The service starts each mount inside that account's session, so the owner has to be signed in to Windows; reconnecting mounts appear shortly after the owner signs in. Other people signed in to the same computer don't see the drive or its `\\rclone\…` path. To give mounts to a different account, change `mount_owner` (for example `"PC\\morgan"`) and restart the service. Without a `mount_owner`, the service refuses to mount rather than mounting for everyone.
 - macOS/Linux: a folder under `~/remotefs` of the account running the service, named after the mount.
 
 **Disk space.** Reads cache only the parts of files you open. Writes are staged in the cache before upload, so writing a 30 GB file needs about 30 GB free on the drive holding the service's configuration folder. The cache lives in the `mounts/cache` folder next to `config.json`.
