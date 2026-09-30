@@ -14,7 +14,9 @@ Version 0.3.0 includes optional **cloud connections added through the GUI or CLI
 
 Rclone supports browsing, metadata, downloads, copying out and ZIP preparation. Copy/paste works across local, NAS and cloud connections. Uploads, text saves, folder creation and deletion require write permission; cloud rename/cut is not exposed. Libvirt lists explicitly permitted pools and volumes with capacity/allocation metadata; it does not browse guest files or alter disks.
 
-See [cloud and libvirt configuration](docs/ENDPOINTS.md) for source installation, dependencies, S3/Dropbox setup, capability differences and limits.
+An optional **Kubernetes endpoint** browses namespaces, running pods and the files inside their containers, marks Longhorn-backed volumes, and joins the same copy/paste; it needs `kubectl` on the service host, and writes are on unless the administrator sets it read-only.
+
+See [cloud, libvirt and Kubernetes configuration](docs/ENDPOINTS.md) for source installation, dependencies, S3/Dropbox setup, capability differences and limits.
 
 ## What is included
 

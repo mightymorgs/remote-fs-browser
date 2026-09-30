@@ -937,7 +937,7 @@ class Component extends DCLogic {
       addLocal: (this.state.addType || 'smb') === 'local',
       addSmb: (this.state.addType || 'smb') === 'smb',
       addNfs: (this.state.addType || 'smb') === 'nfs',
-      addEndpoint: this.state.addType === 'libvirt',
+      addEndpoint: ['libvirt','kubernetes'].includes(this.state.addType),
       addCloud: this.state.addType === 'rclone',
       cloudManage: !!this.state.cloudManage,
       cloudReady: !!this.state.cloudAvailable,
@@ -979,7 +979,8 @@ class Component extends DCLogic {
         { value: 'smb', label: 'SMB share' },
         { value: 'nfs', label: 'NFS export' },
         { value: 'rclone', label: 'Cloud / rclone' },
-        { value: 'libvirt', label: 'Libvirt pools' }
+        { value: 'libvirt', label: 'Libvirt pools' },
+        { value: 'kubernetes', label: 'Kubernetes pods' }
       ].map(option => ({
         label: option.label,
         bg: (this.state.addType || 'smb') === option.value ? '#3f6fd1' : '#fff',
@@ -989,6 +990,8 @@ class Component extends DCLogic {
       })),
       addNote: this.state.addType==='rclone' ? 'Saved cloud folders work with the same previews, uploads, downloads and Copy/Paste as your other locations. Read-only connections allow copying out. Removing a connection never deletes its cloud files.' : this.state.addType==='libvirt'
         ? 'Choose a host-configured endpoint. Cloud writes require administrator opt-in; libvirt exposes read-only pool and volume metadata. Credentials stay on the service host.'
+        : this.state.addType==='kubernetes'
+        ? 'Choose a host-configured cluster. Browse namespaces, running pods and their containers; volumes backed by Longhorn are marked. Files are read and written with kubectl exec, so the container needs sh.'
         : (this.state.addType || 'smb') === 'smb'
         ? 'NTLM over SMB2/3 on port 445. A domain is applied as DOMAIN\\username, and IPv6 literals are not supported — use an IPv4 address.'
         : (this.state.addType || 'smb') === 'nfs'
@@ -1306,7 +1309,7 @@ class Component extends DCLogic {
   }
   async addLocation(discover=false) {
     const type=this.state.addType||'smb', values=this.state.add||{}
-    if(['rclone','libvirt'].includes(type))return this.goTo(this.fromDescriptor({type,endpoint:values.endpoint||''}))
+    if(['rclone','libvirt','kubernetes'].includes(type))return this.goTo(this.fromDescriptor({type,endpoint:values.endpoint||''}))
     if(type==='local')return this.goTo(this.fromDescriptor({type,root:values.root||''}))
     await this.mapDevice({protocol:type.toUpperCase(),ip:values.host||''},{credentials:type==='smb'?{username:values.username||'',password:values.password||'',domain:values.domain||''}:undefined,share:discover?'':values.share,export:discover?'':values.export,version:nfsVersion(values.version)})
     this.setState({add:{}})
@@ -1392,7 +1395,7 @@ class Component extends DCLogic {
   }
   async info(entries) {
     const rows=await Promise.all(entries.map(e=>this.api(`/sessions/${this.state.session.id}/stat?${new URLSearchParams({path:e.path})}`)))
-    await this.dialog('Get info',rows.map(e=>[e.path, `Type: ${e.type === 'other' && e.capacity != null ? 'Storage volume' : e.type}`, e.capacity != null ? `Capacity: ${this.bytes(e.capacity)}\nAllocated: ${this.bytes(e.allocation)}` : `Size: ${this.bytes(e.size)}`, e.available != null ? `Available: ${this.bytes(e.available)}` : '', e.volume_type != null ? `Libvirt volume type: ${e.volume_type}` : '', e.modified ? `Modified: ${e.modified}` : ''].filter(Boolean).join('\n')).join('\n\n'))
+    await this.dialog('Get info',rows.map(e=>[e.path, `Type: ${e.type === 'other' && e.capacity != null ? 'Storage volume' : e.type}`, e.capacity != null ? `Capacity: ${this.bytes(e.capacity)}\nAllocated: ${this.bytes(e.allocation)}` : `Size: ${this.bytes(e.size)}`, e.available != null ? `Available: ${this.bytes(e.available)}` : '', e.volume_type != null ? `Libvirt volume type: ${e.volume_type}` : '', e.state ? `State: ${e.state}` : '', e.link ? 'Link: yes' : '', e.volume ? `Volume: ${e.volume.name}${e.volume.claim ? ` (claim ${e.volume.claim}${e.volume.longhorn ? ', Longhorn' : ''})` : ''}${e.volume.read_only ? ', read-only' : ''}` : '', ...(e.volumes || []).map(v => `Mount ${v.path}: ${v.name}${v.claim ? ` (claim ${v.claim}${v.longhorn ? ', Longhorn' : ''})` : ''}${v.read_only ? ', read-only' : ''}`), e.modified ? `Modified: ${e.modified}` : ''].filter(Boolean).join('\n')).join('\n\n'))
   }
   async pollJobs() {
     if(this.polling)return

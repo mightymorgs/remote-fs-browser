@@ -1,4 +1,4 @@
-# Cloud storage and libvirt
+# Cloud storage, libvirt and Kubernetes
 
 Version 0.3.0 adds two optional connection types: **rclone** for cloud connections you add in the GUI or CLI and **libvirt** for read-only storage-pool and volume inventory. Upgrade remotefs to 0.3.0 or newer to use them.
 
@@ -158,11 +158,39 @@ A URI such as `qemu+ssh://USER@HOST/system` can target a remote hypervisor when 
 
 Ductstack's storage picker is the related workflow: choose VM storage or a mounted network share and browse directories on a live VM. Standalone remotefs now offers a separate libvirt inventory connection; selecting a volume is not equivalent to browsing files inside a VM.
 
+## Kubernetes: files inside running pods
+
+Merge a `kubernetes` entry into the policy's `endpoints` map as for rclone and restart remotefs. It browses the containers of a cluster the service host can reach. Its root lists the namespaces named in `namespaces`; open one for its pods, a pod for its containers, and a running container for its filesystem. **Get info** on a container lists its mounts, marking PersistentVolumeClaims and the ones Longhorn provisions, and those mount points carry the same marks in listings.
+
+```json
+{
+  "policy": {
+    "endpoints": {
+      "cluster": {
+        "type": "kubernetes",
+        "namespaces": ["apps", "media"],
+        "kubeconfig": "/etc/rancher/k3s/k3s.yaml"
+      }
+    }
+  }
+}
+```
+
+- `namespaces` is required and nothing outside it is listed or reachable.
+- `kubeconfig` and `context` are optional. Without a `kubeconfig`, kubectl uses its own defaults, which inside a pod means that pod's service account. `kubectl` may name an absolute path to the binary.
+- Writes are on by default: uploads, text saves, new folders, rename (within one container) and delete, subject to the service policy and the container's own permissions. Set `read_only` to `true` to browse and copy out only.
+
+The service host needs `kubectl`. Files are read and written with `kubectl exec` running short POSIX shell scripts, so any container with `sh` and coreutils or BusyBox works; distroless containers without a shell are reported as such and cannot be browsed. Nothing is installed in the pod. Saves go to a temporary file beside the target and are renamed into place, keeping an existing file's mode and, where the container allows it, its owner, so a half-written config never lands. Links are followed for browsing, but deleting a folder removes links inside it without touching what they point at. Namespaces, pods and containers are inventory: they cannot be renamed or deleted here.
+
+Grant the kubeconfig's identity only what you intend to expose. A dedicated ServiceAccount with a Role in each listed namespace allowing `get` and `list` on `pods` and `persistentvolumeclaims`, and `create` on `pods/exec`, is enough. `pods/exec` is powerful: it runs commands as the container's user, so treat write access to this endpoint like shell access to those pods.
+
+Only running pods and containers can be browsed. A Longhorn volume that no running pod mounts is not reachable yet.
+
 ## Validation scope
 
-The adapter tests exercise real rclone against a disposable S3 HTTP fixture and a local alias remote. Coverage includes managed connection creation, edits, owner isolation, persistence, removal without cloud deletion, local-to-cloud and cloud-to-cloud copies, as well as including ranged and multi-chunk downloads, uploads, overwrite handling, cross-backend copying, deletion and read-only enforcement. Libvirt is exercised against its in-memory `test:///default` driver, with separate pool/volume metadata and allowlist tests. The manager and endpoint controls are also checked in a browser.
+The adapter tests exercise real rclone against a disposable S3 HTTP fixture and a local alias remote. Coverage includes managed connection creation, edits, owner isolation, persistence, removal without cloud deletion, local-to-cloud and cloud-to-cloud copies, as well as including ranged and multi-chunk downloads, uploads, overwrite handling, cross-backend copying, deletion and read-only enforcement. Libvirt is exercised against its in-memory `test:///default` driver, with separate pool/volume metadata and allowlist tests. The Kubernetes adapter's shell scripts run in real BusyBox and Debian containers behind a stand-in kubectl that serves canned pod and claim records; those tests cover listing, links, ranged reads, atomic saves that keep file modes, no-replace rename and mkdir, link-safe recursive deletes and copying out to local storage. The manager and endpoint controls are also checked in a browser.
 
-These checks do not authenticate to live S3, Dropbox or other cloud accounts, and they do not modify production hypervisors. Validate your provider configuration and permissions with a small test folder before using important data.
+These checks do not authenticate to live S3, Dropbox or other cloud accounts, and they do not modify production hypervisors or clusters. Validate your provider configuration and permissions with a small test folder before using important data.
 
 For the Linux service installer, temporary cloud data uses the private
 `/opt/remote-fs-browser/tmp` directory, within the service's existing writable

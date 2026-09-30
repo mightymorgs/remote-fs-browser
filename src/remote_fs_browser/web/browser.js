@@ -330,11 +330,11 @@ export class RemoteFsBrowser extends HTMLElement {
           <select data-type aria-label="Storage type">
             <option value="local">This machine</option>
             <option value="smb">SMB share</option>
-            <option value="nfs">NFS export</option><option value="rclone">Cloud / rclone</option><option value="libvirt">Libvirt pools</option>
+            <option value="nfs">NFS export</option><option value="rclone">Cloud / rclone</option><option value="libvirt">Libvirt pools</option><option value="kubernetes">Kubernetes pods</option>
           </select>
         </label>
 
-        <label class="field" data-for="rclone libvirt">Configured endpoint name<input data-endpoint placeholder="archive or hypervisor" autocomplete="off"></label>
+        <label class="field" data-for="rclone libvirt kubernetes">Configured endpoint name<input data-endpoint placeholder="archive or hypervisor" autocomplete="off"></label>
         <label class="field" data-for="local">Root folder on this host
           <input type="text" data-root placeholder="/srv/media" autocomplete="off">
         </label>
@@ -520,7 +520,7 @@ export class RemoteFsBrowser extends HTMLElement {
     if (descriptor.type === 'nfs') return `NFSv${descriptor.version ?? 4} · nfs://${descriptor.host}${this.absolute(descriptor.export ?? '')}${folder}`
     return `Local · ${descriptor.root ?? ''}${folder}`
   }
-  field() { return ['rclone','libvirt'].includes(this.type.value) ? this.endpoint : this.type.value === 'local' ? this.root : this.type.value === 'smb' ? this.share : this.export }
+  field() { return ['rclone','libvirt','kubernetes'].includes(this.type.value) ? this.endpoint : this.type.value === 'local' ? this.root : this.type.value === 'smb' ? this.share : this.export }
   /** clean_descriptor rejects a relative export, so force the leading slash. */
   absolute(value) { return value && !value.startsWith('/') ? '/' + value : value }
   target() { return this.field().value || this.host.value }
@@ -829,7 +829,7 @@ export class RemoteFsBrowser extends HTMLElement {
   async connect() {
     await this.action(async () => {
       await this.close()
-      this.descriptor = ['rclone','libvirt'].includes(this.type.value) ? {type:this.type.value, endpoint:this.endpoint.value}
+      this.descriptor = ['rclone','libvirt','kubernetes'].includes(this.type.value) ? {type:this.type.value, endpoint:this.endpoint.value}
         : this.type.value === 'local' ? { type: 'local', root: this.root.value }
         : this.type.value === 'smb' ? { type: 'smb', host: this.host.value, share: this.share.value }
           : { type: 'nfs', host: this.host.value, export: this.absolute(this.export.value), version: Number(this.version.value) }
