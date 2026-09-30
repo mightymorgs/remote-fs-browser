@@ -1,55 +1,57 @@
-# Your files. Across storage.
+# Feature walkthrough
 
-The **2:04 remotefs 0.3.0 feature tour** uses actual browser workflows, short command cards and captions that work with sound off. [Watch on the homepage](index.html#watch-it-install-and-run) or [download the 1080p video](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.3.0/remotefs-0.3.0-feature-tour.mp4).
+The **16-minute remotefs walkthrough** is the real app, driven at human pace, with captions that work with sound off. [Watch on the homepage](index.html#watch-it-install-and-run), [download the 1080p walkthrough](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.3.0/remotefs-0.3.0-walkthrough.mp4) or [the 72-second promo](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.3.0/remotefs-0.3.0-promo.mp4).
 
-## 0:00 — Copy across storage
+## 0:00 — Sign in
 
-Copy a local “Launch kit” folder, switch to SmartNAS S3 and paste. Nested folders, text, an image and a CSV arrive together. Preview and edit the README on S3, then copy the folder back into an empty local destination. All four returned files match the S3 objects byte for byte, including the edited README.
+Open remotefs in your browser and get your bearings.
 
-The service moves the bytes between storage endpoints. The browser operates the file manager; it does not need to download and re-upload the folder itself.
+## 0:36 — Work like Finder
 
-## 0:28 — Install and sign in
+Shift-click ranges, ⌘-click, drag to select, right-click menus and shortcuts.
 
-Install with `pipx install remote-fs-browser`, then run `remotefs` for guided setup. Homebrew and Windows portable packages are also available. Configure reachable networks, permitted operations and your account. Sign in with a username and password; optional tokens support automation.
+## 2:19 — Organise files
 
-## 0:36 — SMB and NFS
+New folders, copy and paste, rename, and edit text files in place.
 
-Scan a permitted network, map an SMB share, save its credentials and open a file. DNS, NetBIOS and IP have separate columns. Saved SMB credentials are encrypted on the service host. Application sessions require no operating-system mount.
+## 3:54 — Find network shares
 
-The NFS connection form exposes NFSv3 and NFSv4 options. NFS requires libnfs on the service host. This recording shows NFS setup, not an NFS file transfer.
+Scan your network, see every file server by name, and map a share. Mapping a share opens it in the app; nothing is mounted until you ask for a mount (chapter 8).
 
-## 0:50 — Everyday file tools
+## 5:32 — Servers and saved logins
 
-Save frequently used folders to the shortlist. Filter and sort a listing, upload a file, create a folder, rename and move. Preview, metadata, deletion and keyboard shortcuts are available from the same manager. Operations depend on the backend and configured permissions; cloud transfers use Copy / Paste.
+Server menus, disconnecting, saved logins and several servers at once. **Unmount** here disconnects the app from the server; it is not the same as ejecting a mounted drive.
 
-## 1:08 — Cloud connections
+## 7:20 — Shortlist favourites
 
-Add a named S3 connection in the GUI. Provider forms also cover Dropbox, Google Drive, OneDrive, WebDAV / Nextcloud, Backblaze B2 and Azure Blob. OAuth providers use the `rclone authorize` helper described in the form. Connections can also be managed through CLI commands.
+Star folders and reopen them with one click, even after a reload.
 
-These provider forms demonstrate configuration. The live cloud transfer in this cut uses SmartNAS S3; it does not claim live connections to every other provider.
+## 8:24 — Copy across storage
 
-## 1:22 — Downloads and ZIP jobs
+Add an S3 bucket, then copy between your computer, the cloud and the NAS. The service moves the bytes; the browser never downloads and re-uploads them.
 
-Choose a ZIP preparation folder and custom part size. Pause and resume archive packing, then fetch ready parts. Downloads support HTTP ranges, and explicit purge controls release staged space. Rejoin multipart files before opening the ZIP.
+## 9:39 — Mount as a drive
 
-The recording uses a 128 MiB source with 40 MiB parts. Its four-part archive was reassembled, checked for ZIP integrity and compared with the original content. The film shows the ready download controls; archive verification was performed separately.
+Mount a NAS folder or cloud bucket as a folder or drive that every app can use, read-write or read-only. The NAS folder is mounted read-write and the S3 bucket read-only. A terminal copies a 96 MB video onto the NAS mount and edits a text file, and `rm` on the S3 mount is refused with "Read-only file system". Back in the browser, the new file and the edit are read over SMB, then both mounts are ejected. Needs `remotefs serve --allow-mounts`; mounting ships in the next release. Filmed on Linux; macOS is tested; Windows drives belong to your own account and are not yet verified on a real Windows computer. [How mounts work](mounts.html).
 
-## 1:37.5 — Libvirt inventory
+## 12:06 — Big downloads
 
-Browse configured storage pools and inspect volumes with capacity metadata. This is read-only inventory, not access to files inside guest disks. The recording uses libvirt’s test driver with two sample volumes; it does not operate on production VMs.
+Zip large folders on the server and download them in parts.
 
-## 1:44 — CLI, API and embedding
+## 13:17 — VM storage
 
-The CLI signs in to the same service, connects to a managed rclone endpoint, lists files and returns location descriptors. The command card abbreviates arguments for readability; the SmartNAS listing was verified with the actual CLI.
+Read-only libvirt storage pools and volumes. Read-only inventory: it never opens or changes a VM disk.
 
-Embed the folder picker in another application to return a location descriptor without embedding credentials. An authenticated HTTP API and asynchronous Python SDK provide integration options. Explicit roots, endpoints and operations control access. Service setup supports Homebrew services, systemd, launchd and Windows startup.
+## 14:08 — Command line
 
-## 1:59.5 — Get started
+Scan, connect, copy, cloud and ZIP jobs: the whole app from the terminal and scripts.
 
-Local folders, SMB, NFS, rclone cloud storage and libvirt inventory, through one service. [Install remotefs](install.html), [read the guide](guide.html) or [configure storage endpoints](endpoints.html).
+## 15:23 — Build it into your app
+
+Mount the API in your FastAPI app and drop in the folder picker, using the repo’s templates.
 
 ## Recording environment
 
-The local service used isolated demo roots. Actual SmartNAS S3 footage used a dedicated `nas/remotefs-demo-20260930` prefix with disposable files. SMB discovery and reading ran against a disposable SMB server in an isolated network namespace on SmartNAS, accessed through an SSH tunnel. Existing running installations and production shares were not changed for this recording. No real storage credentials appear in the film.
+Recorded 2026-09-30 in a disposable Linux container against a demo lab built by `scripts/video/demo_lab.sh`: three Samba servers on a private 192.168.50.0/24 network, a local S3-compatible server reached through rclone, a libvirt test-driver pool and a fictional studio's files. Every SMB, S3 and mount operation in the film is real traffic to those servers. NFS is not filmed. Demo passwords are disposable. The [recording notes](docs/validation/2026-09-30-feature-tour.md) list exactly what each chapter exercises, and [docs/video](docs/video/README.md) explains how to re-record it.
 
-The [original 0.2.1 SMB recording](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.1/remotefs-feature-demo.mp4) remains available, along with its [validation notes](docs/validation/2026-09-11-network-demo.md).
+Earlier recordings remain available: the [2-minute 0.3.0 feature tour](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.3.0/remotefs-0.3.0-feature-tour.mp4) and the [original 0.2.1 SMB recording](https://github.com/mightymorgs/remote-fs-browser/releases/download/v0.2.1/remotefs-feature-demo.mp4).

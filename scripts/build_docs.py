@@ -18,7 +18,7 @@ pages = [
     ('deployment.html', 'Automated deployments', root / 'docs/DEPLOYMENT.md'),
     ('endpoints.html', 'Cloud storage and libvirt', root / 'docs/ENDPOINTS.md'),
     ('mounts.html', 'Mount storage on this computer', root / 'docs/MOUNTS.md'),
-    ('demo.html', 'Demo transcript', source / 'demo.md'),
+    ('demo.html', 'Feature walkthrough', source / 'demo.md'),
 ]
 links = {'README.md': 'reference.html', 'QUICKSTART.md': 'quickstart.html',
          'docs/DEPLOYMENT.md': 'deployment.html', 'docs/ENDPOINTS.md': 'endpoints.html',
@@ -50,5 +50,5 @@ for filename, title, path in pages:
 <body><a class="skip" href="#main">Skip to content</a><header class="site-header"><a class="brand" href="index.html">remotefs</a><nav aria-label="Main navigation"><a href="guide.html">How it works</a><a href="endpoints.html">Storage endpoints</a><a href="install.html">Install</a><a href="reference.html">Reference</a><a href="https://github.com/mightymorgs/remote-fs-browser">GitHub</a></nav></header>
 <main id="main" class="{'home' if home else 'document'}">{body}</main><footer class="site-footer"><span>remotefs / Your storage, through your service.</span><span>MIT licensed · <a href="deployment.html">Deployment guide</a> · <a href="https://github.com/mightymorgs/remote-fs-browser">Source on GitHub</a></span></footer></body></html>''')
 (out / '.nojekyll').touch()
-for asset in ('demo-poster.jpg', 'demo.vtt', 'site.css', 'tour.js'):
+for asset in ('demo-poster.jpg', 'walkthrough-poster.jpg', 'walkthrough.vtt', 'promo.vtt', 'site.css', 'tour.js'):
     shutil.copyfile(source / asset, out / asset)

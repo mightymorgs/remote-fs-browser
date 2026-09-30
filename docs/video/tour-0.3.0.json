@@ -111,7 +111,7 @@
         "pad": 1.6,
         "speed": 3.0,
         "headline": "Map a share in seconds",
-        "detail": "No drivers. No mount commands."
+        "detail": "No drivers. No setup on the NAS."
       },
       {
         "capture": "02-finder",
@@ -143,7 +143,7 @@
         "from": "mount",
         "to": "mounted",
         "pad": 2.0,
-        "speed": 1.6,
+        "speed": 2.6,
         "headline": "Mount it as a drive",
         "detail": "Any app. Any file size."
       },

@@ -1,0 +1,217 @@
+WEBVTT
+
+00:00:03.033 --> 00:00:11.571
+Open remotefs in any browser
+The service runs on a machine that can reach your storage. You just need a browser.
+
+00:00:14.645 --> 00:00:22.808
+One window for everything
+Local folders, network shares, cloud buckets and VM storage live in the sidebar.
+
+00:00:39.654 --> 00:00:46.442
+Feels like Finder
+Click a folder to open it. Breadcrumbs and Back take you up again.
+
+00:00:48.565 --> 00:00:58.165
+Tick to select, Shift-click for a range
+Just like a Mac list view: pick one file, then Shift-click to grab everything in between.
+
+00:00:58.234 --> 00:01:04.647
+⌘-click to add or drop one file
+Fine-tune the selection without starting over.
+
+00:01:07.965 --> 00:01:14.565
+Drag to select
+Draw a box across the list. Rows light up as the box touches them.
+
+00:01:27.797 --> 00:01:35.834
+Right-click for everything else
+Download, zip, copy, cut, rename, shortlist and delete, all in one menu.
+
+00:01:45.026 --> 00:01:51.626
+Get Info on any file
+Size, type and modification time, straight from the storage.
+
+00:01:55.942 --> 00:02:00.408
+Keyboard shortcuts work too
+⌘A selects all. ⌘C, ⌘X and ⌘V copy, cut and paste. ⌘/ lists the rest.
+
+00:02:00.458 --> 00:02:06.120
+Filter and sort
+Type to narrow the folder. Click a column to sort.
+
+00:02:22.160 --> 00:02:28.135
+Make a folder
+New folder is in the toolbar and on the right-click menu.
+
+00:02:32.701 --> 00:02:39.738
+Copy, then paste somewhere else
+Select files, copy them, open the destination and paste.
+
+00:03:09.509 --> 00:03:14.047
+Rename in place
+Right-click, Rename, type. Done.
+
+00:03:21.687 --> 00:03:30.099
+Open and edit text files
+Notes, CSVs and Markdown open in a built-in editor and save back to the same storage.
+
+00:03:58.072 --> 00:04:06.235
+Find every file server on your network
+Scan network probes the subnets you allow for SMB and NFS services.
+
+00:04:17.526 --> 00:04:26.876
+Names, not just addresses
+Each device shows its DNS name, NetBIOS name and IP, so you can tell the NAS from the reception PC.
+
+00:04:36.648 --> 00:04:45.311
+Map a share in two clicks
+Sign in with the NAS account. Tick Save to keep the login encrypted on the service host.
+
+00:05:03.007 --> 00:05:12.544
+Shares appear in the sidebar
+Browsing needs no drive letters or mount commands. Mount a share as a drive only when you want one.
+
+00:05:35.554 --> 00:05:45.216
+Right-click a server for its options
+List shares, reconnect as someone else, copy its address, forget the saved login, or unmount.
+
+00:05:51.310 --> 00:05:55.608
+Unmount when you are done
+The connection closes and your files stay put on the server.
+
+00:05:55.658 --> 00:06:03.008
+Saved logins reconnect in one click
+The scan shows which servers already have a stored login.
+
+00:06:29.736 --> 00:06:38.399
+Map as many servers as you like
+Each server keeps its own login. Here the backup box joins the NAS in the sidebar.
+
+00:07:23.482 --> 00:07:31.207
+Keep favourite folders one click away
+Star a folder, or right-click it and choose Shortlist folder.
+
+00:07:58.887 --> 00:08:07.049
+It remembers across sessions
+Shortlisted network folders reopen with the saved login, even after a reload.
+
+00:08:12.199 --> 00:08:18.736
+Right-click a shortlist entry to manage it
+Open it, copy its path, or forget it.
+
+00:08:27.593 --> 00:08:37.506
+Add cloud storage from the sidebar
+S3 and S3-compatible storage, Backblaze B2, Dropbox, Google Drive, OneDrive, WebDAV and Azure Blob.
+
+00:08:54.245 --> 00:09:00.407
+Copy from your computer…
+Select a folder and copy it, just like in Finder.
+
+00:09:05.269 --> 00:09:12.931
+…and paste into the cloud
+The service moves the bytes directly. Nothing goes through your browser.
+
+00:09:19.828 --> 00:09:25.597
+Folders, images and documents arrive intact
+Open files in the bucket to check them.
+
+00:09:25.647 --> 00:09:34.559
+The same trick works for network shares
+Copy from S3 onto the NAS (via the shortlist), or between any two connections.
+
+00:09:42.817 --> 00:09:52.667
+Mount a share as a folder or drive
+Right-click a share or folder and choose Mount on this computer. Here: a client folder on the NAS.
+
+00:10:01.756 --> 00:10:11.544
+Read-write by default
+Name the mount, and untick Allow changes if it should be read-only. Windows also lets you pick a drive letter.
+
+00:10:13.546 --> 00:10:21.367
+It shows up under Mounted on this computer
+Linux and macOS get a folder under ~/remotefs; Windows gets a drive letter for your account only.
+
+00:10:21.417 --> 00:10:29.580
+Cloud storage mounts too, read-only if you like
+Open the S3 connection, mount it and untick Allow changes.
+
+00:10:56.777 --> 00:11:06.502
+Every app sees an ordinary folder
+Open, save and copy with any program. There is no file-size limit, so video and disk images work.
+
+00:11:15.460 --> 00:11:21.435
+Read-only means read-only
+The S3 mount opens files but refuses changes.
+
+00:11:34.027 --> 00:11:42.502
+Changes land on the NAS
+The service uploads in the background. The dot turns green when everything has arrived.
+
+00:11:53.523 --> 00:12:01.810
+Eject when you are done
+Eject waits for uploads to finish. The service also ejects its mounts when it stops.
+
+00:12:09.327 --> 00:12:18.114
+Download big folders in parts
+Zip a large selection on the server and split it into parts that are easy to download.
+
+00:12:20.879 --> 00:12:29.416
+Choose where the ZIP is built and how big each part is
+Packing happens on the server, using its disk, not yours.
+
+00:12:44.248 --> 00:12:50.759
+Pause and resume packing
+Jobs keep running on the server even if you close this view.
+
+00:12:50.809 --> 00:12:59.971
+Download each part, then free the space
+Parts resume if a download drops. Purge removes the staged copy when you are done.
+
+00:13:20.398 --> 00:13:28.873
+See your VM storage too
+Connect to a hypervisor the administrator has configured, and browse its storage pools.
+
+00:13:40.006 --> 00:13:47.918
+Volumes, sizes and formats at a glance
+Read-only inventory: remotefs never opens or changes a VM disk.
+
+00:14:11.365 --> 00:14:17.227
+Everything in the app works from the terminal
+The remotefs command talks to the same service, so scripts and cron jobs get the same storage.
+
+00:14:17.277 --> 00:14:22.888
+Scan the network
+Same scan as the Scan button: DNS name, NetBIOS name and address for every file server.
+
+00:14:22.938 --> 00:14:31.600
+List shares with the login saved in the app
+Credentials stay encrypted on the service. The CLI only uses their ID.
+
+00:14:31.720 --> 00:14:40.070
+Connect, list and read files
+connect returns a session ID; ls, get, put, copy, rename and remove all take it.
+
+00:14:44.656 --> 00:14:53.506
+Copy between storage, from a script
+Copy a file from this machine straight onto the NAS. The service moves the bytes.
+
+00:14:57.997 --> 00:15:08.347
+Cloud connections, ZIP jobs and favourites too
+remotes, downloads and saved cover the rest of the app. Run remotefs --help for the full list.
+
+00:15:25.901 --> 00:15:31.621
+Drop the picker into your own app
+The repo ships the templates: mount the API inside your FastAPI app and add one custom element.
+
+00:15:31.671 --> 00:15:40.833
+Mount the API and add the element
+Your login protects it through an authenticate hook. No React, Vue or build step needed.
+
+00:15:50.714 --> 00:15:56.939
+Your users pick a folder…
+Here a job tracker asks where a job’s files live.
+
+00:15:59.506 --> 00:16:06.202
+…and your app gets a descriptor, never a password
+Store it with your record. The service resolves access when the folder is opened again.
