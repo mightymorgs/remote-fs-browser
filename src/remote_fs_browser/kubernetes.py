@@ -4,7 +4,11 @@ Paths are /<namespace>/<pod>/<container>/<path inside the container>. The first
 three levels are read-only inventory; below them every operation is a short POSIX
 shell script run in the container, so any image with `sh` and coreutils or
 BusyBox works. Nothing is installed in the pod and no shell runs on the host.
+
+/<namespace>/Volumes/<claim>/... reaches a PersistentVolumeClaim that no running
+pod mounts, through a small helper pod this session starts and deletes.
 """
+import hashlib
 import io
 import json
 import os
@@ -19,6 +23,14 @@ from .backends import child_path, listing
 LONGHORN = 'driver.longhorn.io'
 PROVISIONER = ('volume.kubernetes.io/storage-provisioner', 'volume.beta.kubernetes.io/storage-provisioner')
 ROW = '"%s %Y %f %n"'
+# Pod names are lowercase, so this entry can never collide with one.
+VOLUMES = 'Volumes'
+HELPER_IMAGE = 'busybox:1.37.0'
+# A helper outlives a crashed service by at most this long, then releases the volume.
+HELPER_SECONDS = 3600
+MANAGED = {'app.kubernetes.io/managed-by': 'remotefs'}
+UNITS = {'Ki': 2**10, 'Mi': 2**20, 'Gi': 2**30, 'Ti': 2**40, 'Pi': 2**50,
+         'k': 10**3, 'M': 10**6, 'G': 10**9, 'T': 10**12, 'P': 10**15}
 
 # Exit statuses the scripts below use; kubectl passes the container's status through.
 STATUS = {2: FileNotFoundError, 13: PermissionError, 17: FileExistsError,
@@ -61,6 +73,7 @@ class KubernetesFilesystem:
         self.namespaces = config['namespaces']
         self.timeout = config['_timeout']
         self.claims = {}
+        self.helpers = set()
         # Fail while connecting, not on first use, when the cluster or RBAC is wrong.
         self.get('pods', '-n', self.namespaces[0])
 
@@ -115,6 +128,12 @@ class KubernetesFilesystem:
     def get(self, *args):
         return json.loads(self.run([*self.kubectl(), 'get', *args, '-o', 'json']))
 
+    def get_or_none(self, *args):
+        try:
+            return self.get(*args)
+        except FileNotFoundError:
+            return None
+
     def shell(self, target, script, *args, stdin=None, max_bytes=16 * 1024 * 1024):
         namespace, pod, container = target
         return self.run([*self.exec_argv(namespace, pod, container, stdin is not None), 'sh', '-c', script, 'sh', *args],
@@ -129,6 +148,93 @@ class KubernetesFilesystem:
             raise PermissionError('Namespace is not permitted')
         inner = '/' + '/'.join(parts[3:])
         return parts[:3], inner
+
+    def enter(self, head, inner):
+        """Where a browsable path runs: (exec target, path in that container, pod)."""
+        if head[1] == VOLUMES:
+            pod = self.helper(head[0], head[2])
+            return (head[0], pod['metadata']['name'], 'files'), normalize('/volume' + inner), pod
+        return tuple(head), inner, self.container(*head)
+
+    # --- volumes no running pod mounts ------------------------------------
+
+    @staticmethod
+    def helper_name(claim):
+        digest = hashlib.sha256(claim.encode()).hexdigest()[:8]
+        return f"remotefs-{claim[:40].rstrip('-.')}-{digest}"
+
+    @staticmethod
+    def is_helper(pod):
+        labels = pod.get('metadata', {}).get('labels', {})
+        return all(labels.get(k) == v for k, v in MANAGED.items())
+
+    def users(self, pods, claim):
+        """Pods other than our helpers that hold this claim."""
+        return [p['metadata']['name'] for p in pods
+                if not self.is_helper(p) and p.get('status', {}).get('phase') not in ('Succeeded', 'Failed')
+                and any(v.get('persistentVolumeClaim', {}).get('claimName') == claim for v in p['spec'].get('volumes', []))]
+
+    def helper(self, namespace, claim):
+        if not self.get_or_none('pvc', claim, '-n', namespace):
+            raise FileNotFoundError('Volume claim not found')
+        name = self.helper_name(claim)
+        pod = self.get_or_none('pod', name, '-n', namespace)
+        if pod and pod.get('status', {}).get('phase') in ('Succeeded', 'Failed'):
+            self.run([*self.kubectl(), 'delete', 'pod', name, '-n', namespace, '--wait=true'])
+            pod = None
+        if pod is None:
+            users = self.users(self.get('pods', '-n', namespace)['items'], claim)
+            if users:
+                raise KubernetesError(f'Pod {users[0]} is using this volume; browse it under that pod')
+            with tempfile.TemporaryFile() as manifest:
+                manifest.write(json.dumps(self.helper_manifest(namespace, claim, name)).encode())
+                manifest.seek(0)
+                self.run([*self.kubectl(), 'create', '-f', '-'], stdin=manifest)
+        self.helpers.add((namespace, name))
+        if pod is None or not self.ready(pod):
+            try:
+                self.run([*self.kubectl(), 'wait', '--for=condition=Ready', f'pod/{name}', '-n', namespace,
+                          f'--timeout={max(1, int(self.timeout) - 2)}s'])
+            except (OSError, ValueError):
+                raise KubernetesError('Attaching the volume, which can take up to a minute; open it again shortly') from None
+            pod = self.get('pod', name, '-n', namespace)
+        return pod
+
+    @staticmethod
+    def ready(pod):
+        return any(c.get('type') == 'Ready' and c.get('status') == 'True' for c in pod.get('status', {}).get('conditions', []))
+
+    def helper_manifest(self, namespace, claim, name):
+        return {'apiVersion': 'v1', 'kind': 'Pod',
+                'metadata': {'name': name, 'namespace': namespace, 'labels': dict(MANAGED),
+                             'annotations': {'remotefs/claim': claim}},
+                'spec': {'restartPolicy': 'Never', 'terminationGracePeriodSeconds': 1,
+                         'activeDeadlineSeconds': HELPER_SECONDS,
+                         'containers': [{'name': 'files', 'image': self.config.get('helper_image', HELPER_IMAGE),
+                                         'command': ['sleep', str(HELPER_SECONDS)],
+                                         'volumeMounts': [{'name': 'volume', 'mountPath': '/volume'}],
+                                         'resources': {'requests': {'cpu': '10m', 'memory': '16Mi'},
+                                                       'limits': {'memory': '64Mi'}}}],
+                         'volumes': [{'name': 'volume', 'persistentVolumeClaim': {'claimName': claim}}]}}
+
+    @staticmethod
+    def quantity(value):
+        try:
+            for unit, scale in UNITS.items():
+                if value.endswith(unit):
+                    return int(float(value[:-len(unit)]) * scale)
+            return int(value)
+        except (AttributeError, ValueError):
+            return None
+
+    def claim_row(self, claim, pods, path):
+        notes = claim.get('metadata', {}).get('annotations', {})
+        users = self.users(pods, claim['metadata']['name'])
+        return {'name': claim['metadata']['name'], 'path': path, 'type': 'directory', 'size': None, 'modified': None,
+                'fixed': True, 'claim': claim['metadata']['name'],
+                'longhorn': any(notes.get(name) == LONGHORN for name in PROVISIONER),
+                'capacity': self.quantity(claim.get('status', {}).get('capacity', {}).get('storage')),
+                'in_use_by': users, 'state': f'in use by {users[0]}' if users else 'not mounted'}
 
     def pod(self, namespace, name):
         pod = self.get('pod', name, '-n', namespace)
@@ -191,7 +297,13 @@ class KubernetesFilesystem:
     def inventory(self, parts, path):
         row = {'name': parts[-1] if parts else '', 'path': path, 'type': 'directory', 'size': None, 'modified': None,
                'fixed': True}
-        if len(parts) == 2:
+        if parts[1:2] == [VOLUMES]:
+            if len(parts) == 3:
+                claim = self.get_or_none('pvc', parts[2], '-n', parts[0])
+                if not claim:
+                    raise FileNotFoundError('Volume claim not found')
+                return self.claim_row(claim, self.get('pods', '-n', parts[0])['items'], path)
+        elif len(parts) == 2:
             pod = self.get('pod', parts[1], '-n', parts[0])
             row['state'] = pod.get('status', {}).get('phase')
         elif len(parts) == 3:
@@ -204,8 +316,8 @@ class KubernetesFilesystem:
         parts, inner = self.split(path)
         if len(parts) < 3 or inner == '/':
             return self.inventory(parts, path)
-        self.container(*parts)
-        row = self.parse(self.shell(parts, STAT, inner).decode('utf-8', 'replace').rstrip('\n'), path)
+        target, inner, _ = self.enter(parts, inner)
+        row = self.parse(self.shell(target, STAT, inner).decode('utf-8', 'replace').rstrip('\n'), path)
         if row.get('link'):
             # Planning a delete or copy sees the link itself, as a file, so a
             # recursive delete removes the link and never walks into its target.
@@ -220,6 +332,12 @@ class KubernetesFilesystem:
         elif len(parts) == 1:
             pods = self.get('pods', '-n', parts[0])['items']
             names = [(p['metadata']['name'], {'state': p.get('status', {}).get('phase')}) for p in pods]
+            names.append((VOLUMES, {'state': 'volume claims'}))
+        elif parts[1] == VOLUMES and len(parts) == 2:
+            claims = self.get('pvc', '-n', parts[0])['items']
+            pods = self.get('pods', '-n', parts[0])['items']
+            rows = [self.claim_row(c, pods, child_path(path, c['metadata']['name'])) for c in claims]
+            return listing(rows[:limit + 1], 0)
         elif len(parts) == 2:
             pod = self.get('pod', parts[1], '-n', parts[0])
             running = {s['name'] for s in pod.get('status', {}).get('containerStatuses', []) if 'running' in s.get('state', {})}
@@ -240,10 +358,12 @@ class KubernetesFilesystem:
         return listing(rows, skipped)
 
     def files(self, parts, inner, path, limit):
-        pod = self.container(*parts)
-        mounts = self.volumes(pod, parts[2])
+        mounts = {} if parts[1] == VOLUMES else None
+        target, inner, pod = self.enter(parts, inner)
+        if mounts is None:
+            mounts = self.volumes(pod, parts[2])
         rows, skipped = [], 0
-        for raw in self.shell(parts, LIST, inner).split(b'\n'):
+        for raw in self.shell(target, LIST, inner).split(b'\n'):
             if not raw:
                 continue
             try:
@@ -271,20 +391,20 @@ class KubernetesFilesystem:
         parts, inner = self.split(path)
         if len(parts) < 3 or inner == '/':
             raise PermissionError('Only files may be read')
-        self.container(*parts)
-        info = self.parse(self.shell(parts, FOLLOW, inner).decode('utf-8', 'replace').rstrip('\n'), normalize(path))
+        target, inner, _ = self.enter(parts, inner)
+        info = self.parse(self.shell(target, FOLLOW, inner).decode('utf-8', 'replace').rstrip('\n'), normalize(path))
         if info['type'] != 'file':
             raise PermissionError('Only files may be read')
-        return KubernetesReader(self, parts, inner, info['size'])
+        return KubernetesReader(self, target, inner, info['size'])
 
     def writable(self, path):
         if self.config.get('read_only', False):
             raise PermissionError('Endpoint is read-only')
         parts, inner = self.split(path)
         if len(parts) < 3 or inner == '/':
-            raise PermissionError('Namespaces, pods and containers cannot be changed here')
-        self.container(*parts)
-        return parts, inner
+            raise PermissionError('Namespaces, pods, containers and volumes cannot be changed here')
+        target, inner, _ = self.enter(parts, inner)
+        return target, inner
 
     def mkdir(self, path):
         parts, inner = self.writable(path)
@@ -315,7 +435,13 @@ class KubernetesFilesystem:
         return KubernetesUpload(self, parts, inner, overwrite)
 
     def close(self):
-        pass
+        # Release volumes promptly so their workloads can start again; the
+        # helper's deadline covers a service that stops without closing.
+        for namespace, name in self.helpers:
+            try:
+                self.run([*self.kubectl(), 'delete', 'pod', name, '-n', namespace, '--wait=false', '--ignore-not-found'])
+            except (OSError, ValueError):
+                pass
 
 
 class KubernetesReader:

@@ -29,20 +29,33 @@ def docker_ready():
 
 FAKE = '''#!{python}
 import json, os, sys
-state = json.load(open({state!r}))
+path = {state!r}
+state = json.load(open(path))
+def save():
+    json.dump(state, open(path, 'w'))
 args = [a for a in sys.argv[1:] if a == '--' or not a.startswith('--')]
 if args[0] == 'get':
     kind, rest = args[1], args[2:]
     namespace = rest[rest.index('-n') + 1]
     name = rest[0] if rest[0] != '-n' else None
-    if kind == 'pods':
-        pods = [p for p in state['pods'] if p['metadata']['namespace'] == namespace]
-        print(json.dumps({{'items': pods}})); sys.exit(0)
-    table = state['pods'] if kind == 'pod' else state['claims']
+    table = state['pods'] if kind in ('pod', 'pods') else state['claims']
+    table = [i for i in table if i['metadata']['namespace'] == namespace]
+    if name is None:
+        print(json.dumps({{'items': table}})); sys.exit(0)
     for item in table:
-        if item['metadata']['name'] == name and item['metadata']['namespace'] == namespace:
+        if item['metadata']['name'] == name:
             print(json.dumps(item)); sys.exit(0)
     sys.stderr.write('Error from server (NotFound): not found'); sys.exit(1)
+if args[0] == 'create':
+    pod = json.load(sys.stdin)
+    pod['status'] = {{'phase': 'Running', 'conditions': [{{'type': 'Ready', 'status': 'True'}}],
+                     'containerStatuses': [{{'name': 'files', 'state': {{'running': {{}}}}}}]}}
+    state['pods'].append(pod); state.setdefault('created', []).append(pod); save(); sys.exit(0)
+if args[0] == 'wait':
+    sys.exit(0)
+if args[0] == 'delete':
+    state['pods'] = [p for p in state['pods'] if p['metadata']['name'] != args[2]]
+    state.setdefault('deleted', []).append(args[2]); save(); sys.exit(0)
 if args[0] == 'exec':
     command = args[args.index('--') + 1:]
     interactive = '-i' in args
@@ -60,6 +73,11 @@ def pod(name, container='app', phase='Running', claim='data'):
             'status': {'phase': phase, 'containerStatuses': [{'name': container, 'state': {'running': {}} if phase == 'Running' else {'waiting': {}}}]}}
 
 
+def claim(name, size='1Gi'):
+    return {'metadata': {'name': name, 'namespace': 'apps', 'annotations': {
+        'volume.kubernetes.io/storage-provisioner': 'driver.longhorn.io'}}, 'status': {'capacity': {'storage': size}}}
+
+
 @pytest.fixture(params=IMAGES)
 def cluster(request, tmp_path):
     if not docker_ready():
@@ -69,13 +87,13 @@ def cluster(request, tmp_path):
                    check=True, capture_output=True)
     setup = ('mkdir -p /srv/data/sub /etc/app && printf hello-pod > /srv/data/hello.txt && '
              'printf "a=1\\n" > /srv/data/sub/config.ini && chmod 640 /srv/data/sub/config.ini && '
-             'ln -s /srv/data/sub /srv/data/link && ln -s /missing /srv/data/broken')
+             'ln -s /srv/data/sub /srv/data/link && ln -s /missing /srv/data/broken && '
+             'mkdir -p /volume/old && printf archived > /volume/old/report.txt')
     subprocess.run(['docker', 'exec', name, 'sh', '-c', setup], check=True)
     state = tmp_path / 'state.json'
     state.write_text(json.dumps({'container': name,
                                  'pods': [pod('web'), pod('stopped', phase='Pending')],
-                                 'claims': [{'metadata': {'name': 'data', 'namespace': 'apps', 'annotations': {
-                                     'volume.kubernetes.io/storage-provisioner': 'driver.longhorn.io'}}}]}))
+                                 'claims': [claim('data'), claim('archive', '2Gi')]}))
     kubectl = tmp_path / 'kubectl'
     kubectl.write_text(FAKE.format(python=sys.executable, state=str(state)))
     kubectl.chmod(0o755)
@@ -198,3 +216,38 @@ async def test_writes_are_atomic_keep_modes_and_never_walk_links(cluster, tmp_pa
         with pytest.raises(PermissionError):
             await session.mkdir('/apps/web/new')
         assert (await session.stat(base + '/sub/config.ini'))['type'] == 'file'
+
+
+@pytest.mark.asyncio
+async def test_unmounted_volumes_open_through_a_helper_pod_that_is_deleted_on_close(cluster, tmp_path):
+    state = tmp_path / 'state.json'
+    async with Browser(policy_for(cluster)) as browser:
+        session = await browser.connect({'type': 'kubernetes', 'endpoint': 'pods'})
+        assert 'Volumes' in [r['name'] for r in (await session.list('/apps'))['entries']]
+        claims = {r['name']: r for r in (await session.list('/apps/Volumes'))['entries']}
+        assert claims['data']['in_use_by'] == ['web', 'stopped'] and claims['data']['state'] == 'in use by web'
+        assert claims['archive']['state'] == 'not mounted' and claims['archive']['longhorn'] is True
+        assert claims['archive']['capacity'] == 2 * 2**30
+        with pytest.raises(ValueError, match='web is using this volume'):
+            await session.list('/apps/Volumes/data')
+        assert 'created' not in json.loads(state.read_text())
+        assert [r['name'] for r in (await session.list('/apps/Volumes/archive'))['entries']] == ['old']
+        helper = json.loads(state.read_text())['created'][0]
+        assert helper['metadata']['labels'] == {'app.kubernetes.io/managed-by': 'remotefs'}
+        assert helper['spec']['volumes'][0]['persistentVolumeClaim'] == {'claimName': 'archive'}
+        assert helper['spec']['activeDeadlineSeconds'] > 0
+        base = '/apps/Volumes/archive/old'
+        assert b''.join([c async for c in session.stream(base + '/report.txt')]) == b'archived'
+        async def chunks():
+            yield b'restored'
+        await session.write(base + '/restored.txt', chunks())
+        # The helper does not count as the volume's user, and is reused.
+        claims = {r['name']: r for r in (await session.list('/apps/Volumes'))['entries']}
+        assert claims['archive']['state'] == 'not mounted'
+        await session.list(base)
+        assert len(json.loads(state.read_text())['created']) == 1
+        for path in ('/apps/Volumes', '/apps/Volumes/archive'):
+            with pytest.raises(PermissionError):
+                await session.remove(path, recursive=True)
+        await session.remove(base + '/restored.txt')
+    assert json.loads(state.read_text())['deleted'] == [helper['metadata']['name']]

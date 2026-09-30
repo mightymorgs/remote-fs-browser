@@ -142,9 +142,15 @@ def worker(pipe, config, policy_values):
 
 
 class Worker:
+    # How long close waits for the worker's own cleanup before killing it.
+    grace = 0.1
+
     def __init__(self, config, policy):
         import tempfile
         self.has_children = config['type'] in ('rclone', 'libvirt', 'kubernetes')
+        # A Kubernetes session deletes its helper pods on close, so its volumes are released.
+        if config['type'] == 'kubernetes':
+            self.grace = 10
         self.scratch = tempfile.TemporaryDirectory(prefix='remotefs-session-') if config['type'] in ('rclone', 'kubernetes') else None
         if self.scratch:
             config = {**config, '_scratch': self.scratch.name}
@@ -189,7 +195,7 @@ class Worker:
                     self.pipe.send(('close', ()))
                 except OSError:
                     pass
-                self.process.join(0.1)
+                self.process.join(self.grace)
                 if self.process.is_alive():
                     import os
                     import signal

@@ -182,9 +182,16 @@ Merge a `kubernetes` entry into the policy's `endpoints` map as for rclone and r
 
 The service host needs `kubectl`. Files are read and written with `kubectl exec` running short POSIX shell scripts, so any container with `sh` and coreutils or BusyBox works; distroless containers without a shell are reported as such and cannot be browsed. Nothing is installed in the pod. Saves go to a temporary file beside the target and are renamed into place, keeping an existing file's mode and, where the container allows it, its owner, so a half-written config never lands. Links are followed for browsing, but deleting a folder removes links inside it without touching what they point at. Namespaces, pods and containers are inventory: they cannot be renamed or deleted here.
 
-Grant the kubeconfig's identity only what you intend to expose. A dedicated ServiceAccount with a Role in each listed namespace allowing `get` and `list` on `pods` and `persistentvolumeclaims`, and `create` on `pods/exec`, is enough. `pods/exec` is powerful: it runs commands as the container's user, so treat write access to this endpoint like shell access to those pods.
+Grant the kubeconfig's identity only what you intend to expose. A dedicated ServiceAccount with a Role in each listed namespace allowing `get` and `list` on `pods` and `persistentvolumeclaims`, and `create` on `pods/exec`, is enough to browse pods. Opening unmounted volumes also needs `create` and `delete` on `pods`. `pods/exec` is powerful: it runs commands as the container's user, so treat write access to this endpoint like shell access to those pods.
 
-Only running pods and containers can be browsed. A Longhorn volume that no running pod mounts is not reachable yet.
+Only running pods and containers can be browsed.
+
+### Volumes no running pod mounts
+
+Each namespace also lists **Volumes**: its PersistentVolumeClaims with capacity, whether Longhorn provides them, and which pod is using them. A claim that a pod is using is browsed under that pod, so two writers never share it. Opening a claim nothing mounts starts a small helper pod (`remotefs-<claim>-<hash>`, labelled `app.kubernetes.io/managed-by=remotefs`) that mounts it at `/volume`; browse, save and copy as in any container. Attaching a Longhorn volume can take up to a minute: until it is ready, opening the claim says so, and opening it again continues.
+
+The session deletes its helper pods when it closes or goes idle, releasing the volume so its workload can start again. A helper left behind by a service that stopped abruptly exits on its own after an hour. The helper image defaults to `busybox:1.37.0`; set `helper_image` for clusters that pull from a private registry.
+
 
 ## Validation scope
 

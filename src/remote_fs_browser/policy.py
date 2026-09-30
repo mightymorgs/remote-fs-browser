@@ -61,6 +61,9 @@ class Policy:
                         raise ValueError(f'The {key} path must be absolute')
                 if 'context' in config and not (isinstance(config['context'], str) and config['context'] and not config['context'].startswith('-')):
                     raise ValueError('The Kubernetes context must be a name')
+                if 'helper_image' in config and not (isinstance(config['helper_image'], str)
+                                                     and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9./:@_-]*', config['helper_image'])):
+                    raise ValueError('The helper image must be an image reference')
             else:
                 raise ValueError('Endpoint type must be rclone, libvirt or kubernetes')
             if 'read_only' in config and not isinstance(config['read_only'], bool):
