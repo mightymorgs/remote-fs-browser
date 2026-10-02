@@ -28,6 +28,9 @@ VOLUMES = 'Volumes'
 HELPER_IMAGE = 'busybox:1.37.0'
 # A helper outlives a crashed service by at most this long, then releases the volume.
 HELPER_SECONDS = 3600
+# Wait briefly per request and answer "not ready" rather than hold a request
+# open; a slow API server would otherwise push it past the session timeout.
+ATTACH_WAIT = 5
 MANAGED = {'app.kubernetes.io/managed-by': 'remotefs'}
 UNITS = {'Ki': 2**10, 'Mi': 2**20, 'Gi': 2**30, 'Ti': 2**40, 'Pi': 2**50,
          'k': 10**3, 'M': 10**6, 'G': 10**9, 'T': 10**12, 'P': 10**15}
@@ -65,6 +68,11 @@ WRITE = ('t="$(dirname -- "$1")/.remotefs-upload-$$"; cat > "$t" || { rm -f -- "
 class KubernetesError(ValueError):
     """Messages about the cluster itself, safe and useful to show."""
     shown = True
+
+
+class NotReady(KubernetesError):
+    """The storage is getting ready, such as a volume attaching; asking again will succeed."""
+    retry = True
 
 
 class KubernetesFilesystem:
@@ -194,9 +202,9 @@ class KubernetesFilesystem:
         if pod is None or not self.ready(pod):
             try:
                 self.run([*self.kubectl(), 'wait', '--for=condition=Ready', f'pod/{name}', '-n', namespace,
-                          f'--timeout={max(1, int(self.timeout) - 2)}s'])
+                          f'--timeout={ATTACH_WAIT}s'])
             except (OSError, ValueError):
-                raise KubernetesError('Attaching the volume, which can take up to a minute; open it again shortly') from None
+                raise NotReady('Attaching the volume; this can take up to a minute') from None
             pod = self.get('pod', name, '-n', namespace)
         return pod
 
@@ -230,11 +238,13 @@ class KubernetesFilesystem:
     def claim_row(self, claim, pods, path):
         notes = claim.get('metadata', {}).get('annotations', {})
         users = self.users(pods, claim['metadata']['name'])
+        longhorn = any(notes.get(name) == LONGHORN for name in PROVISIONER)
+        state = f'in use by {users[0]}' if users else 'not mounted'
         return {'name': claim['metadata']['name'], 'path': path, 'type': 'directory', 'size': None, 'modified': None,
-                'fixed': True, 'claim': claim['metadata']['name'],
-                'longhorn': any(notes.get(name) == LONGHORN for name in PROVISIONER),
+                'fixed': True, 'claim': claim['metadata']['name'], 'longhorn': longhorn,
+                'kind': f"{'Longhorn volume' if longhorn else 'Volume'} · {state}",
                 'capacity': self.quantity(claim.get('status', {}).get('capacity', {}).get('storage')),
-                'in_use_by': users, 'state': f'in use by {users[0]}' if users else 'not mounted'}
+                'in_use_by': users, 'state': state}
 
     def pod(self, namespace, name):
         pod = self.get('pod', name, '-n', namespace)
@@ -328,11 +338,12 @@ class KubernetesFilesystem:
         path = normalize(path)
         parts, inner = self.split(path)
         if not parts:
-            names = [(n, None) for n in self.namespaces]
+            names = [(n, {'kind': 'Namespace'}) for n in self.namespaces]
         elif len(parts) == 1:
             pods = self.get('pods', '-n', parts[0])['items']
-            names = [(p['metadata']['name'], {'state': p.get('status', {}).get('phase')}) for p in pods]
-            names.append((VOLUMES, {'state': 'volume claims'}))
+            names = [(p['metadata']['name'], {'state': p.get('status', {}).get('phase'),
+                                              'kind': f"Pod · {p.get('status', {}).get('phase', 'Unknown')}"}) for p in pods]
+            names.append((VOLUMES, {'state': 'volume claims', 'kind': 'Volume claims'}))
         elif parts[1] == VOLUMES and len(parts) == 2:
             claims = self.get('pvc', '-n', parts[0])['items']
             pods = self.get('pods', '-n', parts[0])['items']
@@ -341,7 +352,8 @@ class KubernetesFilesystem:
         elif len(parts) == 2:
             pod = self.get('pod', parts[1], '-n', parts[0])
             running = {s['name'] for s in pod.get('status', {}).get('containerStatuses', []) if 'running' in s.get('state', {})}
-            names = [(c['name'], {'state': 'running' if c['name'] in running else 'not running'})
+            names = [(c['name'], {'state': 'running' if c['name'] in running else 'not running',
+                                  'kind': 'Container · ' + ('running' if c['name'] in running else 'not running')})
                      for c in pod['spec'].get('containers', [])]
         else:
             return self.files(parts, inner, path, limit)

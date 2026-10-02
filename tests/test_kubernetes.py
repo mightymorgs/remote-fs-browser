@@ -48,11 +48,17 @@ if args[0] == 'get':
     sys.stderr.write('Error from server (NotFound): not found'); sys.exit(1)
 if args[0] == 'create':
     pod = json.load(sys.stdin)
-    pod['status'] = {{'phase': 'Running', 'conditions': [{{'type': 'Ready', 'status': 'True'}}],
+    pod['status'] = {{'phase': 'Running', 'conditions': [{{'type': 'Ready', 'status': 'False'}}],
                      'containerStatuses': [{{'name': 'files', 'state': {{'running': {{}}}}}}]}}
     state['pods'].append(pod); state.setdefault('created', []).append(pod); save(); sys.exit(0)
 if args[0] == 'wait':
-    sys.exit(0)
+    if state.get('wait_fails', 0):
+        state['wait_fails'] -= 1; save()
+        sys.stderr.write('error: timed out waiting for the condition'); sys.exit(1)
+    for pod in state['pods']:
+        if 'pod/' + pod['metadata']['name'] in args:
+            pod['status']['conditions'] = [{{'type': 'Ready', 'status': 'True'}}]
+    save(); sys.exit(0)
 if args[0] == 'delete':
     state['pods'] = [p for p in state['pods'] if p['metadata']['name'] != args[2]]
     state.setdefault('deleted', []).append(args[2]); save(); sys.exit(0)
@@ -251,3 +257,27 @@ async def test_unmounted_volumes_open_through_a_helper_pod_that_is_deleted_on_cl
                 await session.remove(path, recursive=True)
         await session.remove(base + '/restored.txt')
     assert json.loads(state.read_text())['deleted'] == [helper['metadata']['name']]
+
+
+def test_a_volume_still_attaching_answers_503_until_it_opens(cluster, tmp_path):
+    from fastapi.testclient import TestClient
+    from remote_fs_browser.http import create_app
+    state = tmp_path / 'state.json'
+    value = json.loads(state.read_text())
+    value['wait_fails'] = 2
+    state.write_text(json.dumps(value))
+    token = 'kubernetes-test-token-at-least-32-chars'
+    with TestClient(create_app(policy_for(cluster), token=token), raise_server_exceptions=False) as client:
+        client.headers['Authorization'] = f'Bearer {token}'
+        session = client.post('/api/sessions', json={'descriptor': {'type': 'kubernetes', 'endpoint': 'pods'}}).json()
+        url = f"/api/sessions/{session['id']}/list?path=/apps/Volumes/archive"
+        for _ in range(2):
+            response = client.get(url)
+            assert response.status_code == 503 and response.headers['Retry-After'] == '3'
+            assert response.json()['detail'] == 'Attaching the volume; this can take up to a minute'
+        response = client.get(url)
+        assert response.status_code == 200
+        assert [r['name'] for r in response.json()['entries']] == ['old']
+        rows = {r['name']: r for r in client.get(f"/api/sessions/{session['id']}/list?path=/apps/Volumes").json()['entries']}
+        assert rows['archive']['kind'] == 'Longhorn volume · not mounted'
+        assert rows['data']['kind'] == 'Longhorn volume · in use by web'

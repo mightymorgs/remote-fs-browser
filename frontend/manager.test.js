@@ -148,3 +148,65 @@ test('rubber-band selection picks the rows it crosses in visible order',()=>{
  assert.deepEqual([...m.bandHits(tops,heights,-10,5)],['docs'])
  assert.deepEqual([...m.bandHits(tops,heights,160,200)],[])
 })
+
+test('the read-only badge needs a connected read-only location, and a failed load says why',async()=>{
+ const m=manager();m.navigation=0
+ m.state.place=m.fromDescriptor({type:'kubernetes',endpoint:'k3s',path:'/apps/Volumes/archive'})
+ m.state.session=null;m.state.loading=true
+ assert.equal(m.renderVals().readOnly,false)
+ m.state.session={id:'s',operations:['list','stat','read'],descriptor:{type:'kubernetes'}}
+ m.state.loading=false
+ assert.equal(m.renderVals().readOnly,true)
+ m.sessionFor=async()=>({id:'s',operations:['list'],descriptor:{type:'kubernetes'}})
+ m.api=async()=>{const error=new Error('Pod web is using this volume; browse it under that pod');error.status=422;throw error}
+ await assert.rejects(m.loadPlace(m.state.place))
+ const view=m.renderVals()
+ assert.equal(view.readOnly,false)
+ assert.equal(view.emptyTitle,"Couldn't open this folder")
+ assert.match(view.emptyHint,/Pod web is using this volume/)
+})
+
+test('a volume that is still attaching is retried until it opens',async()=>{
+ const m=manager(),notes=[];m.navigation=0
+ const realTimeout=scope.setTimeout;scope.setTimeout=(fn)=>realTimeout(fn,0)
+ try {
+  let calls=0
+  m.sessionFor=async()=>({id:'s',operations:['list'],descriptor:{type:'kubernetes'}})
+  m.api=async()=>{calls++;if(calls<3){notes.push(m.state.loadNote);const error=new Error('Attaching the volume; this can take up to a minute');error.status=503;throw error}return {entries:[{name:'old',path:'/old',type:'directory'}]}}
+  await m.loadPlace(m.fromDescriptor({type:'kubernetes',endpoint:'k3s',path:'/apps/Volumes/archive'}))
+  assert.equal(calls,3)
+  assert.equal(m.state.listing[0].name,'old')
+  assert.equal(m.state.loadError,null)
+  assert.equal(m.state.loadNote,null)
+ } finally {scope.setTimeout=realTimeout}
+})
+
+test('Kubernetes rows show their own kind and configured clusters appear in the sidebar',()=>{
+ const m=manager()
+ assert.equal(m.kindOf({name:'archive',type:'directory',capacity:1,kind:'Longhorn volume · not mounted'}),'Longhorn volume · not mounted')
+ assert.equal(m.kindOf({name:'pool',type:'directory',capacity:1}),'Storage pool')
+ m.state.endpoints=[{type:'kubernetes',endpoint:'k3s',label:'k3s'},{type:'rclone',endpoint:'c',label:'cloud'}]
+ const view=m.renderVals()
+ assert.equal(view.hasEndpoints,true)
+ assert.deepEqual(view.endpointSidebar.map(e=>e.label),['k3s · Kubernetes'])
+})
+
+test('only the latest preview opens, so a slow earlier read never offers stale text to save',async()=>{
+ const m=manager(),opened=[]
+ m.state.place=m.fromDescriptor({type:'kubernetes',endpoint:'k3s',path:'/apps/web/app/etc'})
+ m.state.session={id:'s',operations:['read','write'],descriptor:{type:'kubernetes'}}
+ let release
+ const gate=new Promise(done=>release=done)
+ let calls=0
+ m.api=async()=>{calls++;if(calls===1)await gate;return {size:3}}
+ const realFetch=scope.fetch
+ scope.fetch=async()=>({ok:true,body:{getReader:()=>{let sent=false;return {read:async()=>sent?{done:true}:(sent=true,{value:new TextEncoder().encode('new'),done:false}),cancel:async()=>{}}}}})
+ const realDocument=scope.document
+ scope.document={createElement:tag=>{const el={tag,children:[],append(...c){this.children.push(...c)},setAttribute(){},showModal(){opened.push(this)},close(){},remove(){},addEventListener(){},style:{}};return el},body:{append(){}}}
+ try {
+  const first=m.preview({name:'app.conf',path:'/apps/web/app/etc/app.conf'})
+  await m.preview({name:'app.conf',path:'/apps/web/app/etc/app.conf'})
+  release();await first
+  assert.equal(opened.length,1)
+ } finally {scope.fetch=realFetch;scope.document=realDocument}
+})

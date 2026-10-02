@@ -260,6 +260,8 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
 
     @app.exception_handler(Exception)
     async def failure(request, error):
+        if getattr(error, 'retry', False):
+            return JSONResponse({'detail': str(error)}, status_code=503, headers={'Retry-After': '3'})
         status = 409 if isinstance(error, FileExistsError) else 404 if isinstance(error, FileNotFoundError) else 403 if isinstance(error, PermissionError) else 410 if isinstance(error, KeyError) else 504 if isinstance(error, TimeoutError) else 422
         return JSONResponse({'detail': 'Session expired; reconnect' if status == 410 else str(error) if isinstance(error, (ValueError, FileExistsError, FileNotFoundError, PermissionError)) else 'Request failed; check permissions, path, connection and dependencies'}, status_code=status)
 

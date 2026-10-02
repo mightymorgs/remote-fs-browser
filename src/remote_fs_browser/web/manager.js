@@ -59,6 +59,7 @@ class Component extends DCLogic {
     return `${unit === 0 ? value : value.toFixed(value < 10 ? 2 : 1)} ${units[unit]}`
   }
   kindOf(entry) {
+    if (entry.kind) return entry.kind
     if (entry.capacity != null) return entry.type === 'directory' ? 'Storage pool' : 'Storage volume'
     if (entry.type === 'directory') return 'Folder'
     return KINDS[entry.name.split('.').pop().toLowerCase()] || 'Document'
@@ -567,8 +568,9 @@ class Component extends DCLogic {
       deviceCols: wideScan
         ? 'minmax(150px,1.4fr) minmax(90px,.8fr) 116px 70px 96px 78px'
         : 'minmax(140px,1.6fr) minmax(84px,.8fr) 112px 74px',
+      // Backend labels such as "Longhorn volume · in use by web" need a wider Kind column.
       listCols: showKind
-        ? '32px minmax(0,1fr) 100px 108px 128px 64px'
+        ? `32px minmax(0,1fr) 100px ${this.entries().some(e => (e.kind || '').length > 14) ? '230px' : '108px'} 128px 64px`
         : showDate
           ? '32px minmax(0,1fr) 92px 124px 64px'
           : pane<600?'32px minmax(0,1fr) 56px 52px':'32px minmax(0,1fr) 92px 64px',
@@ -665,8 +667,8 @@ class Component extends DCLogic {
       filter: this.state.filter,
       setFilter: event => this.setState({ filter: event.target.value, selected: [] }),
       empty: !rows.length,
-      emptyTitle: this.state.loading ? 'Loading…' : this.state.filter ? `Nothing matches “${this.state.filter}”.` : this.state.session ? 'This folder is empty.' : 'Choose a location to begin.',
-      emptyHint: this.state.filter ? 'Clear the filter to see every entry in this folder.' : '',
+      emptyTitle: this.state.loading ? (this.state.loadNote || 'Loading…') : this.state.loadError ? "Couldn't open this folder" : this.state.filter ? `Nothing matches “${this.state.filter}”.` : this.state.session ? 'This folder is empty.' : 'Choose a location to begin.',
+      emptyHint: !this.state.loading && this.state.loadError ? `${this.state.loadError.replace(/[.\s]*$/,'')}. Use ↻ to try again.` : this.state.filter ? 'Clear the filter to see every entry in this folder.' : '',
 
       allSelected: rows.length > 0 && selected.length === rows.length,
       allTickBg: selected.length ? '#3f6fd1' : '#fff',
@@ -768,7 +770,8 @@ class Component extends DCLogic {
       pasteLabel: this.state.pasteBusy?'Copying…':'Paste here',
       clearClipboard: ()=>this.setState({clipboard:null}),
       clipboardLabel: clip ? `${clip.names.length} item${clip.names.length === 1 ? '' : 's'} on the clipboard (${clip.cut ? 'cut' : 'copy'})` : '',
-      readOnly: !write,
+      // Only a connected location can be read-only; loading or failing is not a policy.
+      readOnly: !!this.state.session && !write,
 
       scanning, scanBusy: busy, scanIdle: !busy,
       openScan: () => this.toView('scan'),
@@ -970,6 +973,8 @@ class Component extends DCLogic {
           eject: () => this.unmountFolder(row).catch(error => this.say(error.message))}
       }),
       cloudSidebar: (this.state.endpoints || []).filter(r=>r.type==='rclone').map(r=>({...r, open:()=>this.goTo(this.fromDescriptor(r))})),
+      endpointSidebar: (this.state.endpoints || []).filter(r=>['kubernetes','libvirt'].includes(r.type)).map(r=>({...r, label:`${r.label} · ${r.type === 'kubernetes' ? 'Kubernetes' : 'libvirt'}`, open:()=>this.goTo(this.fromDescriptor(r))})),
+      hasEndpoints: (this.state.endpoints || []).some(r=>['kubernetes','libvirt'].includes(r.type)),
       openCloud: ()=>this.setState({view:'add',addType:'rclone'}),
       addEndpointName: this.state.add?.endpoint || '',
       setAddEndpoint: event => this.setState({add:{...this.state.add,endpoint:event.target.value}}),
@@ -1143,7 +1148,7 @@ class Component extends DCLogic {
         ink: item.on ? '#1c2024' : '#9aa1ab', opacity: item.on ? '1' : '.6',
         cursor: item.on ? 'pointer' : 'default', hoverBg: item.on ? '#eef2fb' : 'transparent'
       }),
-      sessionLabel: this.state.session ? this.state.session.descriptor.type.toUpperCase() + ' · Connected' : 'No connection',
+      sessionLabel: this.state.session ? this.state.session.descriptor.type.toUpperCase() + ' · Connected' : this.state.loading ? 'Connecting…' : 'No connection',
       disconnect: () => this.disconnect(),
       uploadStatus: this.state.upload, cancelUpload: () => this.uploadRequest?.abort(),
       toast: this.state.toast
@@ -1180,19 +1185,25 @@ class Component extends DCLogic {
   }
   async loadPlace(place) {
     const generation = ++this.navigation
-    this.setState({listing:[], session:null, loading:true})
+    this.setState({listing:[], session:null, loading:true, loadError:null, loadNote:null})
     try {
       let session = await this.sessionFor(place), data
-      try {data=await this.api(`/sessions/${session.id}/list?${new URLSearchParams({path:this.currentPath(place)})}`)}
-      catch(error) {
-        if (![404,410].includes(error.status)) throw error
-        session=await this.sessionFor(place,true)
-        data=await this.api(`/sessions/${session.id}/list?${new URLSearchParams({path:this.currentPath(place)})}`)
+      const list=()=>this.api(`/sessions/${session.id}/list?${new URLSearchParams({path:this.currentPath(place)})}`)
+      for (let attempt=0;;attempt++) {
+        try {data=await list();break}
+        catch(error) {
+          if ([404,410].includes(error.status) && !attempt) {session=await this.sessionFor(place,true);continue}
+          // 503: the storage is still getting ready, such as a volume attaching; keep trying.
+          if (error.status !== 503 || attempt > 40 || generation !== this.navigation) throw error
+          this.setState({loadNote:error.message})
+          await new Promise(done=>setTimeout(done,3000))
+          if (generation !== this.navigation) return
+        }
       }
       if (generation !== this.navigation) return
-      this.setState({session, listing:data.entries.map(row=>({...row, modifiedTime:row.modified ? new Date(typeof row.modified === 'number' ? row.modified*1000 : row.modified).getTime() : 0, modified:row.modified ? new Date(typeof row.modified === 'number' ? row.modified*1000 : row.modified).toLocaleString() : '—'})), loading:false})
+      this.setState({session, loadNote:null, listing:data.entries.map(row=>({...row, modifiedTime:row.modified ? new Date(typeof row.modified === 'number' ? row.modified*1000 : row.modified).getTime() : 0, modified:row.modified ? new Date(typeof row.modified === 'number' ? row.modified*1000 : row.modified).toLocaleString() : '—'})), loading:false})
       if (data.truncated || data.skipped) this.say(`Listing incomplete: ${data.skipped} excluded entries${data.truncated ? '; entry limit reached' : ''}.`)
-    } catch(error) {if(generation===this.navigation)this.setState({loading:false}); throw error}
+    } catch(error) {if(generation===this.navigation)this.setState({loading:false, loadNote:null, loadError:error.message}); throw error}
   }
   refresh() {if(this.state.place.descriptor)return this.loadPlace(this.state.place)}
   async reloadSaved() {
@@ -1355,8 +1366,14 @@ class Component extends DCLogic {
     })
   }
   async preview(entry) {
+    // Only the latest preview may open: on slow storage an earlier click can
+    // finish after a save, and its dialog would offer to save stale text.
+    const request=this.previewRequest=(this.previewRequest||0)+1, place=this.state.place
+    const current=()=>request===this.previewRequest&&place===this.state.place
     const session=this.state.session
+    this.say(`Opening ${entry.name}…`)
     const info=await this.api(`/sessions/${session.id}/stat?${new URLSearchParams({path:entry.path})}`)
+    if(!current())return
     if(!this.can('read'))return this.info([entry])
     if(info.size>1048576)return this.say('Preview is limited to 1 MiB. Download this file to open it locally.')
     const response=await fetch(`/api/sessions/${session.id}/file?${new URLSearchParams({path:entry.path})}`)
@@ -1364,6 +1381,7 @@ class Component extends DCLogic {
     const reader=response.body.getReader(), chunks=[];let size=0
     try {while(true){const {value,done}=await reader.read();if(done)break;size+=value.length;if(size>1048576)throw new Error('File grew beyond the preview limit');chunks.push(value)}}finally{await reader.cancel()}
     const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length}
+    if(!current())return
     let text
     try {text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);if(text.includes('\0'))throw new Error()}
     catch{return this.say('This is a binary file. Download it to open it locally.')}
