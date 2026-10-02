@@ -10,6 +10,11 @@ from .policy import Policy, normalize
 CHUNK = 256 * 1024
 
 
+class NotReady(ValueError):
+    """A backend says the storage is getting ready; the same request will work shortly."""
+    retry = True
+
+
 def worker(pipe, config, policy_values):
     import os
     if os.name != 'nt' and config['type'] in ('rclone', 'libvirt', 'kubernetes'):
@@ -114,10 +119,10 @@ def worker(pipe, config, policy_values):
                 kind = {errno.EEXIST: 'FileExistsError', errno.ENOENT: 'FileNotFoundError',
                         errno.EACCES: 'PermissionError', errno.EPERM: 'PermissionError'}.get(getattr(error, 'errno', None), type(error).__name__)
                 if getattr(error, 'shown', False):
-                    kind = 'ValueError'
+                    kind = 'NotReady' if getattr(error, 'retry', False) else 'ValueError'
                 messages = {'FileExistsError': 'Destination already exists', 'FileNotFoundError': 'File or folder not found',
                             'PermissionError': 'Permission denied', 'IsADirectoryError': 'Destination is a folder',
-                            'NotADirectoryError': 'Parent is not a folder', 'ValueError': str(error)}
+                            'NotADirectoryError': 'Parent is not a folder', 'ValueError': str(error), 'NotReady': str(error)}
                 pipe.send({'error': messages.get(kind, 'Filesystem operation failed; check path and permissions'), 'kind': kind})
     except Exception as error:
         try:
@@ -142,9 +147,15 @@ def worker(pipe, config, policy_values):
 
 
 class Worker:
+    # How long close waits for the worker's own cleanup before killing it.
+    grace = 0.1
+
     def __init__(self, config, policy):
         import tempfile
         self.has_children = config['type'] in ('rclone', 'libvirt', 'kubernetes')
+        # A Kubernetes session deletes its helper pods on close, so its volumes are released.
+        if config['type'] == 'kubernetes':
+            self.grace = 10
         self.scratch = tempfile.TemporaryDirectory(prefix='remotefs-session-') if config['type'] in ('rclone', 'kubernetes') else None
         if self.scratch:
             config = {**config, '_scratch': self.scratch.name}
@@ -171,7 +182,8 @@ class Worker:
             raise KeyError('Session expired') from None
         if 'error' in value:
             types = {'FileExistsError': FileExistsError, 'FileNotFoundError': FileNotFoundError,
-                     'PermissionError': PermissionError, 'ValueError': ValueError, 'TimeoutError': TimeoutError}
+                     'PermissionError': PermissionError, 'ValueError': ValueError, 'TimeoutError': TimeoutError,
+                     'NotReady': NotReady}
             raise types.get(value.get('kind'), OSError)(value['error'])
         return value['ok']
 
@@ -189,7 +201,7 @@ class Worker:
                     self.pipe.send(('close', ()))
                 except OSError:
                     pass
-                self.process.join(0.1)
+                self.process.join(self.grace)
                 if self.process.is_alive():
                     import os
                     import signal

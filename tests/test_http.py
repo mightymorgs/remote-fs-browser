@@ -135,3 +135,16 @@ def test_mounted_legacy_write_routes(tmp_path):
         assert client.delete(prefix + '/entry?path=/folder&recursive=true').status_code == 200
         assert list(root.iterdir()) == []
         assert client.delete(prefix).status_code == 200
+
+
+def test_expected_errors_answer_without_logging_a_traceback(tmp_path):
+    # The server logs a traceback for any exception the app re-raises; the
+    # test client raises those, so handled errors must not escape the app.
+    (tmp_path / 'data').write_bytes(b'x')
+    app = create_app(Policy(local_roots=[str(tmp_path)]), token=TOKEN)
+    with TestClient(app) as client:
+        client.headers['Authorization'] = 'Bearer ' + TOKEN
+        sid = client.post('/sessions', json={'descriptor': {'type': 'local', 'root': str(tmp_path)}}).json()['id']
+        assert client.get(f'/sessions/{sid}/list', params={'path': '/missing'}).status_code == 404
+        assert client.get(f'/sessions/{sid}/list', params={'path': '/../escape'}).status_code == 422
+        assert client.get('/sessions/unknown/list').status_code in (404, 410)

@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import vm from 'node:vm'
-const scope={window:{innerWidth:1280},URLSearchParams,TextDecoder,Blob,crypto:globalThis.crypto,setTimeout,clearTimeout}
+const scope={window:{innerWidth:1280},URLSearchParams,TextDecoder,Blob,AbortController,crypto:globalThis.crypto,setTimeout,clearTimeout}
 vm.runInNewContext(readFileSync(new URL('../src/remote_fs_browser/web/manager.js',import.meta.url),'utf8'),scope)
 class Logic {setState(value){Object.assign(this.state,value)}}
 const Manager=scope.window.createRemoteFsManager(Logic,{createRef:()=>({})})
@@ -147,4 +147,112 @@ test('rubber-band selection picks the rows it crosses in visible order',()=>{
  assert.deepEqual([...m.bandHits(tops,heights,50,95)],['a.txt','b.txt'])
  assert.deepEqual([...m.bandHits(tops,heights,-10,5)],['docs'])
  assert.deepEqual([...m.bandHits(tops,heights,160,200)],[])
+})
+
+test('the read-only badge needs a connected read-only location, and a failed load says why',async()=>{
+ const m=manager();m.navigation=0
+ m.state.place=m.fromDescriptor({type:'kubernetes',endpoint:'k3s',path:'/apps/Volumes/archive'})
+ m.state.session=null;m.state.loading=true
+ assert.equal(m.renderVals().readOnly,false)
+ m.state.session={id:'s',operations:['list','stat','read'],descriptor:{type:'kubernetes'}}
+ m.state.loading=false
+ assert.equal(m.renderVals().readOnly,true)
+ m.sessionFor=async()=>({id:'s',operations:['list'],descriptor:{type:'kubernetes'}})
+ m.api=async()=>{const error=new Error('Pod web is using this volume; browse it under that pod');error.status=422;throw error}
+ await assert.rejects(m.loadPlace(m.state.place))
+ const view=m.renderVals()
+ assert.equal(view.readOnly,false)
+ assert.equal(view.emptyTitle,"Couldn't open this folder")
+ assert.match(view.emptyHint,/Pod web is using this volume/)
+})
+
+test('a volume that is still attaching is retried until it opens',async()=>{
+ const m=manager(),notes=[];m.navigation=0
+ const realTimeout=scope.setTimeout;scope.setTimeout=(fn)=>realTimeout(fn,0)
+ try {
+  let calls=0
+  m.sessionFor=async()=>({id:'s',operations:['list'],descriptor:{type:'kubernetes'}})
+  m.api=async()=>{calls++;if(calls<3){notes.push(m.state.loadNote);const error=new Error('Attaching the volume; this can take up to a minute');error.status=503;throw error}return {entries:[{name:'old',path:'/old',type:'directory'}]}}
+  await m.loadPlace(m.fromDescriptor({type:'kubernetes',endpoint:'k3s',path:'/apps/Volumes/archive'}))
+  assert.equal(calls,3)
+  assert.equal(m.state.listing[0].name,'old')
+  assert.equal(m.state.loadError,null)
+  assert.equal(m.state.loadNote,null)
+ } finally {scope.setTimeout=realTimeout}
+})
+
+test('Kubernetes rows show their own kind and configured clusters appear in the sidebar',()=>{
+ const m=manager()
+ assert.equal(m.kindOf({name:'archive',type:'directory',capacity:1,kind:'Longhorn volume · not mounted'}),'Longhorn volume · not mounted')
+ assert.equal(m.kindOf({name:'pool',type:'directory',capacity:1}),'Storage pool')
+ m.state.endpoints=[{type:'kubernetes',endpoint:'k3s',label:'k3s'},{type:'rclone',endpoint:'c',label:'cloud'}]
+ const view=m.renderVals()
+ assert.equal(view.hasEndpoints,true)
+ assert.deepEqual(view.endpointSidebar.map(e=>e.label),['k3s · Kubernetes'])
+})
+
+function fakeDocument(){
+ const dialogs=[]
+ const make=tag=>({tag,children:[],textContent:'',value:'',placeholder:'',readOnly:false,disabled:false,open:false,
+  append(...c){this.children.push(...c)},setAttribute(){},remove(){this.removed=true},
+  showModal(){this.open=true;dialogs.push(this)},close(){this.open=false;this.onclose&&this.onclose()},
+  find(t){return this.children.find(c=>c.tag===t)}})
+ return {dialogs,document:{createElement:make,body:{append(){}}}}
+}
+function fakeResponse(text){
+ return {ok:true,body:{getReader:()=>{let sent=false;return {read:async()=>sent?{done:true}:(sent=true,{value:new TextEncoder().encode(text),done:false}),cancel:async()=>{}}}}}
+}
+
+test('the preview opens at once, says it is loading, and enables Save only once the text is in',async()=>{
+ const m=manager(),{dialogs,document}=fakeDocument()
+ m.state.session={id:'s',operations:['read','write'],descriptor:{type:'kubernetes'}}
+ let release
+ const realFetch=scope.fetch,realDocument=scope.document
+ scope.document=document;scope.fetch=()=>new Promise(done=>release=()=>done(fakeResponse('a=1\n')))
+ try {
+  const opening=m.preview({name:'app.conf',path:'/etc/app.conf',size:4})
+  await new Promise(done=>setTimeout(done,0))
+  const dialog=dialogs[0],[title,status,area,controls]=dialog.children,save=controls.children[1]
+  assert.equal(dialog.open,true)
+  assert.equal(status.textContent,'Opening app.conf…')
+  assert.equal(save.disabled,true)
+  release();await opening
+  assert.equal(area.value,'a=1\n')
+  assert.equal(save.disabled,false)
+  assert.equal(status.textContent,'')
+ } finally {scope.fetch=realFetch;scope.document=realDocument}
+})
+
+test('closing a preview that is still loading cancels it, so stale text is never offered for saving',async()=>{
+ const m=manager(),{dialogs,document}=fakeDocument()
+ m.state.session={id:'s',operations:['read','write'],descriptor:{type:'kubernetes'}}
+ let release,signal
+ const realFetch=scope.fetch,realDocument=scope.document
+ scope.document=document;scope.fetch=(url,options)=>{signal=options.signal;return new Promise(done=>release=()=>done(fakeResponse('old')))}
+ try {
+  const opening=m.preview({name:'app.conf',path:'/etc/app.conf',size:3})
+  await new Promise(done=>setTimeout(done,0))
+  const dialog=dialogs[0],[,,area,controls]=dialog.children
+  dialog.close()
+  assert.equal(signal.aborted,true)
+  release();await opening
+  assert.equal(area.value,'')
+  assert.equal(controls.children[1].disabled,true)
+ } finally {scope.fetch=realFetch;scope.document=realDocument}
+})
+
+test('a preview that fails explains why inside the dialog, and large files are not fetched',async()=>{
+ const m=manager(),{dialogs,document}=fakeDocument(),said=[]
+ m.say=text=>said.push(text)
+ m.state.session={id:'s',operations:['read'],descriptor:{type:'kubernetes'}}
+ const realFetch=scope.fetch,realDocument=scope.document
+ let fetched=0
+ scope.document=document;scope.fetch=async()=>{fetched++;return {ok:false,json:async()=>({detail:'This container has no shell (sh), so its files cannot be browsed'})}}
+ try {
+  await m.preview({name:'app.conf',path:'/etc/app.conf',size:3})
+  assert.match(dialogs[0].children[1].textContent,/no shell/)
+  await m.preview({name:'big.bin',path:'/big.bin',size:5*1048576})
+  assert.equal(fetched,1)
+  assert.match(said[0],/limited to 1 MiB/)
+ } finally {scope.fetch=realFetch;scope.document=realDocument}
 })

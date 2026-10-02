@@ -29,21 +29,43 @@ def docker_ready():
 
 FAKE = '''#!{python}
 import json, os, sys
-state = json.load(open({state!r}))
+path = {state!r}
+state = json.load(open(path))
+def save():
+    json.dump(state, open(path, 'w'))
 args = [a for a in sys.argv[1:] if a == '--' or not a.startswith('--')]
+open(path + '.calls', 'a').write(' '.join(args[:2]) + '\\n')
 if args[0] == 'get':
     kind, rest = args[1], args[2:]
     namespace = rest[rest.index('-n') + 1]
     name = rest[0] if rest[0] != '-n' else None
-    if kind == 'pods':
-        pods = [p for p in state['pods'] if p['metadata']['namespace'] == namespace]
-        print(json.dumps({{'items': pods}})); sys.exit(0)
-    table = state['pods'] if kind == 'pod' else state['claims']
+    table = state['pods'] if kind in ('pod', 'pods') else state['claims']
+    table = [i for i in table if i['metadata']['namespace'] == namespace]
+    if name is None:
+        print(json.dumps({{'items': table}})); sys.exit(0)
     for item in table:
-        if item['metadata']['name'] == name and item['metadata']['namespace'] == namespace:
+        if item['metadata']['name'] == name:
             print(json.dumps(item)); sys.exit(0)
     sys.stderr.write('Error from server (NotFound): not found'); sys.exit(1)
+if args[0] == 'create':
+    pod = json.load(sys.stdin)
+    pod['status'] = {{'phase': 'Running', 'conditions': [{{'type': 'Ready', 'status': 'False'}}],
+                     'containerStatuses': [{{'name': 'files', 'state': {{'running': {{}}}}}}]}}
+    state['pods'].append(pod); state.setdefault('created', []).append(pod); save(); sys.exit(0)
+if args[0] == 'wait':
+    if state.get('wait_fails', 0):
+        state['wait_fails'] -= 1; save()
+        sys.stderr.write('error: timed out waiting for the condition'); sys.exit(1)
+    for pod in state['pods']:
+        if 'pod/' + pod['metadata']['name'] in args:
+            pod['status']['conditions'] = [{{'type': 'Ready', 'status': 'True'}}]
+    save(); sys.exit(0)
+if args[0] == 'delete':
+    state['pods'] = [p for p in state['pods'] if p['metadata']['name'] != args[2]]
+    state.setdefault('deleted', []).append(args[2]); save(); sys.exit(0)
 if args[0] == 'exec':
+    if state.get('noshell'):
+        sys.stderr.write('OCI runtime exec failed: exec: "sh": executable file not found in $PATH'); sys.exit(126)
     command = args[args.index('--') + 1:]
     interactive = '-i' in args
     os.execvp('docker', ['docker', 'exec', *(['-i'] if interactive else []), state['container'], *command])
@@ -60,6 +82,11 @@ def pod(name, container='app', phase='Running', claim='data'):
             'status': {'phase': phase, 'containerStatuses': [{'name': container, 'state': {'running': {}} if phase == 'Running' else {'waiting': {}}}]}}
 
 
+def claim(name, size='1Gi'):
+    return {'metadata': {'name': name, 'namespace': 'apps', 'annotations': {
+        'volume.kubernetes.io/storage-provisioner': 'driver.longhorn.io'}}, 'status': {'capacity': {'storage': size}}}
+
+
 @pytest.fixture(params=IMAGES)
 def cluster(request, tmp_path):
     if not docker_ready():
@@ -69,13 +96,13 @@ def cluster(request, tmp_path):
                    check=True, capture_output=True)
     setup = ('mkdir -p /srv/data/sub /etc/app && printf hello-pod > /srv/data/hello.txt && '
              'printf "a=1\\n" > /srv/data/sub/config.ini && chmod 640 /srv/data/sub/config.ini && '
-             'ln -s /srv/data/sub /srv/data/link && ln -s /missing /srv/data/broken')
+             'ln -s /srv/data/sub /srv/data/link && ln -s /missing /srv/data/broken && '
+             'mkdir -p /volume/old && printf archived > /volume/old/report.txt')
     subprocess.run(['docker', 'exec', name, 'sh', '-c', setup], check=True)
     state = tmp_path / 'state.json'
     state.write_text(json.dumps({'container': name,
                                  'pods': [pod('web'), pod('stopped', phase='Pending')],
-                                 'claims': [{'metadata': {'name': 'data', 'namespace': 'apps', 'annotations': {
-                                     'volume.kubernetes.io/storage-provisioner': 'driver.longhorn.io'}}}]}))
+                                 'claims': [claim('data'), claim('archive', '2Gi')]}))
     kubectl = tmp_path / 'kubectl'
     kubectl.write_text(FAKE.format(python=sys.executable, state=str(state)))
     kubectl.chmod(0o755)
@@ -198,3 +225,126 @@ async def test_writes_are_atomic_keep_modes_and_never_walk_links(cluster, tmp_pa
         with pytest.raises(PermissionError):
             await session.mkdir('/apps/web/new')
         assert (await session.stat(base + '/sub/config.ini'))['type'] == 'file'
+
+
+@pytest.mark.asyncio
+async def test_unmounted_volumes_open_through_a_helper_pod_that_is_deleted_on_close(cluster, tmp_path):
+    state = tmp_path / 'state.json'
+    async with Browser(policy_for(cluster)) as browser:
+        session = await browser.connect({'type': 'kubernetes', 'endpoint': 'pods'})
+        assert 'Volumes' in [r['name'] for r in (await session.list('/apps'))['entries']]
+        claims = {r['name']: r for r in (await session.list('/apps/Volumes'))['entries']}
+        assert claims['data']['in_use_by'] == ['web', 'stopped'] and claims['data']['state'] == 'in use by web'
+        assert claims['archive']['state'] == 'not mounted' and claims['archive']['longhorn'] is True
+        assert claims['archive']['capacity'] == 2 * 2**30
+        with pytest.raises(ValueError, match='web is using this volume'):
+            await session.list('/apps/Volumes/data')
+        assert 'created' not in json.loads(state.read_text())
+        assert [r['name'] for r in (await session.list('/apps/Volumes/archive'))['entries']] == ['old']
+        helper = json.loads(state.read_text())['created'][0]
+        assert helper['metadata']['labels'] == {'app.kubernetes.io/managed-by': 'remotefs'}
+        assert helper['spec']['volumes'][0]['persistentVolumeClaim'] == {'claimName': 'archive'}
+        assert helper['spec']['activeDeadlineSeconds'] > 0
+        base = '/apps/Volumes/archive/old'
+        assert b''.join([c async for c in session.stream(base + '/report.txt')]) == b'archived'
+        async def chunks():
+            yield b'restored'
+        await session.write(base + '/restored.txt', chunks())
+        # The helper does not count as the volume's user, and is reused.
+        claims = {r['name']: r for r in (await session.list('/apps/Volumes'))['entries']}
+        assert claims['archive']['state'] == 'not mounted'
+        await session.list(base)
+        assert len(json.loads(state.read_text())['created']) == 1
+        for path in ('/apps/Volumes', '/apps/Volumes/archive'):
+            with pytest.raises(PermissionError):
+                await session.remove(path, recursive=True)
+        await session.remove(base + '/restored.txt')
+    assert json.loads(state.read_text())['deleted'] == [helper['metadata']['name']]
+
+
+def test_a_volume_still_attaching_answers_503_until_it_opens(cluster, tmp_path):
+    from fastapi.testclient import TestClient
+    from remote_fs_browser.http import create_app
+    state = tmp_path / 'state.json'
+    value = json.loads(state.read_text())
+    value['wait_fails'] = 2
+    state.write_text(json.dumps(value))
+    token = 'kubernetes-test-token-at-least-32-chars'
+    with TestClient(create_app(policy_for(cluster), token=token), raise_server_exceptions=False) as client:
+        client.headers['Authorization'] = f'Bearer {token}'
+        session = client.post('/api/sessions', json={'descriptor': {'type': 'kubernetes', 'endpoint': 'pods'}}).json()
+        url = f"/api/sessions/{session['id']}/list?path=/apps/Volumes/archive"
+        for _ in range(2):
+            response = client.get(url)
+            assert response.status_code == 503 and response.headers['Retry-After'] == '3'
+            assert response.json()['detail'] == 'Attaching the volume; this can take up to a minute'
+        response = client.get(url)
+        assert response.status_code == 200
+        assert [r['name'] for r in response.json()['entries']] == ['old']
+        rows = {r['name']: r for r in client.get(f"/api/sessions/{session['id']}/list?path=/apps/Volumes").json()['entries']}
+        assert rows['archive']['kind'] == 'Longhorn volume · not mounted'
+        assert rows['data']['kind'] == 'Longhorn volume · in use by web'
+
+
+@pytest.mark.asyncio
+async def test_opening_folders_reuses_pod_and_claim_lookups(cluster, tmp_path):
+    calls = tmp_path / 'state.json.calls'
+    async with Browser(policy_for(cluster)) as browser:
+        session = await browser.connect({'type': 'kubernetes', 'endpoint': 'pods'})
+        await session.stat('/apps/web/app/srv/data')
+        await session.list('/apps/web/app/srv/data')
+        assert [c for c in calls.read_text().split('\n') if c.startswith('exec')] == ['exec -i']
+        calls.write_text('')
+        # Browsing on within the same container reuses the lookups and the open
+        # shell: no further kubectl calls at all.
+        await session.stat('/apps/web/app/srv/data/sub')
+        await session.list('/apps/web/app/srv/data/sub')
+        await session.list('/apps/web/app/srv')
+        assert b''.join([c async for c in session.stream('/apps/web/app/srv/data/hello.txt')]) == b'hello-pod'
+        assert calls.read_text() == ''
+
+
+def test_a_persistent_shell_frames_binary_output_and_survives_failing_commands():
+    import os
+    from remote_fs_browser.kubernetes import Shell
+    shell = Shell(['sh'], dict(os.environ))
+    try:
+        # Arguments arrive intact, quotes and newlines included.
+        assert shell.command('printf %s "$1"', ["it's a\nname $HOME"], 10, 1024) == b"it's a\nname $HOME"
+        # Binary output, including a trailing newline and NUL bytes, comes back exactly.
+        assert shell.command('printf "a\\000b\\n\\n"', [], 10, 1024) == b'a\x00b\n\n'
+        # A script's exit status maps to the usual errors, and the shell carries on.
+        with pytest.raises(FileNotFoundError):
+            shell.command('exit 2', [], 10, 1024)
+        with pytest.raises(FileExistsError):
+            shell.command('exit 17', [], 10, 1024)
+        # Commands cannot read the shell's own input.
+        assert shell.command('cat', [], 10, 1024) == b''
+        assert shell.command('echo still here', [], 10, 1024) == b'still here\n'
+        with pytest.raises(ValueError, match='too large'):
+            shell.command('head -c 100000 /dev/zero', [], 10, 1024)
+        with pytest.raises(TimeoutError):
+            Shell(['sh'], dict(os.environ)).command('sleep 5', [], 0.5, 1024)
+    finally:
+        shell.close()
+
+
+def test_a_shell_that_never_starts_is_reported_as_not_started():
+    import os
+    from remote_fs_browser.kubernetes import Shell, ShellBroken
+    with pytest.raises(ShellBroken) as broken:
+        Shell(['false'], dict(os.environ)).command('true', [], 5, 1024)
+    assert broken.value.started is False
+
+
+@pytest.mark.asyncio
+async def test_a_container_without_a_shell_says_so(cluster, tmp_path):
+    state = tmp_path / 'state.json'
+    value = json.loads(state.read_text())
+    value['noshell'] = True
+    state.write_text(json.dumps(value))
+    async with Browser(policy_for(cluster)) as browser:
+        session = await browser.connect({'type': 'kubernetes', 'endpoint': 'pods'})
+        for _ in range(2):
+            with pytest.raises(ValueError, match='no shell'):
+                await session.list('/apps/web/app/srv')

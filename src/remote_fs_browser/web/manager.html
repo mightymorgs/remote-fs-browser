@@ -83,6 +83,13 @@
           <sc-for list="{{ cloudSidebar }}" as="remote"><button onClick="{{ remote.open }}" style="text-align:left;padding:8px;border:0;border-radius:8px;background:#edf2fc;color:#243c66;cursor:pointer;overflow:hidden;text-overflow:ellipsis">{{ remote.label }}</button></sc-for>
         </div>
 
+        <sc-if value="{{ hasEndpoints }}">
+          <div style="display:flex;flex-direction:column;gap:4px;padding:0 12px">
+            <div style="padding:0 4px 6px"><span style="font:500 11px ui-monospace,monospace;color:#6a727c">CLUSTERS &amp; HYPERVISORS</span></div>
+            <sc-for list="{{ endpointSidebar }}" as="endpoint"><button onClick="{{ endpoint.open }}" style="text-align:left;padding:8px;border:0;border-radius:8px;background:#edf2fc;color:#243c66;cursor:pointer;overflow:hidden;text-overflow:ellipsis">{{ endpoint.label }}</button></sc-for>
+          </div>
+        </sc-if>
+
         <sc-if value="{{ mountsVisible }}">
           <div style="display:flex;flex-direction:column;gap:4px;padding:0 12px" data-mounts="">
             <div style="padding:0 4px 6px"><span style="font:500 11px ui-monospace,monospace;letter-spacing:.09em;color:#6a727c">MOUNTED ON THIS COMPUTER</span></div>
