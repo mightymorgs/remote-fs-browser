@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {readFileSync} from 'node:fs'
 import vm from 'node:vm'
-const scope={window:{innerWidth:1280},URLSearchParams,TextDecoder,Blob,crypto:globalThis.crypto,setTimeout,clearTimeout}
+const scope={window:{innerWidth:1280},URLSearchParams,TextDecoder,Blob,AbortController,crypto:globalThis.crypto,setTimeout,clearTimeout}
 vm.runInNewContext(readFileSync(new URL('../src/remote_fs_browser/web/manager.js',import.meta.url),'utf8'),scope)
 class Logic {setState(value){Object.assign(this.state,value)}}
 const Manager=scope.window.createRemoteFsManager(Logic,{createRef:()=>({})})
@@ -191,22 +191,68 @@ test('Kubernetes rows show their own kind and configured clusters appear in the 
  assert.deepEqual(view.endpointSidebar.map(e=>e.label),['k3s · Kubernetes'])
 })
 
-test('only the latest preview opens, so a slow earlier read never offers stale text to save',async()=>{
- const m=manager(),opened=[]
- m.state.place=m.fromDescriptor({type:'kubernetes',endpoint:'k3s',path:'/apps/web/app/etc'})
+function fakeDocument(){
+ const dialogs=[]
+ const make=tag=>({tag,children:[],textContent:'',value:'',placeholder:'',readOnly:false,disabled:false,open:false,
+  append(...c){this.children.push(...c)},setAttribute(){},remove(){this.removed=true},
+  showModal(){this.open=true;dialogs.push(this)},close(){this.open=false;this.onclose&&this.onclose()},
+  find(t){return this.children.find(c=>c.tag===t)}})
+ return {dialogs,document:{createElement:make,body:{append(){}}}}
+}
+function fakeResponse(text){
+ return {ok:true,body:{getReader:()=>{let sent=false;return {read:async()=>sent?{done:true}:(sent=true,{value:new TextEncoder().encode(text),done:false}),cancel:async()=>{}}}}}
+}
+
+test('the preview opens at once, says it is loading, and enables Save only once the text is in',async()=>{
+ const m=manager(),{dialogs,document}=fakeDocument()
  m.state.session={id:'s',operations:['read','write'],descriptor:{type:'kubernetes'}}
  let release
- const gate=new Promise(done=>release=done)
- let calls=0
- m.api=async()=>{calls++;if(calls===1)await gate;return {size:3}}
- const realFetch=scope.fetch
- scope.fetch=async()=>({ok:true,body:{getReader:()=>{let sent=false;return {read:async()=>sent?{done:true}:(sent=true,{value:new TextEncoder().encode('new'),done:false}),cancel:async()=>{}}}}})
- const realDocument=scope.document
- scope.document={createElement:tag=>{const el={tag,children:[],append(...c){this.children.push(...c)},setAttribute(){},showModal(){opened.push(this)},close(){},remove(){},addEventListener(){},style:{}};return el},body:{append(){}}}
+ const realFetch=scope.fetch,realDocument=scope.document
+ scope.document=document;scope.fetch=()=>new Promise(done=>release=()=>done(fakeResponse('a=1\n')))
  try {
-  const first=m.preview({name:'app.conf',path:'/apps/web/app/etc/app.conf'})
-  await m.preview({name:'app.conf',path:'/apps/web/app/etc/app.conf'})
-  release();await first
-  assert.equal(opened.length,1)
+  const opening=m.preview({name:'app.conf',path:'/etc/app.conf',size:4})
+  await new Promise(done=>setTimeout(done,0))
+  const dialog=dialogs[0],[title,status,area,controls]=dialog.children,save=controls.children[1]
+  assert.equal(dialog.open,true)
+  assert.equal(status.textContent,'Opening app.conf…')
+  assert.equal(save.disabled,true)
+  release();await opening
+  assert.equal(area.value,'a=1\n')
+  assert.equal(save.disabled,false)
+  assert.equal(status.textContent,'')
+ } finally {scope.fetch=realFetch;scope.document=realDocument}
+})
+
+test('closing a preview that is still loading cancels it, so stale text is never offered for saving',async()=>{
+ const m=manager(),{dialogs,document}=fakeDocument()
+ m.state.session={id:'s',operations:['read','write'],descriptor:{type:'kubernetes'}}
+ let release,signal
+ const realFetch=scope.fetch,realDocument=scope.document
+ scope.document=document;scope.fetch=(url,options)=>{signal=options.signal;return new Promise(done=>release=()=>done(fakeResponse('old')))}
+ try {
+  const opening=m.preview({name:'app.conf',path:'/etc/app.conf',size:3})
+  await new Promise(done=>setTimeout(done,0))
+  const dialog=dialogs[0],[,,area,controls]=dialog.children
+  dialog.close()
+  assert.equal(signal.aborted,true)
+  release();await opening
+  assert.equal(area.value,'')
+  assert.equal(controls.children[1].disabled,true)
+ } finally {scope.fetch=realFetch;scope.document=realDocument}
+})
+
+test('a preview that fails explains why inside the dialog, and large files are not fetched',async()=>{
+ const m=manager(),{dialogs,document}=fakeDocument(),said=[]
+ m.say=text=>said.push(text)
+ m.state.session={id:'s',operations:['read'],descriptor:{type:'kubernetes'}}
+ const realFetch=scope.fetch,realDocument=scope.document
+ let fetched=0
+ scope.document=document;scope.fetch=async()=>{fetched++;return {ok:false,json:async()=>({detail:'This container has no shell (sh), so its files cannot be browsed'})}}
+ try {
+  await m.preview({name:'app.conf',path:'/etc/app.conf',size:3})
+  assert.match(dialogs[0].children[1].textContent,/no shell/)
+  await m.preview({name:'big.bin',path:'/big.bin',size:5*1048576})
+  assert.equal(fetched,1)
+  assert.match(said[0],/limited to 1 MiB/)
  } finally {scope.fetch=realFetch;scope.document=realDocument}
 })

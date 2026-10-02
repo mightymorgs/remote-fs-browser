@@ -12,11 +12,15 @@ import hashlib
 import io
 import json
 import os
+import queue
+import secrets
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 import stat as modes
 import subprocess
 import tempfile
+import time
 from .policy import normalize
 from .backends import child_path, listing
 
@@ -31,6 +35,12 @@ HELPER_SECONDS = 3600
 # Wait briefly per request and answer "not ready" rather than hold a request
 # open; a slow API server would otherwise push it past the session timeout.
 ATTACH_WAIT = 5
+# Opening one folder needs the pod and its claims; reuse those answers briefly
+# so each folder costs one exec instead of several API round trips.
+CACHE_SECONDS = 30
+# Each `kubectl exec` costs a full API handshake (seconds over a relayed link),
+# so a session keeps one shell open per container it is browsing.
+MAX_SHELLS = 4
 MANAGED = {'app.kubernetes.io/managed-by': 'remotefs'}
 UNITS = {'Ki': 2**10, 'Mi': 2**20, 'Gi': 2**30, 'Ti': 2**40, 'Pi': 2**50,
          'k': 10**3, 'M': 10**6, 'G': 10**9, 'T': 10**12, 'P': 10**15}
@@ -82,6 +92,9 @@ class KubernetesFilesystem:
         self.timeout = config['_timeout']
         self.claims = {}
         self.helpers = set()
+        self.cache = {}
+        self.shells = {}
+        self.oneshot = set()
         # Fail while connecting, not on first use, when the cluster or RBAC is wrong.
         self.get('pods', '-n', self.namespaces[0])
 
@@ -98,8 +111,11 @@ class KubernetesFilesystem:
     def exec_argv(self, namespace, pod, container, stdin):
         return [*self.kubectl(), 'exec', *(['-i'] if stdin else []), '-n', namespace, pod, '-c', container, '--']
 
+    def environment(self):
+        return {k: v for k, v in os.environ.items() if k != 'KUBECONFIG' or not self.config.get('kubeconfig')}
+
     def run(self, argv, stdin=None, max_bytes=16 * 1024 * 1024):
-        env = {k: v for k, v in os.environ.items() if k != 'KUBECONFIG' or not self.config.get('kubeconfig')}
+        env = self.environment()
         with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
             try:
                 result = subprocess.run(argv, stdin=stdin or subprocess.DEVNULL, stdout=output, stderr=errors,
@@ -134,7 +150,13 @@ class KubernetesFilesystem:
         return OSError('Kubernetes operation failed; check the pod and permissions')
 
     def get(self, *args):
-        return json.loads(self.run([*self.kubectl(), 'get', *args, '-o', 'json']))
+        now = time.monotonic()
+        hit = self.cache.get(args)
+        if hit and now - hit[0] < CACHE_SECONDS:
+            return hit[1]
+        value = json.loads(self.run([*self.kubectl(), 'get', *args, '-o', 'json']))
+        self.cache[args] = (now, value)
+        return value
 
     def get_or_none(self, *args):
         try:
@@ -143,9 +165,40 @@ class KubernetesFilesystem:
             return None
 
     def shell(self, target, script, *args, stdin=None, max_bytes=16 * 1024 * 1024):
+        target = tuple(target)
+        if stdin is None and target not in self.oneshot:
+            try:
+                return self.persistent(target).command(script, args, self.timeout, max_bytes)
+            except ShellBroken as broken:
+                self.drop(target)
+                if not broken.started:
+                    # The shell never answered (no sh, or the pod is gone): use a
+                    # one-off exec, which reports the reason, from now on.
+                    self.oneshot.add(target)
         namespace, pod, container = target
         return self.run([*self.exec_argv(namespace, pod, container, stdin is not None), 'sh', '-c', script, 'sh', *args],
                         stdin=stdin, max_bytes=max_bytes)
+
+    def persistent(self, target):
+        shell = self.shells.pop(target, None)
+        if shell is None or not shell.alive():
+            if shell:
+                shell.close()
+            if len(self.shells) >= MAX_SHELLS:
+                oldest = next(iter(self.shells))
+                self.shells.pop(oldest).close()
+            namespace, pod, container = target
+            try:
+                shell = Shell([*self.exec_argv(namespace, pod, container, True), 'sh'], self.environment())
+            except FileNotFoundError:
+                raise KubernetesError('Install kubectl on the service host and put it on PATH') from None
+        self.shells[target] = shell  # most recently used last
+        return shell
+
+    def drop(self, target):
+        shell = self.shells.pop(target, None)
+        if shell:
+            shell.close()
 
     # --- paths -----------------------------------------------------------
 
@@ -189,6 +242,7 @@ class KubernetesFilesystem:
         pod = self.get_or_none('pod', name, '-n', namespace)
         if pod and pod.get('status', {}).get('phase') in ('Succeeded', 'Failed'):
             self.run([*self.kubectl(), 'delete', 'pod', name, '-n', namespace, '--wait=true'])
+            self.cache.clear()
             pod = None
         if pod is None:
             users = self.users(self.get('pods', '-n', namespace)['items'], claim)
@@ -198,6 +252,7 @@ class KubernetesFilesystem:
                 manifest.write(json.dumps(self.helper_manifest(namespace, claim, name)).encode())
                 manifest.seek(0)
                 self.run([*self.kubectl(), 'create', '-f', '-'], stdin=manifest)
+            self.cache.clear()
         self.helpers.add((namespace, name))
         if pod is None or not self.ready(pod):
             try:
@@ -205,6 +260,7 @@ class KubernetesFilesystem:
                           f'--timeout={ATTACH_WAIT}s'])
             except (OSError, ValueError):
                 raise NotReady('Attaching the volume; this can take up to a minute') from None
+            self.cache.clear()
             pod = self.get('pod', name, '-n', namespace)
         return pod
 
@@ -447,6 +503,8 @@ class KubernetesFilesystem:
         return KubernetesUpload(self, parts, inner, overwrite)
 
     def close(self):
+        for target in list(self.shells):
+            self.drop(target)
         # Release volumes promptly so their workloads can start again; the
         # helper's deadline covers a service that stops without closing.
         for namespace, name in self.helpers:
@@ -454,6 +512,95 @@ class KubernetesFilesystem:
                 self.run([*self.kubectl(), 'delete', 'pod', name, '-n', namespace, '--wait=false', '--ignore-not-found'])
             except (OSError, ValueError):
                 pass
+
+
+class ShellBroken(Exception):
+    def __init__(self, started):
+        super().__init__('Shell ended')
+        self.started = started
+
+
+class Shell:
+    """One `kubectl exec -i ... sh` that runs a session's commands in a container.
+
+    Each command runs in a subshell, so a script's `exit` ends only that command,
+    with its stdin from /dev/null so it cannot read the next command. Its output
+    is followed by a newline and a random marker carrying the exit status, which
+    frames binary file data without any length bookkeeping.
+    """
+    def __init__(self, argv, env):
+        self.process = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                        stderr=subprocess.DEVNULL, env=env)
+        self.chunks = queue.Queue()
+        self.buffer = b''
+        self.started = False
+        threading.Thread(target=self.pump, daemon=True).start()
+
+    def pump(self):
+        try:
+            while data := self.process.stdout.read1(1024 * 1024):
+                self.chunks.put(data)
+        except (OSError, ValueError):
+            pass
+        self.chunks.put(None)
+
+    def alive(self):
+        return self.process.poll() is None
+
+    @staticmethod
+    def quote(value):
+        return "'" + value.replace("'", "'\\''") + "'"
+
+    def command(self, script, args, timeout, max_bytes):
+        nonce = secrets.token_hex(16)
+        line = (f"( set -- {' '.join(self.quote(a) for a in args)}; {script}\n) </dev/null 2>/dev/null; "
+                f"printf '\\n{nonce} %d\\n' $?\n")
+        try:
+            self.process.stdin.write(line.encode())
+            self.process.stdin.flush()
+        except (OSError, ValueError):
+            raise ShellBroken(self.started) from None
+        marker = b'\n' + nonce.encode() + b' '
+        deadline = time.monotonic() + timeout
+        while True:
+            found = self.buffer.find(marker)
+            if found >= 0:
+                end = self.buffer.find(b'\n', found + len(marker))
+                if end >= 0:
+                    data, status = self.buffer[:found], int(self.buffer[found + len(marker):end])
+                    self.buffer = self.buffer[end + 1:]
+                    self.started = True
+                    if status:
+                        raise KubernetesFilesystem.failure(status, '')
+                    if len(data) > max_bytes:
+                        raise ValueError('Response is too large; select a smaller folder')
+                    return data
+            if len(self.buffer) > max_bytes + 4096:
+                # Stop reading rather than buffer an oversized answer; the shell is
+                # replaced on the next command.
+                self.close()
+                raise ValueError('Response is too large; select a smaller folder')
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                self.close()
+                raise TimeoutError('Kubernetes operation timed out')
+            try:
+                data = self.chunks.get(timeout=remaining)
+            except queue.Empty:
+                continue
+            if data is None:
+                raise ShellBroken(self.started)
+            self.buffer += data
+
+    def close(self):
+        try:
+            self.process.stdin.close()
+        except (OSError, ValueError):
+            pass
+        try:
+            self.process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
 
 
 class KubernetesReader:

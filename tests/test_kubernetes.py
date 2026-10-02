@@ -34,6 +34,7 @@ state = json.load(open(path))
 def save():
     json.dump(state, open(path, 'w'))
 args = [a for a in sys.argv[1:] if a == '--' or not a.startswith('--')]
+open(path + '.calls', 'a').write(' '.join(args[:2]) + '\\n')
 if args[0] == 'get':
     kind, rest = args[1], args[2:]
     namespace = rest[rest.index('-n') + 1]
@@ -63,6 +64,8 @@ if args[0] == 'delete':
     state['pods'] = [p for p in state['pods'] if p['metadata']['name'] != args[2]]
     state.setdefault('deleted', []).append(args[2]); save(); sys.exit(0)
 if args[0] == 'exec':
+    if state.get('noshell'):
+        sys.stderr.write('OCI runtime exec failed: exec: "sh": executable file not found in $PATH'); sys.exit(126)
     command = args[args.index('--') + 1:]
     interactive = '-i' in args
     os.execvp('docker', ['docker', 'exec', *(['-i'] if interactive else []), state['container'], *command])
@@ -281,3 +284,67 @@ def test_a_volume_still_attaching_answers_503_until_it_opens(cluster, tmp_path):
         rows = {r['name']: r for r in client.get(f"/api/sessions/{session['id']}/list?path=/apps/Volumes").json()['entries']}
         assert rows['archive']['kind'] == 'Longhorn volume · not mounted'
         assert rows['data']['kind'] == 'Longhorn volume · in use by web'
+
+
+@pytest.mark.asyncio
+async def test_opening_folders_reuses_pod_and_claim_lookups(cluster, tmp_path):
+    calls = tmp_path / 'state.json.calls'
+    async with Browser(policy_for(cluster)) as browser:
+        session = await browser.connect({'type': 'kubernetes', 'endpoint': 'pods'})
+        await session.stat('/apps/web/app/srv/data')
+        await session.list('/apps/web/app/srv/data')
+        assert [c for c in calls.read_text().split('\n') if c.startswith('exec')] == ['exec -i']
+        calls.write_text('')
+        # Browsing on within the same container reuses the lookups and the open
+        # shell: no further kubectl calls at all.
+        await session.stat('/apps/web/app/srv/data/sub')
+        await session.list('/apps/web/app/srv/data/sub')
+        await session.list('/apps/web/app/srv')
+        assert b''.join([c async for c in session.stream('/apps/web/app/srv/data/hello.txt')]) == b'hello-pod'
+        assert calls.read_text() == ''
+
+
+def test_a_persistent_shell_frames_binary_output_and_survives_failing_commands():
+    import os
+    from remote_fs_browser.kubernetes import Shell
+    shell = Shell(['sh'], dict(os.environ))
+    try:
+        # Arguments arrive intact, quotes and newlines included.
+        assert shell.command('printf %s "$1"', ["it's a\nname $HOME"], 10, 1024) == b"it's a\nname $HOME"
+        # Binary output, including a trailing newline and NUL bytes, comes back exactly.
+        assert shell.command('printf "a\\000b\\n\\n"', [], 10, 1024) == b'a\x00b\n\n'
+        # A script's exit status maps to the usual errors, and the shell carries on.
+        with pytest.raises(FileNotFoundError):
+            shell.command('exit 2', [], 10, 1024)
+        with pytest.raises(FileExistsError):
+            shell.command('exit 17', [], 10, 1024)
+        # Commands cannot read the shell's own input.
+        assert shell.command('cat', [], 10, 1024) == b''
+        assert shell.command('echo still here', [], 10, 1024) == b'still here\n'
+        with pytest.raises(ValueError, match='too large'):
+            shell.command('head -c 100000 /dev/zero', [], 10, 1024)
+        with pytest.raises(TimeoutError):
+            Shell(['sh'], dict(os.environ)).command('sleep 5', [], 0.5, 1024)
+    finally:
+        shell.close()
+
+
+def test_a_shell_that_never_starts_is_reported_as_not_started():
+    import os
+    from remote_fs_browser.kubernetes import Shell, ShellBroken
+    with pytest.raises(ShellBroken) as broken:
+        Shell(['false'], dict(os.environ)).command('true', [], 5, 1024)
+    assert broken.value.started is False
+
+
+@pytest.mark.asyncio
+async def test_a_container_without_a_shell_says_so(cluster, tmp_path):
+    state = tmp_path / 'state.json'
+    value = json.loads(state.read_text())
+    value['noshell'] = True
+    state.write_text(json.dumps(value))
+    async with Browser(policy_for(cluster)) as browser:
+        session = await browser.connect({'type': 'kubernetes', 'endpoint': 'pods'})
+        for _ in range(2):
+            with pytest.raises(ValueError, match='no shell'):
+                await session.list('/apps/web/app/srv')

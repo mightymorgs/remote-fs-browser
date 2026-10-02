@@ -1366,33 +1366,41 @@ class Component extends DCLogic {
     })
   }
   async preview(entry) {
-    // Only the latest preview may open: on slow storage an earlier click can
-    // finish after a save, and its dialog would offer to save stale text.
-    const request=this.previewRequest=(this.previewRequest||0)+1, place=this.state.place
-    const current=()=>request===this.previewRequest&&place===this.state.place
-    const session=this.state.session
-    this.say(`Opening ${entry.name}…`)
-    const info=await this.api(`/sessions/${session.id}/stat?${new URLSearchParams({path:entry.path})}`)
-    if(!current())return
     if(!this.can('read'))return this.info([entry])
-    if(info.size>1048576)return this.say('Preview is limited to 1 MiB. Download this file to open it locally.')
-    const response=await fetch(`/api/sessions/${session.id}/file?${new URLSearchParams({path:entry.path})}`)
-    if(!response.ok)throw new Error('Unable to read the file')
-    const reader=response.body.getReader(), chunks=[];let size=0
-    try {while(true){const {value,done}=await reader.read();if(done)break;size+=value.length;if(size>1048576)throw new Error('File grew beyond the preview limit');chunks.push(value)}}finally{await reader.cancel()}
-    const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length}
-    if(!current())return
-    let text
-    try {text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);if(text.includes('\0'))throw new Error()}
-    catch{return this.say('This is a binary file. Download it to open it locally.')}
+    // The listing already knows the size, so skip a round trip; the read below
+    // still stops at 1 MiB if the file has grown since.
+    if(typeof entry.size==='number'&&entry.size>1048576)return this.say('Preview is limited to 1 MiB. Download this file to open it locally.')
+    const session=this.state.session, abort=new AbortController()
+    // Open the dialog at once and fill it in: on slow storage a read can take
+    // seconds, and a modal dialog stops further clicks from stacking previews.
     const dialog=document.createElement('dialog');dialog.className='manager-dialog editor'
     const title=document.createElement('h2');title.textContent=entry.name
-    const area=document.createElement('textarea');area.value=text;area.setAttribute('aria-label','File contents');area.readOnly=!this.can('write')
+    const status=document.createElement('p');status.className='note';status.setAttribute('role','status');status.textContent=`Opening ${entry.name}…`
+    const area=document.createElement('textarea');area.setAttribute('aria-label','File contents');area.readOnly=true;area.placeholder='Loading…'
     const controls=document.createElement('div');controls.className='dialog-buttons'
     const close=document.createElement('button');close.textContent='Close';close.onclick=()=>dialog.close()
-    const save=document.createElement('button');save.textContent='Save';save.disabled=area.readOnly
-    save.onclick=async()=>{save.disabled=true;try{await this.uploadBlob(session.id,entry.path,new Blob([area.value]),true);dialog.close();await this.refresh()}catch(error){this.say(error.message);save.disabled=false}}
-    controls.append(close,save);dialog.append(title,area,controls);document.body.append(dialog);dialog.onclose=()=>dialog.remove();dialog.showModal()
+    const save=document.createElement('button');save.textContent='Save';save.disabled=true
+    controls.append(close,save);dialog.append(title,status,area,controls);document.body.append(dialog)
+    dialog.onclose=()=>{abort.abort();dialog.remove()}
+    dialog.showModal()
+    const fail=message=>{status.textContent=message;area.placeholder=''}
+    let text
+    try {
+      const response=await fetch(`/api/sessions/${session.id}/file?${new URLSearchParams({path:entry.path})}`,{signal:abort.signal})
+      if(!response.ok){let message='Unable to read the file';try{message=(await response.json()).detail||message}catch{}return fail(message)}
+      const reader=response.body.getReader(), chunks=[];let size=0
+      try {while(true){const {value,done}=await reader.read();if(done)break;size+=value.length;if(size>1048576)return fail('Preview is limited to 1 MiB. Download this file to open it locally.');chunks.push(value)}}finally{await reader.cancel()}
+      const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length}
+      try {text=new TextDecoder('utf-8',{fatal:true}).decode(bytes);if(text.includes('\0'))throw new Error()}
+      catch{return fail('This is a binary file. Download it to open it locally.')}
+    } catch(error) {
+      if(abort.signal.aborted)return
+      return fail(error.message||'Unable to read the file')
+    }
+    if(abort.signal.aborted)return
+    area.value=text;area.placeholder='';area.readOnly=!this.can('write');status.textContent=area.readOnly?'Read-only':''
+    save.disabled=area.readOnly
+    save.onclick=async()=>{save.disabled=true;status.textContent='Saving…';try{await this.uploadBlob(session.id,entry.path,new Blob([area.value]),true);dialog.close();await this.refresh()}catch(error){status.textContent=error.message;save.disabled=false}}
   }
   uploadBlob(id,path,file,overwrite=false) {
     return new Promise((resolve,reject)=>{
