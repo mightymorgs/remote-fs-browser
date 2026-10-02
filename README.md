@@ -210,6 +210,39 @@ sudo bash scripts/linux/install.sh /private/config.json \
 
 The guide covers all three platforms, Ansible Vault, preinstalled dependencies, logs and uninstall options. Services run as root or SYSTEM with `--no-defaults`, so configure the allowed roots, network ranges and operations explicitly. Keep configuration and password inputs private.
 
+## Run in a container
+
+Each `v*` release publishes a multi-architecture image (linux/amd64 and linux/arm64) to `ghcr.io/mightymorgs/remote-fs-browser`, tagged with the version (`0.4.1`), `latest` and `sha-<commit>`. It runs `remotefs` as an unprivileged user (uid/gid 1000) on port 8080, browses whatever you mount under `/data`, and keeps its config, saved locations and staging area in the `/config` volume. NFS (a pinned libnfs 6 build), SMB share listing, rclone cloud connections and the Kubernetes endpoint (`kubectl`) are included. Mounting shares as folders is not available inside the container.
+
+```sh
+docker run -d --name remotefs -p 8080:8080 \
+  -v /srv/media:/data/media -v /mnt/backup:/data/backup \
+  -v remotefs-config:/config \
+  -e REMOTEFS_USERNAME=admin -e REMOTEFS_PASSWORD_FILE=/run/secrets/remotefs \
+  -v "$PWD/password.txt:/run/secrets/remotefs:ro" \
+  ghcr.io/mightymorgs/remote-fs-browser:0.4.1
+```
+
+Then sign in at `http://HOST:8080/`. The container reads these variables:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `REMOTEFS_USERNAME` | `admin` | Account name. |
+| `REMOTEFS_PASSWORD` / `REMOTEFS_PASSWORD_FILE` | — | Password (12+ characters), or a file holding it. When set, it replaces the stored password on every start, so the secret store you pass it from stays the source of truth. Without either, the first start exits with a message; later starts keep the stored account. |
+| `REMOTEFS_ROOTS` | `/data` | Comma-separated browse roots inside the container. |
+| `REMOTEFS_ALLOW_NETWORK` | none | Comma-separated CIDRs of SMB/NFS servers the service may reach. Empty disables SMB/NFS: inside a container the "local subnet" is the container network, so nothing is auto-detected. |
+| `REMOTEFS_READ_ONLY` | `false` | `true` disables every change. |
+| `REMOTEFS_PORT` / `REMOTEFS_BIND` | `8080` / `0.0.0.0` | Listen port and address. |
+| `REMOTEFS_CONFIG` | `/config/config.json` | Config file; `saved.json`, `remotes/` and `staging/` sit beside it. |
+
+Extra `remotefs serve` flags can follow the image name, and any other command runs as given, for example `docker run --rm ghcr.io/mightymorgs/remote-fs-browser remotefs --help`. Files written to `/data` are owned by uid 1000; run with `--user UID:GID` (and a `/config` that user can write) to match a different owner of the mounted folders. Plain HTTP applies as for any network bind: put it behind TLS or a tunnel.
+
+Build it yourself with `docker build -t remotefs .`. Build arguments: `INSTALL_RCLONE=false` and `KUBECTL_VERSION=` (empty) leave those tools out; `UID`/`GID` change the built-in user; `LIBNFS_REF` picks the libnfs commit. A manual run of the Release workflow builds both architectures and, with **publish** ticked, pushes `sha-<commit>` only.
+
+### In ductstack
+
+[ductstack](https://github.com/mightymorgs/ductstack) ships this image as the catalogue app **Remote filesystem browser** (`remote-fs-browser`, namespace `files`). Select it for a VM and it browses the VM's storage root and every share recorded on the VM, each under `/data/<share>`, signing in with the VM's console admin credentials from Vault. It is reachable on NodePort 31080, through the VM's ingress, and from the VM's Homepage. Its `image_tag` variable picks the release.
+
 ## Terminal file manager
 
 Client commands are included in version 0.2.2 and newer; 0.2.1 has only `serve` and `account`.
