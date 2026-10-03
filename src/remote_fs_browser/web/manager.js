@@ -29,23 +29,7 @@ class Component extends DCLogic {
     this.onResize(); window.addEventListener('resize', this.onResize)
     this.onError = event => { event.preventDefault(); this.say(event.reason?.message || 'Operation failed') }
     window.addEventListener('unhandledrejection', this.onError)
-    this.onKey = event => {
-      const meta = event.metaKey || event.ctrlKey, key = event.key.toLowerCase()
-      if (document.querySelector('dialog[open]')) return
-      if (key === 'escape') return this.setState({menu:null,prompt:null,zip:null,confirm:null,keys:false,view:'browse',selected:[]})
-      if (event.target.closest('input,textarea,select,[contenteditable]')) return
-      if (!meta) return
-      if (['d','s','n','q','/','a','c','x','v','backspace'].includes(key)) event.preventDefault()
-      if (key === 'd') this.toView('transfers')
-      if (key === 's') this.toView('scan')
-      if (key === 'n') event.shiftKey ? this.newFolder() : this.toView('add')
-      if (key === 'q' && event.shiftKey) this.setState({signout:true})
-      if (key === '/') this.setState({keys:!this.state.keys})
-      if (key === 'a') this.selectAll(true)
-      if (key === 'c' || key === 'x') this.copy(key === 'x')
-      if (key === 'v') this.paste()
-      if (key === 'backspace') this.remove()
-    }
+    this.onKey = event => this.keydown(event)
     document.addEventListener('keydown', this.onKey)
     // Files dropped from the desktop upload into the folder (or the folder row) under the pointer.
     this.onDrag = event => this.dragFiles(event)
@@ -57,6 +41,36 @@ class Component extends DCLogic {
     this.setState({roots:discovery.roots, endpoints:discovery.endpoints || [], ranges:discovery.scan_ranges.join(', '), scan:'idle'})
     if (!this.openLink() && discovery.roots.length) this.goTo(this.fromDescriptor(discovery.roots[0]))
     this.pollTimer = setInterval(() => {if (!document.hidden) {this.pollJobs().catch(() => {}); if (this.state.mountInfo.mounts.length) this.reloadMounts()}}, 5000)
+  }
+  /** Esc closes the topmost thing: a menu or sheet, then a window, then the selection. */
+  escape() {
+    const {menu,prompt,zip,confirm,keys,signout,view,selected}=this.state
+    if(menu||prompt||zip||confirm||keys||signout)return this.setState({menu:null,prompt:null,zip:null,confirm:null,keys:false,signout:false})
+    if(view!=='browse')return this.setState({view:'browse'})
+    if(selected.length)this.setState({selected:[]})
+  }
+  /** The shortcut table: window shortcuts toggle and work from a field; file shortcuts never steal a field's own keys. */
+  keydown(event) {
+    const meta = event.metaKey || event.ctrlKey, key = event.key.toLowerCase()
+    if (document.querySelector('dialog[open]')) return
+    if (key === 'escape') return this.escape()
+    if (!meta) return
+    // An open sheet (sign-in, zip, confirm, sign out, the shortcut list) owns the keyboard; only ⌘/ closes the list.
+    const {prompt,zip,confirm,signout,keys}=this.state
+    if (prompt || zip || confirm || signout || (keys && key !== '/')) return
+    const field = event.target?.closest?.('input,textarea,select,[contenteditable]')
+    const toggles = key === 'd' || key === 's' || key === '/' || (key === 'n' && !event.shiftKey) || (key === 'q' && event.shiftKey)
+    if (field && !toggles) return
+    if (['d','s','n','q','/','a','c','x','v','backspace'].includes(key)) event.preventDefault()
+    if (key === 'd') this.toView('transfers')
+    if (key === 's') this.toView('scan')
+    if (key === 'n') event.shiftKey ? this.newFolder() : this.toView('add')
+    if (key === 'q' && event.shiftKey) this.setState({signout:true,menu:null})
+    if (key === '/') this.setState({keys:!this.state.keys,menu:null})
+    if (key === 'a') this.selectAll(true)
+    if (key === 'c' || key === 'x') this.copy(key === 'x')
+    if (key === 'v') this.paste()
+    if (key === 'backspace') this.remove()
   }
   componentWillUnmount() {
     clearInterval(this.pollTimer); clearTimeout(this.toastTimer); this.scanCancelled = true
@@ -251,7 +265,7 @@ class Component extends DCLogic {
   names() { return this.state.selected }
   copy(cut) {
     if(!this.names().length)return
-    if(!this.can(cut?'rename':'read'))return this.say('This operation is not permitted')
+    if(!this.can(cut?'rename':'copy'))return this.say(cut?'Cut needs rename access on this location':'Copy needs copy access on this location')
     this.setState({clipboard:{names:[...this.names()],place:{...this.state.place,folders:[...this.state.place.folders]},cut},menu:null})
   }
   async paste() {
@@ -364,10 +378,22 @@ class Component extends DCLogic {
     const limit = this.zipLimit(zip)
     return limit ? Math.max(1, Math.ceil(this.zipNeeded(zip.picked) / limit)) : 1
   }
+  /** Why Start is blocked, or '' when the zip can be packed: the store must fit it, and parts are 1 MB to 999 of them. */
+  zipProblem(zip = this.state.zip) {
+    if (!zip) return ''
+    const store = this.state.stores[zip.store], limit = this.zipLimit(zip)
+    if (!store) return 'Choose where to build the zip'
+    if (zip.split === 'custom' && !limit) return 'Enter a part size above zero, in MB or GB'
+    if (limit && limit < 1048576) return 'Minimum part size is 1 MB'
+    const parts = this.zipPartCount(zip)
+    if (parts > 999) return `${parts} parts is too many — part numbering stops at .999. Choose a larger part size`
+    if (this.zipNeeded() > store.free) return `${store.label} has ${this.bytes(store.free)} free but this zip needs ${this.bytes(this.zipNeeded())}`
+    return ''
+  }
   async confirmZip() {
     const zip=this.state.zip;if(!zip)return
-    const limit=this.zipLimit(zip)
-    if(zip.split==='custom'&&(!Number.isFinite(limit)||limit<1048576))throw new Error('Minimum part size is 1 MB')
+    const limit=this.zipLimit(zip), problem=this.zipProblem(zip)
+    if(problem)throw new Error(problem)
     await this.api('/downloads',{session:zip.session,paths:zip.picked.map(e=>e.path),store:this.state.stores[zip.store].id,part_size:limit})
     this.setState({zip:null,view:'transfers'});await this.pollJobs()
   }
@@ -379,15 +405,29 @@ class Component extends DCLogic {
     }
     return null
   }
+  /** A file waiting in a live job for the user to open its link. */
+  queuedPart(path) {
+    for (const job of this.state.transfers) {
+      if (job.purged) continue
+      const index = job.parts.findIndex(part => part.path === path && !part.downloaded)
+      if (index >= 0) return { job, index }
+    }
+    return null
+  }
   async startBatch(picked,force=false) {
-    const place=this.state.place,session=await this.sessionFor(place)
-    const parts=picked.map(e=>({name:e.name,size:e.size,path:this.pathOf(place)+'/'+e.name,relative:e.path,place,downloaded:false}))
-    if(!force){const done=parts.map(p=>this.alreadyGrabbed(p.path)).find(Boolean);if(done)return this.setState({confirm:{jobId:done.job.id,index:done.index}})}
-    if(force){const existing=parts.map(p=>this.alreadyGrabbed(p.path,true)).find(Boolean);if(existing){this.setState({view:'transfers',confirm:null});return this.grabPart(existing.job,existing.index,true)}}
-    const fresh=parts.filter(p=>!this.alreadyGrabbed(p.path,true))
-    if(!fresh.length){this.setState({view:'transfers'});return}
+    const place=this.state.place;await this.sessionFor(place)
+    const parts=picked.map(e=>({name:e.name,size:e.size||0,path:this.pathOf(place)+'/'+e.name,relative:e.path,place,downloaded:false}))
+    if(!force){const done=parts.map(p=>this.alreadyGrabbed(p.path)).find(Boolean);if(done)return this.setState({confirm:{jobId:done.job.id,index:done.index,picked}})}
+    // A second request for a still-queued file reuses its job rather than minting a duplicate.
+    const queued=parts.map(p=>this.queuedPart(p.path)).filter(Boolean), reuse=new Set(queued.map(hit=>hit.job.id))
+    const fresh=parts.filter(p=>!this.queuedPart(p.path)&&(force||!this.alreadyGrabbed(p.path)))
+    const transfers=this.state.transfers.map(job=>reuse.has(job.id)?{...job,open:true}:job)
+    if(!fresh.length){
+      this.setState({transfers,view:'transfers',confirm:null})
+      return this.say(queued.length===1?`${queued[0].job.parts[queued[0].index].name} is already queued below — open its link to download it.`:`${queued.length} files are already queued below — open their links to download them.`)
+    }
     const total=fresh.reduce((n,p)=>n+p.size,0)
-    this.setState({transfers:[{id:Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join(''),kind:'files',name:fresh.length===1?fresh[0].name:`${fresh.length} files`,parts:fresh,total,packed:total,stage:'ready',status:'ready',open:true,purged:false,store:'Streamed from source'},...this.state.transfers],view:'transfers',confirm:null})
+    this.setState({transfers:[{id:Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join(''),kind:'files',name:fresh.length===1?fresh[0].name:`${fresh.length} files`,parts:fresh,total,packed:total,stage:'ready',status:'ready',open:true,purged:false,store:'Streamed from source'},...transfers],view:'transfers',confirm:null})
   }
   componentDidUpdate() {
     if (this.state.place !== this.loadedPlace) {
@@ -405,7 +445,8 @@ class Component extends DCLogic {
   /** Re-downloading an already-fetched part asks first, so nobody ends up with three copies. */
   async grabPart(job,index,force=false) {
     if(job.purged||index>=this.readyParts(job))return
-    if(job.parts[index].downloaded&&!force)return this.setState({confirm:{jobId:job.id,index}})
+    const seen=job.kind==='files'&&job.parts[index].path&&this.alreadyGrabbed(job.parts[index].path)
+    if((job.parts[index].downloaded||seen)&&!force)return this.setState({confirm:{jobId:job.id,index}})
     const part=job.parts[index]
     let url=`/api/downloads/${job.id}/parts/${index}`
     if(job.kind==='files'){const session=await this.sessionFor(part.place);url=`/api/sessions/${session.id}/file?${new URLSearchParams({path:part.relative})}`}
@@ -490,26 +531,34 @@ class Component extends DCLogic {
     const y = Math.min(event.clientY, window.innerHeight - 340)
     this.setState({ selected, anchor: entry ? entry.name : null, menu: { x, y, kind: 'file', target: entry ? entry.name : null } })
   }
+  /** A shortcut as this platform writes it: ⌘C on a Mac, Ctrl+C elsewhere. */
+  keyHint(key, shift=false) {
+    const mac=/Mac|iPhone|iPad/.test(globalThis.navigator?.platform||'')
+    return mac?`${shift?'⇧':''}⌘${key}`:`Ctrl+${shift?'Shift+':''}${key}`
+  }
   items() {
     const entries=this.names().map(name=>this.entries().find(e=>e.name===name)).filter(Boolean),one=entries.length===1?entries[0]:null
+    const count=entries.length, folders=entries.some(e=>e.type==='directory'), clip=this.state.clipboard
     const rows=[]
     if(one)rows.push({label:one.type==='directory'?'Open':'Open in preview',on:this.can(one.type==='directory'?'list':'read'),run:()=>one.type==='directory'?this.goTo({...this.state.place,folders:[...this.state.place.folders,one.name]}):this.preview(one)})
-    if(entries.length)rows.push({label:'Download',on:this.can('read'),run:()=>this.download()},{label:'Download as multi-part zip…',on:this.can('read'),run:()=>this.openZip(entries)},{divider:true},{label:'Copy',on:this.can('copy'),run:()=>this.copy(false)},{label:'Cut',on:this.can('rename'),run:()=>this.copy(true)})
-    rows.push({label:'Paste',on:!!this.state.clipboard&&this.can('write'),run:()=>this.paste()},{divider:true},{label:'New folder',on:this.can('mkdir'),run:()=>this.newFolder()},{label:'New text file',on:this.can('write'),run:()=>this.newFile()},{label:'Upload files here',on:this.can('write'),run:()=>this.upload()})
+    if(count)rows.push({label:folders?(count>1?`Download ${count} items as zip`:'Download folder as zip'):count>1?`Download ${count} files`:'Download',on:this.can('read'),run:()=>this.download()},{label:'Download as multi-part zip…',on:this.can('read'),run:()=>this.openZip(entries)},{divider:true},{label:'Copy',keys:this.keyHint('C'),on:this.can('copy'),run:()=>this.copy(false)},{label:'Cut',keys:this.keyHint('X'),on:this.can('rename'),run:()=>this.copy(true)})
+    rows.push({label:clip?`Paste ${clip.names.length} item${clip.names.length===1?'':'s'}`:'Paste',keys:this.keyHint('V'),on:!!clip&&this.can('write'),run:()=>this.paste()},{divider:true},{label:'New folder',keys:this.keyHint('N',true),on:this.can('mkdir'),run:()=>this.newFolder()},{label:'New text file',on:this.can('write'),run:()=>this.newFile()},{label:'Upload files here',on:this.can('write'),run:()=>this.upload()})
     if(one)rows.push({label:'Rename',on:this.can('rename'),run:()=>this.renameEntry(one)})
     const place=one?.type==='directory'?{...this.state.place,folders:[...this.state.place.folders,one.name]}:this.state.place
-    rows.push({label:'Shortlist folder',on:!!place.descriptor&&this.state.savedAvailable,run:()=>this.pin(place,one?.name||place.share)})
+    rows.push({label:one?.type==='directory'?'Shortlist folder':'Shortlist this folder',on:!!place.descriptor&&this.state.savedAvailable,run:()=>this.pin(place,one?.type==='directory'?one.name:place.folders.at(-1)||place.share)})
     if(this.mountable(place))rows.push({label:'Mount on this computer…',on:true,run:()=>this.mountFolder(place,one?.name||place.folders.at(-1)||place.share||place.descriptor?.label).catch(error=>this.say(error.message))})
-    if(entries.length)rows.push({divider:true},{label:'Delete',on:this.can('delete'),run:()=>this.remove()},{label:'Get info',on:this.can('stat'),run:()=>this.info(entries)})
+    if(count)rows.push({divider:true},{label:count>1?`Delete ${count} items`:'Delete',keys:this.keyHint('⌫'),on:this.can('delete'),run:()=>this.remove()},{label:'Get info',on:this.can('stat'),run:()=>this.info(entries)})
     return rows
   }
   async startScan() {
     if(this.state.scan==='running')return
     const scanId=this.scanId=(this.scanId||0)+1
     this.scanCancelled=false
-    const ranges=this.state.ranges.split(/[,\s]+/).filter(Boolean)
-    this.setState({scan:'running',devices:[],probed:0,scanTotal:0})
-    let offset=0, devices=[]
+    const ranges=this.state.ranges.split(/[,\s]+/).filter(Boolean), key=ranges.join(',')
+    const resume=this.state.scan==='stopped'&&this.scanResume?.key===key?this.scanResume:null
+    let offset=resume?resume.offset:0, devices=resume?[...this.state.devices]:[]
+    this.setState(resume?{scan:'running'}:{scan:'running',devices:[],probed:0,scanTotal:0})
+    this.scanResume=null
     try {
       do {
         const data=await this.api('/discover',{ranges,offset})
@@ -519,6 +568,7 @@ class Component extends DCLogic {
         for(const device of found)if(!devices.some(d=>d.ip===device.ip&&d.protocol===device.protocol))devices.push(device)
         this.setState({devices:[...devices],probed:data.scan_offset+data.scanned,scanTotal:data.total_addresses,scanNotes:data.notes.join(' ')})
         offset=data.next_offset
+        this.scanResume=offset===null?null:{key,offset}
       } while(offset!==null && !this.scanCancelled)
       this.setState({scan:this.scanCancelled?'stopped':'done'})
     } catch(error) {if(scanId===this.scanId)this.setState({scan:'stopped'});throw error}
@@ -727,13 +777,14 @@ class Component extends DCLogic {
         ['⌘/Ctrl + D', 'Downloads — press again to return'],
         ['⌘/Ctrl + S', 'Scan network — press again to return'],
         ['⌘/Ctrl + N', 'Add a location — press again to return'],
+        ['⌘/Ctrl + ⇧ + N', 'New folder here'],
         ['⌘/Ctrl + ⇧ + Q', 'Sign out'],
         ['⌘/Ctrl + A', 'Select everything in this folder'],
         ['Shift-tick', 'Select a range'],
         ['⌘/Ctrl-tick', 'Add or remove one'],
         ['⌘/Ctrl + C / X / V', 'Copy, cut, paste'],
         ['⌘/Ctrl + ⌫', 'Delete selection'],
-        ['Esc', 'Close the pane, or clear the selection'],
+        ['Esc', 'Close the menu or window, then clear the selection'],
         ['⌘/Ctrl + /', 'This list']
       ].map(([keys, what]) => ({ keys, what })),
       refresh: () => this.refresh(),
@@ -874,12 +925,17 @@ class Component extends DCLogic {
       closeScan: () => this.setState({ view: 'browse' }),
       startScan: () => this.startScan(),
       cancelScan: () => this.cancelScan(),
-      scanButton: this.state.scan === 'done' ? 'Rescan' : this.state.scan === 'stopped' ? 'Restart scan' : 'Start scan',
+      scanButton: this.state.scan === 'done' ? 'Rescan' : this.state.scan === 'stopped' ? (this.scanResume ? 'Resume scan' : 'Restart scan') : 'Start scan',
       ranges: this.state.ranges,
       setRanges: event => this.setState({ ranges: event.target.value }),
       scanPercent: `${this.state.scanTotal ? Math.min(100,Math.round(this.state.probed / this.state.scanTotal * 100)) : 0}%`,
-      scanStatus: this.state.scan === 'idle' ? 'Ready to scan permitted ranges' : `${this.state.scan === 'running' ? 'Scanning' : this.state.scan === 'stopped' ? 'Stopped' : 'Scanned'} addresses 1–${this.state.probed} of ${this.state.scanTotal}`,
-      scanFound: `${DEVICES.length} services found`,
+      scanStatus: this.state.scan === 'idle' ? 'Ready to scan permitted ranges'
+        : this.state.scan === 'stopped' ? `Stopped at address ${this.state.probed} of ${this.state.scanTotal}`
+        : `${this.state.scan === 'running' ? 'Scanning' : 'Scanned'} addresses 1–${this.state.probed} of ${this.state.scanTotal}`,
+      scanFound: (() => {
+        const hosts = new Set(DEVICES.map(device => device.ip)).size
+        return `${hosts} device${hosts === 1 ? '' : 's'} answered · ${DEVICES.length} service${DEVICES.length === 1 ? '' : 's'}`
+      })(),
       scanBatch: this.state.scanNotes || 'Scans run in batches of up to 256 addresses',
       devices: shown.map(device => {
         const state = this.state.mapped.find(host => host.key === `${device.protocol.toLowerCase()}:${device.ip}`)
@@ -1017,10 +1073,12 @@ class Component extends DCLogic {
         }
       }),
       zipNeeded: this.state.zip ? this.bytes(this.zipNeeded(this.state.zip.picked)) : '',
-      zipFits: this.state.zip ? this.zipNeeded(this.state.zip.picked) <= STORES[this.state.zip.store].free : true,
-      zipBlocked: this.state.zip ? this.zipNeeded(this.state.zip.picked) > STORES[this.state.zip.store].free : false,
-      zipStartBg: this.state.zip && this.zipNeeded(this.state.zip.picked) > STORES[this.state.zip.store].free ? '#a8b0ba' : '#3f6fd1',
-      zipStartLine: this.state.zip && this.zipNeeded(this.state.zip.picked) > STORES[this.state.zip.store].free ? '#98a0aa' : '#2b57ae',
+      zipFits: this.state.zip ? this.zipNeeded() <= (STORES[this.state.zip.store]?.free ?? -1) : true,
+      zipBlocked: !!this.zipProblem(),
+      // Start stays disabled while this says why; the server enforces the same limits.
+      zipBlockedNote: this.zipProblem() ? `${this.zipProblem()}.${/ free but /.test(this.zipProblem()) ? ' Pick a location with more free space, or reduce the selection.' : ''}` : '',
+      zipStartBg: this.zipProblem() ? '#a8b0ba' : '#3f6fd1',
+      zipStartLine: this.zipProblem() ? '#98a0aa' : '#2b57ae',
       zipSplits: ['none', '1', '2', '4', 'custom'].map(value => ({
         label: value === 'none' ? 'Single file' : value === 'custom' ? 'Custom' : `${value} GB parts`,
         bg: this.state.zip?.split === value ? '#3f6fd1' : 'rgba(255,255,255,.9)',

@@ -375,3 +375,156 @@ test('a file drag over the list highlights the drop target; other drags are left
  assert.equal(m.renderVals().dropNote,'Read-only policy — uploads are disabled here')
  clearTimeout(m.dragTimer)
 })
+
+// ---- Handoff parity (docs/MANAGER-PARITY.md) ----
+function keyed(m,key,mods={},target={closest:()=>null}){let prevented=false;m.keydown({key,metaKey:!!mods.meta,ctrlKey:!!mods.ctrl,shiftKey:!!mods.shift,target,preventDefault:()=>{prevented=true}});return prevented}
+function withDocument(fn){const real=scope.document;scope.document={querySelector:()=>null};try{return fn()}finally{scope.document=real}}
+
+test('Esc closes the topmost thing first: a menu, then a window, then the selection',()=>withDocument(()=>{
+ const m=manager();m.state.view='scan';m.state.selected=['a'];m.state.menu={kind:'file'}
+ keyed(m,'Escape');assert.equal(m.state.menu,null);assert.equal(m.state.view,'scan');same(m.state.selected,['a'])
+ keyed(m,'Escape');assert.equal(m.state.view,'browse');same(m.state.selected,['a'])
+ keyed(m,'Escape');same(m.state.selected,[])
+ m.state.zip={picked:[]};m.state.signout=true;keyed(m,'Escape')
+ assert.equal(m.state.zip,null);assert.equal(m.state.signout,false)
+}))
+
+test('window shortcuts toggle and return to the browser, even from the filter field; file shortcuts leave fields alone',()=>withDocument(()=>{
+ const m=manager(),field={closest:()=>({})}
+ for(const [key,view] of [['d','transfers'],['s','scan'],['n','add']]){
+  assert.equal(keyed(m,key,{meta:true},field),true);assert.equal(m.state.view,view)
+  keyed(m,key,{ctrl:true});assert.equal(m.state.view,'browse')
+ }
+ keyed(m,'/',{meta:true},field);assert.equal(m.state.keys,true)
+ keyed(m,'/',{meta:true});assert.equal(m.state.keys,false)
+ keyed(m,'q',{meta:true,shift:true});assert.equal(m.state.signout,true);m.state.signout=false
+ m.state.listing=[{name:'a',type:'file'},{name:'b',type:'file'}]
+ assert.equal(keyed(m,'a',{meta:true},field),false);same(m.state.selected,[])
+ keyed(m,'a',{meta:true});same(m.state.selected,['a','b'])
+}))
+
+test('an open sheet owns the keyboard: no select-all, delete or window switch behind it',()=>withDocument(()=>{
+ const m=manager();let removed=0;m.remove=()=>removed++
+ m.state.listing=[{name:'a',type:'file'}];m.state.prompt={device:{protocol:'SMB',ip:'192.0.2.1'}}
+ keyed(m,'a',{meta:true});keyed(m,'Backspace',{meta:true});keyed(m,'d',{meta:true})
+ same(m.state.selected,[]);assert.equal(removed,0);assert.equal(m.state.view,'browse')
+ m.state.prompt=null;m.state.keys=true
+ keyed(m,'d',{meta:true});assert.equal(m.state.view,'browse')
+ keyed(m,'/',{meta:true});assert.equal(m.state.keys,false)
+}))
+
+test('the shortcut list matches the handoff table',()=>{
+ const keys=manager().renderVals().shortcuts.map(s=>s.keys)
+ for(const k of ['⌘/Ctrl + D','⌘/Ctrl + S','⌘/Ctrl + N','⌘/Ctrl + ⇧ + Q','⌘/Ctrl + A','⌘/Ctrl + C / X / V','⌘/Ctrl + ⌫','Esc','⌘/Ctrl + /','Shift-tick','⌘/Ctrl-tick'])assert.ok(keys.includes(k),k)
+})
+
+test('the file menu has the twelve handoff items, write items follow operations, and shows working shortcuts',()=>{
+ const m=manager()
+ m.state.place=m.fromDescriptor({type:'local',root:'/srv',path:'/a'});m.state.savedAvailable=true
+ m.state.listing=[{name:'docs',type:'directory',path:'/a/docs'},{name:'x.txt',type:'file',path:'/a/x.txt',size:1}]
+ m.state.selected=['x.txt'];m.state.clipboard={names:['y'],cut:false,place:m.state.place}
+ m.state.session={id:'s',operations:['list','read','stat','write','mkdir','rename','delete','copy']}
+ const labels=m.items().filter(i=>!i.divider).map(i=>i.label)
+ for(const l of ['Open in preview','Download','Download as multi-part zip…','Copy','Cut','Paste 1 item','New folder','Upload files here','Rename','Shortlist this folder','Delete','Get info'])assert.ok(labels.includes(l),l)
+ const keys=Object.fromEntries(m.items().filter(i=>!i.divider).map(i=>[i.label,i.keys]))
+ assert.match(keys.Copy,/C$/);assert.match(keys['New folder'],/N$/);assert.match(keys.Delete,/⌫$/)
+ m.state.session.operations=['list','read','stat']
+ const on=Object.fromEntries(m.items().filter(i=>!i.divider).map(i=>[i.label,i.on]))
+ for(const l of ['Copy','Cut','Paste 1 item','New folder','Upload files here','Rename','Delete'])assert.equal(on[l],false,l)
+ for(const l of ['Open in preview','Download','Download as multi-part zip…','Get info'])assert.equal(on[l],true,l)
+ m.state.selected=['docs','x.txt']
+ const many=m.items().filter(i=>!i.divider).map(i=>i.label)
+ assert.ok(many.includes('Download 2 items as zip'));assert.ok(many.includes('Delete 2 items'))
+ m.state.selected=['docs'];assert.ok(m.items().some(i=>i.label==='Shortlist folder'))
+})
+
+test('⌘C needs the copy operation, like the menu and selection bar',()=>{
+ const m=manager(),said=[];m.say=t=>said.push(t)
+ m.state.place=m.fromDescriptor({type:'local',root:'/srv'});m.state.selected=['a']
+ m.state.session={id:'s',operations:['list','read']}
+ m.copy(false);assert.equal(m.state.clipboard,null);assert.match(said[0],/copy access/)
+ m.state.session.operations.push('copy');m.copy(false);same(m.state.clipboard.names,['a'])
+})
+
+test('right-click opens a menu on all six surfaces',()=>{
+ const m=manager(),ev={preventDefault(){},stopPropagation(){},clientX:5,clientY:5}
+ m.state.listing=[{name:'a',type:'file'}]
+ m.openMenu(ev,m.state.listing[0]);assert.equal(m.state.menu.kind,'file');same(m.state.selected,['a'])
+ m.openMenu(ev,null);assert.equal(m.state.menu.kind,'file');same(m.state.selected,[])
+ const device={protocol:'SMB',ip:'192.0.2.1',dns:'nas'},host={key:'smb:192.0.2.1',label:'nas',ip:'192.0.2.1',protocol:'SMB',shares:['Projects'],creds:'stored'}
+ m.openDeviceMenu(ev,device);assert.equal(m.state.menu.kind,'device')
+ m.openMountMenu(ev,host);assert.equal(m.state.menu.kind,'mount')
+ m.openShareMenu(ev,host,'Projects');assert.equal(m.state.menu.kind,'share')
+ m.openPinMenu(ev,{label:'p',place:m.fromDescriptor({type:'local',root:'/srv'})});assert.equal(m.state.menu.kind,'pin')
+ m.state.mountInfo={enabled:false,mounts:[]};m.state.mapped=[host]
+ for(const [menu,first] of [[{kind:'device',device},'Remap'],[{kind:'mount',host},'List shares'],[{kind:'share',host,share:'Projects'},'Open'],[{kind:'pin',pin:{label:'p',place:m.fromDescriptor({type:'local',root:'/srv'})}},'Open']]){
+  m.state.menu={x:0,y:0,...menu};assert.equal(m.renderVals().menuItems[0].label,first)
+ }
+})
+
+test('ZIP Start blocks below 1 MB parts, above 999 parts and when the store is too small, and says why',async()=>{
+ const m=manager(),calls=[];m.state.session={id:'s',operations:['read'],descriptor:{type:'local'}};m.pollJobs=async()=>{}
+ m.api=async(path,body)=>{calls.push(path);return path.endsWith('estimate')?{total:2000*1048576,needed:2040*1048576,stores:[{id:'big',label:'big',free:1e12,total:2e12},{id:'small',label:'small',free:1048576,total:2e12}]}:{}}
+ await m.openZip([{name:'f',path:'/f',type:'directory'}])
+ m.state.zip.split='custom';m.state.zip.custom='0.5';m.state.zip.unit='MB'
+ assert.equal(m.renderVals().zipBlocked,true);assert.match(m.renderVals().zipBlockedNote,/Minimum part size is 1 MB/)
+ m.state.zip.custom='1'
+ assert.match(m.renderVals().zipBlockedNote,/2040 parts is too many/)
+ await assert.rejects(m.confirmZip(),/too many/)
+ m.state.zip.custom='3'
+ assert.equal(m.renderVals().zipBlocked,false);assert.equal(m.renderVals().zipBlockedNote,'')
+ m.state.zip.store=1
+ assert.match(m.renderVals().zipBlockedNote,/small has 1.00 MB free but this zip needs/)
+ await assert.rejects(m.confirmZip(),/free but/)
+ assert.equal(calls.filter(p=>p==='/downloads').length,0)
+ m.state.zip.store=0;await m.confirmZip();assert.equal(calls.at(-1),'/downloads')
+})
+
+test('a still-queued file reuses its job; an already-downloaded one asks, and Download again re-lists every picked file',async()=>{
+ const m=manager(),said=[];m.say=t=>said.push(t)
+ m.state.place=m.fromDescriptor({type:'smb',host:'nas',share:'files',path:'/r'});m.sessionFor=async()=>({id:'s'})
+ const a={name:'a.txt',path:'/r/a.txt',size:1},b={name:'b.txt',path:'/r/b.txt',size:2}
+ await m.startBatch([a]);assert.equal(m.state.transfers.length,1)
+ m.state.transfers[0].open=false;m.state.view='browse'
+ await m.startBatch([a]);assert.equal(m.state.transfers.length,1);assert.equal(m.state.transfers[0].open,true)
+ assert.equal(m.state.view,'transfers');assert.match(said.at(-1),/already queued/)
+ // Mixed: the queued file is reused, only the new one is queued.
+ await m.startBatch([a,b]);assert.equal(m.state.transfers.length,2);same(m.state.transfers[0].parts.map(p=>p.name),['b.txt'])
+ m.state.transfers=m.state.transfers.map(j=>({...j,parts:j.parts.map(p=>({...p,downloaded:true}))}))
+ await m.startBatch([a,b]);assert.equal(m.state.confirm.jobId!==undefined,true);same(m.state.confirm.picked.map(p=>p.name),['a.txt','b.txt'])
+ await m.renderVals().confirmAgain()
+ assert.equal(m.state.transfers.length,3);same(m.state.transfers[0].parts.map(p=>p.name),['a.txt','b.txt']);assert.equal(m.state.confirm,null)
+})
+
+test('a stopped scan resumes from the next batch of the same ranges; new ranges start over',async()=>{
+ const m=manager(),offsets=[];m.state.ranges='192.0.2.0/23'
+ m.api=async(path,body)=>{offsets.push(body.offset);if(body.offset===256&&offsets.length===2)m.cancelScan()
+  return {hosts:[{host:`192.0.2.${body.offset?200:5}`,dns_name:null,netbios_name:null,protocols:['smb']}],scan_offset:body.offset,scanned:body.offset?254:256,total_addresses:510,next_offset:body.offset?null:256,notes:[]}}
+ await m.startScan()
+ assert.equal(m.state.scan,'stopped');assert.equal(m.state.probed,256);assert.equal(m.renderVals().scanButton,'Resume scan')
+ assert.equal(m.renderVals().scanStatus,'Stopped at address 256 of 510')
+ await m.startScan()
+ assert.deepEqual(offsets,[0,256,256]);assert.equal(m.state.scan,'done');assert.equal(m.state.devices.length,2)
+ assert.equal(m.renderVals().scanFound,'2 devices answered · 2 services')
+ assert.equal(m.renderVals().scanButton,'Rescan')
+ offsets.length=0;await m.startScan();assert.deepEqual(offsets,[0,256])
+ m.state.scan='stopped';m.scanResume={key:'192.0.2.0/23',offset:256};m.state.ranges='10.0.0.0/24'
+ offsets.length=0;await m.startScan();assert.equal(offsets[0],0)
+})
+
+test('responsive rules: Kind below 820 and Modified below 560 of pane width; ⋯ fold and scan collapse',()=>{
+ const m=manager()
+ const at=(width,collapsed)=>{m.state.width=width;m.state.collapsed=collapsed;return m.renderVals()}
+ let v=at(1100,false);assert.equal(v.showKind,true);assert.equal(v.showDate,true);assert.equal(v.roomy,true);assert.equal(v.wideScan,true);assert.equal(v.railWidth,'272px')
+ v=at(1000,false);assert.equal(v.showKind,false);assert.equal(v.showDate,true);assert.equal(v.tight,true);assert.equal(v.narrowScan,true)
+ v=at(1000,true);assert.equal(v.showKind,true);assert.equal(v.railWidth,'56px')
+ v=at(800,false);assert.equal(v.showDate,false)
+})
+
+test('the selection bar shows count, bytes and the six actions with write ones disabled by operations',()=>{
+ const m=manager();m.state.listing=[{name:'a',type:'file',size:1024},{name:'b',type:'file',size:1024}]
+ m.state.selected=['a','b'];m.state.session={id:'s',operations:['list','read'],descriptor:{type:'local'}}
+ const v=m.renderVals()
+ assert.equal(v.selectionLabel,'2 selected');assert.equal(v.selectionBytes,'2.00 KB')
+ same(v.selectionActions.map(a=>[a.label,a.disabled]),[['Download 2 files',false],['Zip…',false],['Copy',true],['Cut',true],['Paste',true],['Delete',true]])
+})

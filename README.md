@@ -166,7 +166,7 @@ These shortcuts apply outside text fields and open editor/dialog controls. Use C
 
 ### Scan, map and remember locations
 
-**Scan network** accepts one to sixteen comma- or whitespace-separated CIDRs within the configured policy. It probes TCP 445 and 2049 in pages of at most 256 candidate addresses and continues through the pages. **Stop** stops requesting further pages; an in-flight bounded probe may finish on the server.
+**Scan network** accepts one to sixteen comma- or whitespace-separated CIDRs within the configured policy. It probes TCP 445 and 2049 in pages of at most 256 candidate addresses and continues through the pages. **Stop** stops requesting further pages; an in-flight bounded probe may finish on the server. **Resume scan** then continues from the next page of the same ranges; changing the ranges starts over.
 
 Each result shows its DNS hostname, NetBIOS name and IP address together when available. DNS and NetBIOS lookups are independent and have deadlines; unnamed devices still show their IP. A device offering both protocols appears for both. Scanned connections use the IP address, while mapped hosts retain an available name as their label.
 
