@@ -1214,6 +1214,8 @@ class Component extends DCLogic {
     try {this.setState({mountInfo:await this.api('/mounts')})} catch {this.setState({mountInfo:{enabled:false,mounts:[]}})}
   }
   mountable(place) {
+    // A Kubernetes location is a folder from the container (or volume) level down.
+    if(place.descriptor?.type==='kubernetes')return !!this.state.mountInfo.enabled && place.folders.length>=3
     return this.state.mountInfo.enabled && ['smb','nfs','rclone'].includes(place.descriptor?.type)
   }
   /** Mount a share, folder or cloud connection as a folder (macOS/Linux) or drive letter (Windows) on the service's computer. */

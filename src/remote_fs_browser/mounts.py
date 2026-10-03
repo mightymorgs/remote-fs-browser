@@ -181,9 +181,11 @@ def remote_for(descriptor, credentials, endpoint_config, binary, bridge=None):
         return dict(config.items(name)), '/'.join(part for part in (root, path) if part)
     if kind == 'local':
         raise MountError('Local folders are already on this computer')
-    if kind == 'nfs':
+    if kind == 'kubernetes' and len(path.split('/')) < 3:
+        raise MountError('Open a container or a volume to mount it; namespaces and pods are not folders')
+    if kind in ('nfs', 'kubernetes'):
         if bridge is None:
-            raise MountError('This NFS share is not available')
+            raise MountError('This location is not available')
         # The bridge already serves the chosen folder as its root.
         return {'type': 'webdav', 'url': bridge.url, 'vendor': 'other', 'user': 'remotefs',
                 'pass': obscure(binary, bridge.password)}, ''
@@ -369,8 +371,8 @@ class MountManager:
                 files = Path(user.profile()) / 'AppData' / 'Local' / 'remotefs' / 'mounts' if user else self.directory
                 files.mkdir(parents=True, exist_ok=True)
                 self.files[key] = files
-                if descriptor.get('type') == 'nfs':
-                    self.bridges[key] = self.start_bridge(descriptor)
+                if descriptor.get('type') in ('nfs', 'kubernetes'):
+                    self.bridges[key] = self.start_bridge(descriptor, endpoint_config)
                 section, remote_path = remote_for(descriptor, credentials, endpoint_config, self.binary, self.bridges.get(key))
                 clean = {k: v for k, v in descriptor.items() if k != 'credential_id'}
                 row = dict(principal=principal, label=safe_label(label), read_only=bool(read_only), method=self.method,
@@ -524,12 +526,15 @@ class MountManager:
             raise MountError(f'Sign in to Windows as {self.owner} first; mounts appear only in that account’s own session')
         return api.UserSession(session)
 
-    def start_bridge(self, descriptor):
+    def start_bridge(self, descriptor, endpoint_config=None):
         from .davbridge import Bridge
+        what = 'the NFS share' if descriptor.get('type') == 'nfs' else 'this location'
         try:
-            return (self.bridge or Bridge)(descriptor)
+            if descriptor.get('type') == 'nfs':
+                return (self.bridge or Bridge)(descriptor)
+            return (self.bridge or Bridge)(descriptor, endpoint_config)
         except (OSError, RuntimeError, ValueError) as error:
-            raise MountError(f'Could not reach the NFS share: {error}') from None
+            raise MountError(f'Could not reach {what}: {error}') from None
 
     def forget(self, key):
         self.records.pop(key, None)

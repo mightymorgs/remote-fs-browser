@@ -256,3 +256,17 @@ test('a preview that fails explains why inside the dialog, and large files are n
   assert.match(said[0],/limited to 1 MiB/)
  } finally {scope.fetch=realFetch;scope.document=realDocument}
 })
+
+test('Kubernetes locations can be mounted from the container or volume level down',()=>{
+ const m=manager()
+ m.state.mountInfo={enabled:true,available:true,mounts:[]}
+ const at=path=>m.mountable(m.fromDescriptor({type:'kubernetes',endpoint:'k3s',path}))
+ assert.equal(at('/'),false)
+ assert.equal(at('/apps'),false)
+ assert.equal(at('/apps/web'),false)
+ assert.equal(at('/apps/web/nginx'),true)
+ assert.equal(at('/apps/web/nginx/etc/nginx'),true)
+ assert.equal(at('/apps/Volumes/archive'),true)
+ m.state.mountInfo={enabled:false,mounts:[]}
+ assert.equal(at('/apps/web/nginx'),false)
+})

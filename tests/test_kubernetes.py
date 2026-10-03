@@ -244,7 +244,12 @@ async def test_unmounted_volumes_open_through_a_helper_pod_that_is_deleted_on_cl
         helper = json.loads(state.read_text())['created'][0]
         assert helper['metadata']['labels'] == {'app.kubernetes.io/managed-by': 'remotefs'}
         assert helper['spec']['volumes'][0]['persistentVolumeClaim'] == {'claimName': 'archive'}
-        assert helper['spec']['activeDeadlineSeconds'] > 0
+        # The helper exits after an hour without use; every command refreshes its heartbeat.
+        assert '/tmp/.remotefs-alive' in helper['spec']['containers'][0]['command'][-1]
+        container = json.loads(state.read_text())['container']
+        before = subprocess.run(['docker', 'exec', container, 'stat', '-c', '%Y', '/tmp/.remotefs-alive'],
+                                capture_output=True, text=True).stdout.strip()
+        assert before
         base = '/apps/Volumes/archive/old'
         assert b''.join([c async for c in session.stream(base + '/report.txt')]) == b'archived'
         async def chunks():
@@ -348,3 +353,78 @@ async def test_a_container_without_a_shell_says_so(cluster, tmp_path):
         for _ in range(2):
             with pytest.raises(ValueError, match='no shell'):
                 await session.list('/apps/web/app/srv')
+
+
+def test_a_pod_folder_is_served_to_rclone_through_the_mount_bridge(cluster, tmp_path):
+    import os
+    from remote_fs_browser.davbridge import Bridge, USER
+    from remote_fs_browser.mounts import remote_for
+    rclone = shutil.which('rclone')
+    if not rclone:
+        pytest.skip('rclone is optional')
+    descriptor = {'type': 'kubernetes', 'endpoint': 'pods', 'path': '/apps/web/app/srv/data'}
+    with pytest.raises(Exception, match='container or a volume'):
+        remote_for({**descriptor, 'path': '/apps/web'}, None, cluster, rclone, object())
+    bridge = Bridge(descriptor, {**cluster, 'read_only': False})
+    try:
+        section, path = remote_for(descriptor, None, cluster, rclone, bridge)
+        assert section['type'] == 'webdav' and path == ''
+        obscured = subprocess.run([rclone, 'obscure', bridge.password], capture_output=True, text=True, check=True).stdout.strip()
+        conf = tmp_path / 'rclone.conf'
+        conf.write_text(f'[pod]\ntype = webdav\nurl = {bridge.url}\nvendor = other\nuser = {USER}\npass = {obscured}\n')
+        def run(*args):
+            return subprocess.run([rclone, '--config', str(conf), *args], capture_output=True, text=True,
+                                  timeout=120, check=True).stdout
+        names = {row['Name'] for row in json.loads(run('lsjson', 'pod:'))}
+        assert {'hello.txt', 'sub'} <= names
+        assert run('cat', 'pod:hello.txt') == 'hello-pod'
+        local = tmp_path / 'edit.conf'
+        local.write_bytes(os.urandom(300_000))
+        run('copyto', str(local), 'pod:sub/edit.conf')
+        container = json.loads((tmp_path / 'state.json').read_text())['container']
+        inside = subprocess.run(['docker', 'exec', container, 'sha256sum', '/srv/data/sub/edit.conf'],
+                                capture_output=True, text=True).stdout.split()[0]
+        import hashlib
+        assert inside == hashlib.sha256(local.read_bytes()).hexdigest()
+        # An editor's save: write a temporary file, then rename it over the original.
+        subprocess.run(['docker', 'exec', container, 'chmod', '640', '/srv/data/sub/edit.conf'], check=True)
+        saved = tmp_path / 'saved.conf'
+        saved.write_text('edited=1\n')
+        run('copyto', str(saved), 'pod:sub/.edit.conf.swp')
+        run('moveto', 'pod:sub/.edit.conf.swp', 'pod:sub/edit.conf')
+        inside = subprocess.run(['docker', 'exec', container, 'sh', '-c', 'cat /srv/data/sub/edit.conf; stat -c %a /srv/data/sub/edit.conf; ls -a /srv/data/sub'],
+                                capture_output=True, text=True).stdout
+        assert inside.startswith('edited=1\n640\n') and '.edit.conf.swp' not in inside
+        # Mac metadata works through the mount but never reaches the pod.
+        run('copyto', str(saved), 'pod:sub/._edit.conf')
+        run('copyto', str(saved), 'pod:.DS_Store')
+        names = {row['Name'] for row in json.loads(run('lsjson', 'pod:sub'))}
+        assert '._edit.conf' in names
+        assert run('cat', 'pod:sub/._edit.conf') == 'edited=1\n'
+        inside = subprocess.run(['docker', 'exec', container, 'ls', '-a', '/srv/data', '/srv/data/sub'],
+                                capture_output=True, text=True).stdout
+        assert '._edit.conf' not in inside and '.DS_Store' not in inside
+        run('deletefile', 'pod:sub/._edit.conf')
+        assert '._edit.conf' not in {row['Name'] for row in json.loads(run('lsjson', 'pod:sub'))}
+        run('deletefile', 'pod:sub/edit.conf')
+    finally:
+        bridge.stop()
+
+
+def test_a_volume_that_is_attaching_answers_rclone_with_503(cluster, tmp_path):
+    from remote_fs_browser.davbridge import Bridge, USER
+    state = tmp_path / 'state.json'
+    value = json.loads(state.read_text())
+    value['wait_fails'] = 2
+    state.write_text(json.dumps(value))
+    # The bridge waits for the volume before the mount is reported ready.
+    bridge = Bridge({'type': 'kubernetes', 'endpoint': 'pods', 'path': '/apps/Volumes/archive'}, cluster)
+    try:
+        import base64, urllib.request
+        request = urllib.request.Request(bridge.url, method='PROPFIND', headers={
+            'Depth': '1', 'Authorization': 'Basic ' + base64.b64encode(f'{USER}:{bridge.password}'.encode()).decode()})
+        with urllib.request.urlopen(request, timeout=30) as response:
+            assert response.status == 207 and b'old' in response.read()
+    finally:
+        bridge.stop()
+    assert json.loads(state.read_text()).get('deleted'), 'stopping the bridge deletes its helper pod'

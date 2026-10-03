@@ -1,6 +1,6 @@
 # Mount storage on this computer
 
-remotefs can show an SMB share, an NFS export or a cloud connection as a normal folder or drive on **the computer running the remotefs service**. Finder, File Explorer and every other app can then open, save and copy files there directly. This includes large files: there is no per-file size limit, so disk images and video work.
+remotefs can show an SMB share, an NFS export, a cloud connection or a folder inside a Kubernetes pod as a normal folder or drive on **the computer running the remotefs service**. Finder, File Explorer and every other app can then open, save and copy files there directly. This includes large files: there is no per-file size limit, so disk images and video work.
 
 Mounting is available from version 0.4.0. It has been tested on Linux, macOS and Windows 11. On Windows, testing covered the remotefs service running as SYSTEM with the drive appearing only in the owner's own session, another account unable to see it, mounting refused while the owner is signed out, and the drive coming back after the owner signs in again.
 
@@ -49,11 +49,14 @@ Eject waits up to a minute for uploads to finish before unmounting. If uploads a
 | Host-configured rclone endpoint | Yes | Its configured remote and root |
 | Local folder | No | It is already on this computer |
 | NFS export or folder | Yes | remotefs reads the export with its own NFS client and hands it to rclone over a private loopback WebDAV link (rclone has no NFS client) |
+| Kubernetes container folder or volume | Yes, from the container (or volume) level down | remotefs reads the pod through `kubectl exec` and hands it to rclone over the same loopback WebDAV link; namespaces and pods themselves are not folders |
 | Libvirt pool | No | Read-only inventory, not file content |
 
 A mount is limited to what its session allows: a read-only connection or service always mounts read-only.
 
 **NFS mounts.** Each NFS mount runs a small WebDAV server in its own process, listening only on 127.0.0.1 behind a random password, backed by the same libnfs connection remotefs uses for browsing. It needs nothing beyond what browsing NFS already needs, and it works the same way on Windows, macOS and Linux. The NFS server sees the service host's address, as it does when you browse. Symbolic links on the export are hidden, as they are in the browser.
+
+**Kubernetes mounts.** A container's folder, or a volume that no running pod uses, mounts through the same loopback WebDAV link, with one shell kept open in the container for the mount. Edits are written by the container itself, so a live pod's config can be changed safely while it runs. A volume nothing mounts gets a helper pod while it is mounted; the helper exits after an hour without use, giving the volume back to its workload, and is deleted when you eject. When an app saves by replacing a file, the replacement keeps the old file's mode and owner, so a `0600` secret stays `0600`. macOS's `._` and `.DS_Store` files stay on this computer for the life of the mount and never reach the pod (or an NFS export). Changes reach the pod a few seconds after a file is closed, as for any mount.
 
 ## How it works on each system
 

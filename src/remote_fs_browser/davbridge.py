@@ -1,8 +1,9 @@
-"""Serve an NFS export to rclone over loopback WebDAV, so NFS shares mount like SMB and cloud storage.
+"""Serve remotefs storage to rclone over loopback WebDAV, so it mounts like SMB and cloud storage.
 
-rclone has no NFS client. remotefs already reads and writes NFS through libnfs, so each NFS mount
-gets a small WebDAV server in its own process, bound to 127.0.0.1 and protected by a random
-password, and rclone mounts it as a `webdav` remote with its usual VFS cache and upload handling.
+rclone has no NFS client and no way into a pod. remotefs already reads and writes NFS through
+libnfs and pods through `kubectl exec`, so each such mount gets a small WebDAV server in its own
+process, bound to 127.0.0.1 and protected by a random password, and rclone mounts it as a
+`webdav` remote with its usual VFS cache and upload handling.
 The server implements what rclone's WebDAV backend uses: PROPFIND, GET/HEAD with ranges, PUT,
 DELETE, MKCOL and MOVE. It works over any remotefs filesystem object, which keeps it testable.
 """
@@ -27,6 +28,106 @@ USER = 'remotefs'
 def hidden(name):
     """Staged uploads in progress, which should not show up in the mount."""
     return name.startswith('.remotefs-') and name.endswith('.part')
+
+
+def litter(name):
+    """Metadata macOS writes into any folder it mounts: AppleDouble ._ files and Finder's .DS_Store."""
+    return name.startswith('._') or name in ('.DS_Store', '.localized')
+
+
+class LitterOverlay:
+    """Keep macOS litter on this computer, so a mounted pod or share never receives it.
+
+    Finder and cp write ._ files (extended attributes) and .DS_Store into a mounted folder, and
+    stall if refused. These files live in memory for the mount's lifetime instead: listed, read,
+    replaced and deleted as usual from the Mac, never written to the storage behind the mount.
+    """
+    LIMIT = 64 * 1024 * 1024
+
+    def __init__(self, fs):
+        self.fs, self.files = fs, {}
+
+    def __getattr__(self, name):
+        return getattr(self.fs, name)
+
+    @staticmethod
+    def name(path):
+        return path.rsplit('/', 1)[-1]
+
+    def row(self, path):
+        data, modified = self.files[path]
+        return {'name': self.name(path), 'path': path, 'type': 'file', 'size': len(data), 'modified': modified}
+
+    def stat(self, path):
+        if litter(self.name(path)):
+            if path not in self.files:
+                raise FileNotFoundError('File or folder not found')
+            return self.row(path)
+        return self.fs.stat(path)
+
+    def list(self, path, limit):
+        listing = self.fs.list(path, limit)
+        parent = path.rstrip('/')
+        entries = [row for row in listing['entries'] if not litter(row['name'])]
+        entries += [self.row(p) for p in self.files if p.rsplit('/', 1)[0] == parent]
+        return {**listing, 'entries': entries}
+
+    def open(self, path):
+        if litter(self.name(path)):
+            if path not in self.files:
+                raise FileNotFoundError('File or folder not found')
+            import io
+            return io.BytesIO(self.files[path][0])
+        return self.fs.open(path)
+
+    def begin_write(self, path, overwrite=False):
+        if not litter(self.name(path)):
+            return self.fs.begin_write(path, overwrite)
+        overlay = self
+
+        class Upload:
+            def __init__(self):
+                self.data = bytearray()
+
+            def write(self, data):
+                if sum(len(d) for d, _ in overlay.files.values()) + len(self.data) + len(data) > overlay.LIMIT:
+                    raise OSError(errno.ENOSPC, 'Too much Finder metadata')
+                self.data += data
+                return len(data)
+
+            def commit(self):
+                overlay.files[path] = (bytes(self.data), datetime.now().astimezone().isoformat())
+
+            def abort(self):
+                pass
+        return Upload()
+
+    def remove(self, path):
+        if litter(self.name(path)):
+            if self.files.pop(path, None) is None:
+                raise FileNotFoundError('File or folder not found')
+            return {'removed': path}
+        result = self.fs.remove(path)
+        # A deleted folder takes its litter with it.
+        for key in [k for k in self.files if k.startswith(path.rstrip('/') + '/')]:
+            del self.files[key]
+        return result
+
+    def move(self, source, destination, overwrite=False):
+        if litter(self.name(source)) or litter(self.name(destination)):
+            if not (litter(self.name(source)) and litter(self.name(destination))):
+                raise PermissionError('Finder metadata stays on this computer')
+            if source not in self.files:
+                raise FileNotFoundError('File or folder not found')
+            if destination in self.files and not overwrite:
+                raise FileExistsError('Destination already exists')
+            self.files[destination] = self.files.pop(source)
+            return {'path': destination}
+        result = self.fs.move(source, destination, overwrite)
+        prefix = source.rstrip('/') + '/'
+        for key in [k for k in self.files if k.startswith(prefix)]:
+            self.files[destination.rstrip('/') + '/' + key[len(prefix):]] = self.files.pop(key)
+        return result
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -124,9 +225,16 @@ class Handler(BaseHTTPRequestHandler):
             return
         except FileNotFoundError:
             code = 404
+        except ValueError as error:
+            if not getattr(error, 'retry', False):
+                code = 403
+            else:
+                # Not ready yet, such as a volume attaching: rclone retries 503s.
+                self.close_connection = True
+                return self.send(503, headers=[('Retry-After', '3')])
         except FileExistsError:
             code = 412
-        except (PermissionError, ValueError):
+        except PermissionError:
             code = 403
         except OSError as error:
             code = 409 if error.errno in (errno.ENOTEMPTY, errno.EEXIST, errno.ENOTDIR, errno.EISDIR) else 502
@@ -268,20 +376,44 @@ class Server(ThreadingHTTPServer):
 
     def __init__(self, fs, root, password, max_entries=1_000_000):
         super().__init__(('127.0.0.1', 0), Handler)
-        self.fs, self.root, self.password = fs, normalize(root or '/'), password
+        self.fs, self.root, self.password = LitterOverlay(fs), normalize(root or '/'), password
         self.max_entries = max_entries
-        self.lock = threading.Lock()  # one libnfs context, so one operation at a time
+        self.lock = threading.Lock()  # one libnfs context or pod shell, so one operation at a time
 
     @property
     def url(self):
         return f'http://127.0.0.1:{self.server_address[1]}/'
 
 
+def open_filesystem(config, root, ready_seconds=120):
+    if config.get('type') == 'kubernetes':
+        import tempfile
+        import time
+        from .kubernetes import KubernetesFilesystem
+        fs = KubernetesFilesystem({**config, '_scratch': tempfile.mkdtemp(prefix='remotefs-bridge-')})
+        # Opening a volume nothing mounts starts a helper pod; wait for it rather than fail the mount.
+        deadline = time.monotonic() + ready_seconds
+        while True:
+            try:
+                # Listing, not stat: a volume's own entry is known before its helper pod is ready.
+                fs.list(root, 1)
+                return fs
+            except ValueError as error:
+                if not getattr(error, 'retry', False) or time.monotonic() > deadline:
+                    fs.close()
+                    raise
+                time.sleep(3)
+            except Exception:
+                fs.close()
+                raise
+    from .nfs import NFSFilesystem
+    return NFSFilesystem(config)
+
+
 def worker(pipe, config, root, password):
-    """Child process: serve one NFS export until the service closes the pipe or exits."""
+    """Child process: serve one location until the service closes the pipe or exits."""
     try:
-        from .nfs import NFSFilesystem
-        fs = NFSFilesystem(config)
+        fs = open_filesystem(config, root)
         server = Server(fs, root, password)
     except Exception as error:  # reported to the service, which shows a safe message
         pipe.send({'error': str(error) or type(error).__name__})
@@ -299,8 +431,14 @@ def worker(pipe, config, root, password):
 class Bridge:
     """A bridge process owned by one mount."""
 
-    def __init__(self, descriptor, timeout=30):
-        config = {k: descriptor[k] for k in ('host', 'export', 'version') if k in descriptor}
+    def __init__(self, descriptor, endpoint_config=None, timeout=30):
+        if descriptor.get('type') == 'kubernetes':
+            if not endpoint_config:
+                raise ValueError('This cluster is not configured on this service')
+            config = {**endpoint_config, 'type': 'kubernetes', '_timeout': 20}
+            timeout = max(timeout, 150)  # room for a volume to attach
+        else:
+            config = {k: descriptor[k] for k in ('host', 'export', 'version') if k in descriptor}
         self.password = secrets.token_urlsafe(24)
         context = multiprocessing.get_context('spawn')
         self.pipe, child = context.Pipe()
@@ -310,11 +448,11 @@ class Bridge:
         child.close()
         if not self.pipe.poll(timeout):
             self.stop()
-            raise TimeoutError('The NFS server did not answer')
+            raise TimeoutError('The storage did not answer')
         try:
             reply = self.pipe.recv()
         except EOFError:
-            reply = {'error': 'The NFS bridge stopped unexpectedly'}
+            reply = {'error': 'The mount bridge stopped unexpectedly'}
         if 'error' in reply:
             self.stop()
             raise OSError(reply['error'])

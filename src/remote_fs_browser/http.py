@@ -597,8 +597,8 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
             descriptor['host'] = await asyncio.to_thread(policy.host, descriptor['host'])
         credentials = await resolve_credentials(request, descriptor, descriptor.get('credential_id'), data.get('credentials'))
         endpoint_config = await managed_endpoint(request, descriptor)
-        if endpoint_config is None and descriptor.get('type') == 'rclone':
-            endpoint_config = policy.endpoint(descriptor['endpoint'], 'rclone')
+        if endpoint_config is None and descriptor.get('type') in ('rclone', 'kubernetes'):
+            endpoint_config = policy.endpoint(descriptor['endpoint'], descriptor['type'])
         read_only = bool(data.get('read_only', False)) or 'write' not in session.policy.operations
         label = data.get('label') or mount_label(request, descriptor)
         # Reconnecting mounts come back without anyone signing in to remotefs, so a login typed in for one
@@ -635,6 +635,9 @@ def create_app(policy: Policy, token=None, authenticate: Callable | None = None,
                 endpoint_config = remote_store.endpoint(principal, descriptor['endpoint'])
             else:
                 endpoint_config = policy.endpoint(descriptor['endpoint'], 'rclone')
+        if descriptor.get('type') == 'kubernetes':
+            endpoint_config = policy.endpoint(descriptor['endpoint'], 'kubernetes')
+            return credentials, endpoint_config, 'write' in policy.operations and not endpoint_config.get('read_only', False)
         return credentials, endpoint_config, 'write' in policy.operations
 
     @app.delete('/api/mounts/{reference}')

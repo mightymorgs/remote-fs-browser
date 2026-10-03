@@ -30,8 +30,12 @@ ROW = '"%s %Y %f %n"'
 # Pod names are lowercase, so this entry can never collide with one.
 VOLUMES = 'Volumes'
 HELPER_IMAGE = 'busybox:1.37.0'
-# A helper outlives a crashed service by at most this long, then releases the volume.
+# A helper exits after this long without use, releasing the volume: a mount that keeps
+# using it keeps it, and a crashed service or an idle mount gives the volume back.
 HELPER_SECONDS = 3600
+HEARTBEAT = '/tmp/.remotefs-alive'
+HELPER_COMMAND = (f'touch {HEARTBEAT}; while [ $(( $(date +%s) - $(stat -c %Y {HEARTBEAT}) )) -lt {HELPER_SECONDS} ]; '
+                  'do sleep 30; done')
 # Wait briefly per request and answer "not ready" rather than hold a request
 # open; a slow API server would otherwise push it past the session timeout.
 ATTACH_WAIT = 5
@@ -65,7 +69,16 @@ FOLLOW = '[ -e "$1" ] || exit 2; stat -L -c ' + ROW + ' -- "$1"'
 READ = '[ -r "$1" ] || exit 13; tail -c +"$2" -- "$1" | head -c "$3"'
 MKDIR = '{ [ -e "$1" ] || [ -L "$1" ]; } && exit 17; mkdir -- "$1"'
 RENAME = '[ -e "$1" ] || [ -L "$1" ] || exit 2; { [ -e "$2" ] || [ -L "$2" ]; } && exit 17; mv -- "$1" "$2"'
-REMOVE = 'if [ -d "$1" ] && [ ! -L "$1" ]; then rmdir -- "$1"; else rm -f -- "$1"; fi'
+# Replace a file with another, as an editor's save does; keep the replaced file's mode and owner.
+REPLACE = ('[ -e "$1" ] || [ -L "$1" ] || exit 2; if [ -d "$2" ] && [ ! -L "$2" ]; then exit 21; fi; '
+           'if [ -e "$2" ]; then chmod "$(stat -c %a -- "$2")" "$1"; chown "$(stat -c %u:%g -- "$2")" "$1" 2>/dev/null; fi; '
+           'mv -f -- "$1" "$2"')
+# Removing a file first reports its mode and owner, so a replacement can get them back.
+REMOVE = ('if [ -d "$1" ] && [ ! -L "$1" ]; then rmdir -- "$1"; else '
+          '{ [ -f "$1" ] && [ ! -L "$1" ] && stat -c "%a %u:%g" -- "$1"; } ; rm -f -- "$1"; fi')
+RESTORE = 'chmod "$2" -- "$1" && { chown "$3" -- "$1" 2>/dev/null; true; }'
+# A save that deletes a file and recreates it within this time keeps the old mode and owner.
+REPLACED_SECONDS = 120
 # Stream to a sibling temporary file, keep an existing file's mode and owner, then
 # rename into place so a half-written config never lands.
 WRITE = ('t="$(dirname -- "$1")/.remotefs-upload-$$"; cat > "$t" || { rm -f -- "$t"; exit 5; }; '
@@ -95,6 +108,7 @@ class KubernetesFilesystem:
         self.cache = {}
         self.shells = {}
         self.oneshot = set()
+        self.removed = {}
         # Fail while connecting, not on first use, when the cluster or RBAC is wrong.
         self.get('pods', '-n', self.namespaces[0])
 
@@ -166,6 +180,8 @@ class KubernetesFilesystem:
 
     def shell(self, target, script, *args, stdin=None, max_bytes=16 * 1024 * 1024):
         target = tuple(target)
+        if (target[0], target[1]) in self.helpers:
+            script = f'touch {HEARTBEAT} 2>/dev/null; {script}'
         if stdin is None and target not in self.oneshot:
             try:
                 return self.persistent(target).command(script, args, self.timeout, max_bytes)
@@ -273,9 +289,8 @@ class KubernetesFilesystem:
                 'metadata': {'name': name, 'namespace': namespace, 'labels': dict(MANAGED),
                              'annotations': {'remotefs/claim': claim}},
                 'spec': {'restartPolicy': 'Never', 'terminationGracePeriodSeconds': 1,
-                         'activeDeadlineSeconds': HELPER_SECONDS,
                          'containers': [{'name': 'files', 'image': self.config.get('helper_image', HELPER_IMAGE),
-                                         'command': ['sleep', str(HELPER_SECONDS)],
+                                         'command': ['sh', '-c', HELPER_COMMAND],
                                          'volumeMounts': [{'name': 'volume', 'mountPath': '/volume'}],
                                          'resources': {'requests': {'cpu': '10m', 'memory': '16Mi'},
                                                        'limits': {'memory': '64Mi'}}}],
@@ -487,9 +502,36 @@ class KubernetesFilesystem:
         self.shell(parts, RENAME, inner, other)
         return {'path': normalize(destination)}
 
+    def move(self, source, destination, overwrite=False):
+        """Move for the mount bridge: rename, or replace a file when asked, as editors save."""
+        parts, inner = self.writable(source)
+        target, other = self.writable(destination)
+        if parts != target:
+            raise PermissionError('Moves stay within one container')
+        self.shell(parts, REPLACE if overwrite else RENAME, inner, other)
+        self.restore(parts, other)
+        return {'path': normalize(destination)}
+
+    def restore(self, target, inner):
+        """Give a recreated file the mode and owner of the file deleted at that path moments ago.
+
+        rclone replaces a file by deleting it, then writing or moving the new one into place, and a
+        mount cannot carry chmod; without this an edited 0600 secret would come back 0644.
+        """
+        found = self.removed.pop((tuple(target), inner), None)
+        if found and time.monotonic() - found[0] < REPLACED_SECONDS:
+            try:
+                self.shell(target, RESTORE, inner, found[1], found[2])
+            except (OSError, ValueError):
+                pass
+
     def remove(self, path):
         parts, inner = self.writable(path)
-        self.shell(parts, REMOVE, inner)
+        output = self.shell(parts, REMOVE, inner).decode('utf-8', 'replace').split()
+        if len(output) == 2:
+            now = time.monotonic()
+            self.removed = {k: v for k, v in self.removed.items() if now - v[0] < REPLACED_SECONDS}
+            self.removed[(tuple(parts), inner)] = (now, *output)
         return {'removed': normalize(path)}
 
     def begin_write(self, path, overwrite=False):
@@ -642,6 +684,7 @@ class KubernetesUpload:
         try:
             with open(self.file.name, 'rb') as source:
                 self.fs.shell(self.parts, WRITE, self.inner, 'replace' if self.overwrite else 'new', stdin=source)
+            self.fs.restore(self.parts, self.inner)
         finally:
             Path(self.file.name).unlink(missing_ok=True)
 
