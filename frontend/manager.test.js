@@ -256,3 +256,122 @@ test('a preview that fails explains why inside the dialog, and large files are n
   assert.match(said[0],/limited to 1 MiB/)
  } finally {scope.fetch=realFetch;scope.document=realDocument}
 })
+
+// Objects made inside the vm context have its prototypes; compare their JSON.
+const same=(actual,expected)=>assert.deepEqual(JSON.parse(JSON.stringify(actual)),expected)
+
+function linked(hash=''){
+ const view={location:{hash,pathname:'/',search:''},history:{state:null,replaceState:(state,title,url)=>{view.location.hash=url.startsWith('#')?url:''}}}
+ Object.assign(scope.window,view)
+ return view
+}
+
+test('a #/<endpoint>/<path> link round-trips names with spaces and other characters',()=>{
+ const m=manager()
+ const place=m.fromDescriptor({type:'kubernetes',endpoint:'wordpress',path:'/apps/wp-0/wordpress/var/www/html/wp-content/My Plugins #1'})
+ const link=m.linkOf(place)
+ assert.equal(link,'#/wordpress/apps/wp-0/wordpress/var/www/html/wp-content/My%20Plugins%20%231')
+ same(m.parseLink(link),{endpoint:'wordpress',folders:['apps','wp-0','wordpress','var','www','html','wp-content','My Plugins #1']})
+ same(m.parseLink('#/cluster'),{endpoint:'cluster',folders:[]})
+ same(m.parseLink('#/cluster/'),{endpoint:'cluster',folders:[]})
+ for(const bad of ['','#','#cluster','#/','#/cluster/../etc','#/cluster/%E0%A4%A'])assert.equal(m.parseLink(bad),null)
+ // Local, SMB and NFS locations have no link.
+ assert.equal(m.linkOf(m.fromDescriptor({type:'local',root:'/srv',path:'/a'})),'')
+})
+
+test('opening a link goes to that configured endpoint and folder; an unknown endpoint says so',()=>{
+ linked()
+ const m=manager(),said=[];m.say=text=>said.push(text)
+ m.state.endpoints=[{type:'kubernetes',endpoint:'wordpress',label:'WordPress files'},{type:'rclone',endpoint:'archive',label:'Archive'}]
+ assert.equal(m.openLink('#/wordpress/apps/wp-0/wordpress/var/www'),true)
+ same(m.state.place.descriptor,{type:'kubernetes',endpoint:'wordpress'})
+ assert.equal(m.currentPath(),'/apps/wp-0/wordpress/var/www')
+ assert.equal(m.renderVals().crumbs[1].text,'WordPress files')
+ const before=m.state.place
+ assert.equal(m.openLink('#/wordpress/apps/wp-0/wordpress/var/www'),true)
+ assert.equal(m.state.place,before)
+ assert.equal(m.openLink('#/elsewhere/x'),false)
+ assert.match(said.at(-1),/No location called “elsewhere”/)
+ assert.equal(m.state.place,before)
+ assert.equal(m.openLink(''),false);assert.equal(said.length,1)
+})
+
+test('browsing keeps the page address current without adding history',()=>{
+ const view=linked('#/wordpress/apps'),urls=[]
+ const replace=view.history.replaceState;view.history.replaceState=(...args)=>{urls.push(args[2]);replace(...args)}
+ const m=manager()
+ m.syncLink(m.fromDescriptor({type:'kubernetes',endpoint:'wordpress',path:'/apps/wp-0'}))
+ assert.equal(view.location.hash,'#/wordpress/apps/wp-0')
+ m.syncLink(m.fromDescriptor({type:'kubernetes',endpoint:'wordpress',path:'/apps/wp-0'}))
+ assert.equal(urls.length,1)
+ // A location without a link clears it rather than leave a stale one to copy.
+ m.syncLink(m.fromDescriptor({type:'local',root:'/srv'}))
+ assert.deepEqual(urls,['#/wordpress/apps/wp-0','/'])
+})
+
+test('rows under a ConfigMap or Secret mount carry a Managed badge and the notice',()=>{
+ const m=manager();m.state.session={id:'s',descriptor:{type:'kubernetes'},operations:['list','read','write']}
+ m.state.place=m.fromDescriptor({type:'kubernetes',endpoint:'pods',path:'/apps/web/app/etc'})
+ m.state.listing=[{name:'app',path:'/apps/web/app/etc/app',type:'directory',modified:'—',managed:{kind:'ConfigMap',name:'cfg'}},
+  {name:'hosts',path:'/apps/web/app/etc/hosts',type:'file',size:3,modified:'—'}]
+ const rows=Object.fromEntries(m.renderVals().rows.map(r=>[r.name,r]))
+ assert.equal(rows.app.managed,true);assert.equal(rows.hosts.managed,false)
+ assert.equal(rows.app.managedTitle,'This folder comes from the ConfigMap `cfg`; the cluster rewrites it from its source (GitOps) — edit the source instead.')
+ assert.equal(rows.app.dropFolder,'app');assert.equal(rows.hosts.dropFolder,'')
+ assert.equal(m.managedNotice({kind:'Secret',name:'web-tls'}),'This file comes from the Secret `web-tls`; the cluster rewrites it from its source (GitOps) — edit the source instead.')
+})
+
+function dropped(names,folders=[]){
+ const items=[...names.map(name=>({kind:'file',webkitGetAsEntry:()=>({isDirectory:false,name}),getAsFile:()=>({name,size:4})})),
+  ...folders.map(name=>({kind:'file',webkitGetAsEntry:()=>({isDirectory:true,name}),getAsFile:()=>null}))]
+ return {types:['Files'],items,files:[]}
+}
+
+test('dropped files upload into the shown folder or the folder row, skipping folders',async()=>{
+ const m=manager(),said=[],uploads=[];m.say=text=>said.push(text);m.refresh=async()=>{}
+ m.state.session={id:'s',operations:['list','read','write'],max_write_bytes:100}
+ m.state.place=m.fromDescriptor({type:'kubernetes',endpoint:'wordpress',path:'/apps/wp-0/wordpress/var/www/html/wp-content'})
+ m.state.listing=[{name:'plugins',type:'directory',path:'/x/plugins'},{name:'index.php',type:'file',size:1}]
+ m.uploadBlob=async(id,path,file,overwrite)=>{uploads.push([path,overwrite]);if(path.endsWith('/plugins/hello.zip')&&!overwrite)throw Object.assign(new Error('Destination already exists'),{status:409})}
+ const asked=[];m.dialog=async(title,message)=>{asked.push(message);return true}
+ await m.dropFiles(dropped(['akismet.zip'],['theme']))
+ assert.deepEqual(uploads,[['/apps/wp-0/wordpress/var/www/html/wp-content/akismet.zip',false]])
+ assert.match(said[0],/Skipped the folder theme/)
+ uploads.length=0
+ // Into a folder row: an existing name is only known when the service refuses it, then the user is asked.
+ await m.dropFiles(dropped(['hello.zip','index.php']),'plugins')
+ assert.deepEqual(uploads,[['/apps/wp-0/wordpress/var/www/html/wp-content/plugins/hello.zip',false],
+  ['/apps/wp-0/wordpress/var/www/html/wp-content/plugins/hello.zip',true],['/apps/wp-0/wordpress/var/www/html/wp-content/plugins/index.php',false]])
+ assert.deepEqual(asked,['Replace hello.zip?'])
+})
+
+test('dropping is refused with the reason on read-only and managed folders',async()=>{
+ const m=manager(),said=[],uploads=[];m.say=text=>said.push(text);m.refresh=async()=>{}
+ m.uploadBlob=async(...args)=>uploads.push(args)
+ m.state.place=m.fromDescriptor({type:'kubernetes',endpoint:'pods',path:'/apps/web/app/etc/app'})
+ m.state.session={id:'s',operations:['list','read'],max_write_bytes:100}
+ await m.dropFiles(dropped(['a.conf']))
+ assert.deepEqual(said,['Read-only policy — uploads are disabled here'])
+ m.state.session.operations.push('write');m.state.folderManaged={kind:'ConfigMap',name:'cfg'}
+ const notices=[];m.dialog=async(title,message)=>notices.push([title,message])
+ await m.dropFiles(dropped(['a.conf']))
+ assert.equal(notices[0][0],'Managed by the cluster');assert.match(notices[0][1],/ConfigMap `cfg`/)
+ assert.equal(uploads.length,0)
+})
+
+test('a file drag over the list highlights the drop target; other drags are left alone',()=>{
+ const m=manager();m.state.view='browse';m.state.session={id:'s',descriptor:{type:'local'},operations:['write']}
+ m.state.place=m.fromDescriptor({type:'local',root:'/srv'});m.state.listing=[]
+ const list={},row={getAttribute:()=> 'plugins'}
+ const target={closest:selector=>selector==='[data-file-list]'?list:selector==='[data-folder]'?row:null}
+ let prevented=0
+ const event=(type,types=['Files'])=>({type,target,dataTransfer:{types,dropEffect:''},preventDefault:()=>prevented++})
+ const over=event('dragover');m.dragFiles(over)
+ same(m.state.drop,{folder:'plugins'});assert.equal(over.dataTransfer.dropEffect,'copy');assert.equal(prevented,1)
+ assert.equal(m.renderVals().dropNote,'Drop to upload into plugins')
+ m.dragFiles(event('dragover',['text/plain']));assert.equal(prevented,1)
+ clearTimeout(m.dragTimer)
+ m.state.session.operations=[];m.dragFiles(event('dragover'))
+ assert.equal(m.renderVals().dropNote,'Read-only policy — uploads are disabled here')
+ clearTimeout(m.dragTimer)
+})

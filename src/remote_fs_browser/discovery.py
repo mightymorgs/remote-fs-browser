@@ -44,7 +44,7 @@ def discover(policy: Policy, scan=False, root_kinds=None, ranges=None, offset=0)
         raise ValueError('Invalid scan offset')
     kinds = root_kinds or {}
     result = {'roots': [{'type': 'local', 'root': root, 'kind': kinds.get(root, 'configured')} for root in policy.local_roots],
-              'endpoints': [{'type': value['type'], 'endpoint': name, 'label': name} for name, value in policy.endpoints.items()],
+              'endpoints': [{'type': value['type'], 'endpoint': name, 'label': value.get('label') or name} for name, value in policy.endpoints.items()],
               'scan_ranges': [str(net) for net in networks], 'next_offset': None, 'hosts': [], 'notes': ['Automatic discovery is best effort. A hostname/IP can always be supplied within policy.']}
     if not scan:
         result['groups'] = grouped(policy, result['roots'], [], False)

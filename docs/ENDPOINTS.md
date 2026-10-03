@@ -102,7 +102,7 @@ Merge an `endpoints` map into the existing **policy** object in `~/.config/remot
 }
 ```
 
-Endpoint names are public aliases. A browser cannot supply a different rclone config, remote, prefix or libvirt URI. `root` is a path within the named remote; for S3 it normally starts with the bucket. To expose a local folder through rclone, configure an rclone **alias** remote pointing at its absolute path, then use `/` as the endpoint root.
+Endpoint names are public aliases; links into the manager use them (`#/<endpoint>/<path>`, see the README's *Linking into a location*). Any endpoint may set `label`, a short display name shown in the sidebar, picker and breadcrumbs in place of the alias. A browser cannot supply a different rclone config, remote, prefix or libvirt URI. `root` is a path within the named remote; for S3 it normally starts with the bucket. To expose a local folder through rclone, configure an rclone **alias** remote pointing at its absolute path, then use `/` as the endpoint root.
 
 ## Connect in the browser or terminal
 
@@ -162,6 +162,8 @@ Ductstack's storage picker is the related workflow: choose VM storage or a mount
 
 Merge a `kubernetes` entry into the policy's `endpoints` map as for rclone and restart remotefs. It browses the containers of a cluster the service host can reach. Its root lists the namespaces named in `namespaces`; open one for its pods, a pod for its containers, and a running container for its filesystem. **Get info** on a container lists its mounts, marking PersistentVolumeClaims and the ones Longhorn provisions, and those mount points carry the same marks in listings.
 
+Mounts backed by a ConfigMap, Secret, projected volume or the downward API are marked **Managed**, with the object they come from (`managed: {"kind": "ConfigMap", "name": "nginx-conf"}` on the mount, on its row and on every row and listing below it). Kubernetes mounts these read-only and rewrites them whenever the object changes, so an edit made here would be refused or lost. Opening such a file shows it read-only with "This file comes from the ConfigMap `nginx-conf`; the cluster rewrites it from its source (GitOps) — edit the source instead.", and saves, uploads, new folders, renames and deletes there are refused with that message (HTTP 403) instead of a generic failure.
+
 ```json
 {
   "policy": {
@@ -177,18 +179,20 @@ Merge a `kubernetes` entry into the policy's `endpoints` map as for rclone and r
 ```
 
 - `namespaces` is required and nothing outside it is listed or reachable.
+- `selector` (optional) is a Kubernetes label selector such as `app.kubernetes.io/instance=wordpress` or `app=web,tier!=cache`. The endpoint then lists and reaches only the pods it picks (`kubectl get pods -l <selector>`), and under **Volumes** only the claims those pods mount plus the claims no pod mounts, never another application's. A pod or claim outside the scope is answered as not found. Use one scoped endpoint per application to give each its own "Browse files" link.
+- `label` (optional) is the display name, as for any endpoint.
 - `kubeconfig` and `context` are optional. Without a `kubeconfig`, kubectl uses its own defaults, which inside a pod means that pod's service account. `kubectl` may name an absolute path to the binary.
 - Writes are on by default: uploads, text saves, new folders, rename (within one container) and delete, subject to the service policy and the container's own permissions. Set `read_only` to `true` to browse and copy out only.
 
 The service host needs `kubectl`. Files are read and written with `kubectl exec` running short POSIX shell scripts, so any container with `sh` and coreutils or BusyBox works; distroless containers without a shell are reported as such and cannot be browsed. Nothing is installed in the pod. Saves go to a temporary file beside the target and are renamed into place, keeping an existing file's mode and, where the container allows it, its owner, so a half-written config never lands. Links are followed for browsing, but deleting a folder removes links inside it without touching what they point at. Namespaces, pods and containers are inventory: they cannot be renamed or deleted here.
 
-Grant the kubeconfig's identity only what you intend to expose. A dedicated ServiceAccount with a Role in each listed namespace allowing `get` and `list` on `pods` and `persistentvolumeclaims`, and `create` on `pods/exec`, is enough to browse pods. Opening unmounted volumes also needs `create` and `delete` on `pods`. `pods/exec` is powerful: it runs commands as the container's user, so treat write access to this endpoint like shell access to those pods.
+Grant the kubeconfig's identity only what you intend to expose. A dedicated ServiceAccount with a Role in each listed namespace allowing `get` and `list` on `pods` and `persistentvolumeclaims`, and `create` on `pods/exec`, is enough to browse pods. Opening unmounted volumes also needs `create` and `delete` on `pods`, and `list` on `events` to explain a volume that will not attach. `pods/exec` is powerful: it runs commands as the container's user, so treat write access to this endpoint like shell access to those pods.
 
 Only running pods and containers can be browsed.
 
 ### Volumes no running pod mounts
 
-Each namespace also lists **Volumes**: its PersistentVolumeClaims with capacity, whether Longhorn provides them, and which pod is using them. A claim that a pod is using is browsed under that pod, so two writers never share it. Opening a claim nothing mounts starts a small helper pod (`remotefs-<claim>-<hash>`, labelled `app.kubernetes.io/managed-by=remotefs`) that mounts it at `/volume`; browse, save and copy as in any container. Attaching a Longhorn volume can take up to a minute: until it is ready, opening the claim says so, and opening it again continues.
+Each namespace also lists **Volumes**: its PersistentVolumeClaims with capacity, whether Longhorn provides them, and which pod is using them. A claim that a pod is using is browsed under that pod, so two writers never share it. Opening a claim nothing mounts starts a small helper pod (`remotefs-<claim>-<hash>`, labelled `app.kubernetes.io/managed-by=remotefs`) that mounts it at `/volume`; browse, save and copy as in any container. Attaching a Longhorn volume can take up to a minute: until it is ready, opening the claim says so (HTTP 503 with `Retry-After`), and opening it again continues. When Kubernetes has reported why the helper is not ready — its latest `FailedAttachVolume`, `FailedScheduling` or `FailedMount` event — the message carries it, for example `Attaching the volume; this can take up to a minute (AttachVolume.Attach failed for volume "pvc-…" : volume is not ready for workloads: replica scheduling failed, disks are unavailable)`. Reading events needs `list` on `events` in the namespace; without it the message is the plain one.
 
 The session deletes its helper pods when it closes or goes idle, releasing the volume so its workload can start again. A helper left behind by a service that stopped abruptly exits on its own after an hour. The helper image defaults to `busybox:1.37.0`; set `helper_image` for clusters that pull from a private registry.
 

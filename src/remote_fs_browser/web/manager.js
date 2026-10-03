@@ -9,6 +9,13 @@ const KINDS = {
 // NFS version for a descriptor: 3 or 4 when chosen, otherwise 'auto' (the service tries NFSv4, then NFSv3).
 const nfsVersion = value => ['3', '4'].includes(String(value)) ? Number(value) : 'auto'
 
+// The page whose address the user sees and copies: index.html frames the manager,
+// which also runs on its own at /manager. A cross-origin embedder keeps its own URL.
+const page = () => { try { if (typeof parent !== 'undefined' && parent && parent.location.href) return parent } catch {} return window }
+
+// What a ConfigMap, Secret, projected or downward API mount is called in a notice.
+const SOURCES = {ConfigMap: 'ConfigMap', Secret: 'Secret', Projected: 'projected volume', DownwardAPI: 'downward API volume'}
+
 class Component extends DCLogic {
   state = {collapsed:window.innerWidth<700,view:'browse',selected:[],anchor:null,filter:'',sort:{key:'name',dir:1},clipboard:null,menu:null,toast:null,ranges:'',scan:'idle',probed:0,scanTotal:0,devices:[],mapped:[],roots:[],width:window.innerWidth,place:{host:'',share:'',folders:[]},creds:[],transfers:[],stores:[],pins:[],listing:[],session:null,mountInfo:{enabled:false,mounts:[]},band:null}
   filterRef = React.createRef()
@@ -40,15 +47,92 @@ class Component extends DCLogic {
       if (key === 'backspace') this.remove()
     }
     document.addEventListener('keydown', this.onKey)
+    // Files dropped from the desktop upload into the folder (or the folder row) under the pointer.
+    this.onDrag = event => this.dragFiles(event)
+    for (const type of ['dragenter', 'dragover', 'drop']) document.addEventListener(type, this.onDrag)
+    // #/<endpoint>/<path> opens that configured location; typing a new one navigates.
+    this.onHash = () => this.openLink()
+    page().addEventListener('hashchange', this.onHash)
     const [discovery] = await Promise.all([this.api('/discover'), this.reloadSaved(), this.pollJobs(), this.reloadRemotes(), this.reloadMounts()])
     this.setState({roots:discovery.roots, endpoints:discovery.endpoints || [], ranges:discovery.scan_ranges.join(', '), scan:'idle'})
-    if (discovery.roots.length) this.goTo(this.fromDescriptor(discovery.roots[0]))
+    if (!this.openLink() && discovery.roots.length) this.goTo(this.fromDescriptor(discovery.roots[0]))
     this.pollTimer = setInterval(() => {if (!document.hidden) {this.pollJobs().catch(() => {}); if (this.state.mountInfo.mounts.length) this.reloadMounts()}}, 5000)
   }
   componentWillUnmount() {
     clearInterval(this.pollTimer); clearTimeout(this.toastTimer); this.scanCancelled = true
     window.removeEventListener('resize',this.onResize); window.removeEventListener('unhandledrejection',this.onError)
-    document.removeEventListener('keydown',this.onKey)
+    document.removeEventListener('keydown',this.onKey); page().removeEventListener('hashchange',this.onHash)
+    for (const type of ['dragenter', 'dragover', 'drop']) document.removeEventListener(type, this.onDrag)
+  }
+  /* ---------- links: #/<endpoint>/<path> ---------- */
+  /** The address of a place, for a configured endpoint (kubernetes, libvirt, rclone); '' for any other location. */
+  linkOf(place=this.state.place) {
+    const endpoint=place?.descriptor?.endpoint
+    return endpoint ? '#/'+encodeURIComponent(endpoint)+place.folders.map(name=>'/'+encodeURIComponent(name)).join('') : ''
+  }
+  parseLink(hash) {
+    const match=/^#\/([^/?#]+)((?:\/[^/]*)*)$/.exec(hash||'')
+    if(!match)return null
+    try {
+      const folders=match[2].split('/').filter(Boolean).map(decodeURIComponent)
+      if(folders.some(name=>name==='.'||name==='..'||name.includes('/')))return null
+      return {endpoint:decodeURIComponent(match[1]),folders}
+    } catch {return null}
+  }
+  /** Open the location the page address names; false when it names none, or one this service does not have. */
+  openLink(hash=page().location.hash) {
+    const link=this.parseLink(hash)
+    if(!link){if(hash&&hash!=='#')this.say('That link does not name a location');return false}
+    const known=(this.state.endpoints||[]).find(row=>row.endpoint===link.endpoint)
+    if(!known){this.say(`No location called “${link.endpoint}” is configured here`);return false}
+    const place={...this.fromDescriptor({type:known.type,endpoint:known.endpoint}),folders:link.folders}
+    if(this.linkOf(place)!==this.linkOf(this.state.place))this.goTo(place)
+    return true
+  }
+  /** Keep the address current while browsing, so it can be copied; replaceState adds no history and fires no hashchange. */
+  syncLink(place=this.state.place) {
+    const view=page(), link=this.linkOf(place)
+    if((view.location.hash||'')===link||(!link&&!view.location.hash))return
+    try {view.history.replaceState(view.history.state,'',link||view.location.pathname+view.location.search)} catch {}
+  }
+  /* ---------- managed mounts and dropped files ---------- */
+  managedNotice(managed, what='file') {
+    return `This ${what} comes from the ${SOURCES[managed.kind]||'volume'} \`${managed.name}\`; the cluster rewrites it from its source (GitOps) — edit the source instead.`
+  }
+  /** Native drag events (the template runtime has no onDrop); only drags that carry files are handled. */
+  dragFiles(event) {
+    const transfer=event.dataTransfer
+    if(!transfer||![...(transfer.types||[])].includes('Files'))return
+    // Never let the browser open a file dropped anywhere on the manager.
+    event.preventDefault()
+    const list=event.target?.closest?.('[data-file-list]')
+    if(!list||!this.state.session||this.state.view!=='browse'){transfer.dropEffect='none';if(this.state.drop)this.setState({drop:null});return}
+    const row=event.target.closest('[data-folder]'), folder=row?.getAttribute('data-folder')||''
+    transfer.dropEffect=this.can('write')?'copy':'none'
+    clearTimeout(this.dragTimer)
+    if(event.type==='drop'){this.setState({drop:null});return this.dropFiles(transfer,folder)}
+    if(this.state.drop?.folder!==folder)this.setState({drop:{folder}})
+    // dragover repeats while the pointer is over the list; when it stops, the drag has left.
+    this.dragTimer=setTimeout(()=>this.setState({drop:null}),250)
+  }
+  /** Upload dropped files into the current folder, or into the folder row they were dropped on. */
+  async dropFiles(transfer, folder='') {
+    if(!this.can('write'))return this.say('Read-only policy — uploads are disabled here')
+    // Read the items now: a DataTransfer empties once the drop event returns.
+    const files=[], folders=[]
+    const items=[...(transfer.items||[])].filter(item=>item.kind==='file')
+    if(items.length)for(const item of items){
+      const entry=item.webkitGetAsEntry?.()
+      if(entry?.isDirectory){folders.push(entry.name);continue}
+      const file=item.getAsFile();if(file)files.push(file)
+    }
+    else files.push(...(transfer.files||[]))
+    if(folders.length)this.say(`Skipped ${folders.length===1?`the folder ${folders[0]}`:`${folders.length} folders`}: drop the files inside instead`)
+    if(!files.length)return
+    const target=folder?this.entries().find(entry=>entry.name===folder&&entry.type==='directory'):null
+    const managed=target?target.managed:this.state.folderManaged
+    if(managed)return this.dialog('Managed by the cluster',this.managedNotice(managed,'folder'))
+    await this.uploadFiles(files,target?{...this.state.place,folders:[...this.state.place.folders,target.name]}:this.state.place,!target)
   }
   get writable() {return ['write','mkdir','rename','delete','copy'].some(op=>this.can(op))}
   bytes(size) {
@@ -308,7 +392,7 @@ class Component extends DCLogic {
   componentDidUpdate() {
     if (this.state.place !== this.loadedPlace) {
       this.loadedPlace = this.state.place
-      if (this.state.place.descriptor) this.loadPlace(this.state.place).catch(() => {})
+      if (this.state.place.descriptor) {this.syncLink(this.state.place);this.loadPlace(this.state.place).catch(() => {})}
     }
   }
   readyParts(job) {return job.stage==='ready'?job.parts.length:job.stage==='packing'?job.parts.filter(p=>p.ready).length:0}
@@ -547,6 +631,7 @@ class Component extends DCLogic {
     const entries = selected.map(name => this.entries().find(entry => entry.name === name)).filter(Boolean)
     const total = entries.reduce((sum, entry) => sum + (entry.size || 0), 0)
     const write = this.writable
+    const dropping = this.state.drop ? this.state.drop.folder : null
     const clip = this.state.clipboard
     const menu = this.state.menu
     const prompt = this.state.prompt
@@ -625,7 +710,8 @@ class Component extends DCLogic {
         .map((text, index, all) => {
           const last = index === all.length - 1
           return {
-            text: this.state.place.descriptor?.type==='rclone' && index < 2 ? (index===0?'Cloud':(this.state.endpoints||[]).find(r=>r.endpoint===this.state.place.descriptor.endpoint)?.label||text) : text, sep: index > 0,
+            // Configured endpoints show their label; cloud connections also read "Cloud" first.
+            text: this.state.place.descriptor?.type==='rclone' && index===0 ? 'Cloud' : this.state.place.descriptor?.endpoint && index===1 ? (this.state.endpoints||[]).find(r=>r.endpoint===this.state.place.descriptor.endpoint)?.label||text : text, sep: index > 0,
             color: last ? '#1c2024' : '#6a727c',
             weight: last ? '500' : '400',
             flex: index < 2 ? '0 1 auto' : 'none',
@@ -695,9 +781,13 @@ class Component extends DCLogic {
           kind: this.kindOf(entry),
           modified: showKind ? entry.modified : entry.modified.replace(/ \d{4},/, ''),
           dot: entry.type === 'directory' ? '#3f6fd1' : '#c0c5cc',
-          bg: on ? '#e3ebfb' : 'transparent',
+          bg: dropping === entry.name ? '#d4e1fa' : on ? '#e3ebfb' : 'transparent',
           hoverBg: on ? '#dde7fa' : '#eef2fb',
-          title: `${entry.name}\n${this.kindOf(entry)} · ${entry.type === 'directory' ? (this.can('read') ? 'folder — downloads as a zip' : 'read-only inventory') : this.bytes(entry.size)}\nModified ${entry.modified}\n${entry.type === 'directory' ? 'Click to open · tick to select · ☆ to shortlist' : 'Tick to select · right-click for actions'}`,
+          // Folder rows take dropped files; other rows hand them to the folder being shown.
+          dropFolder: entry.type === 'directory' && !entry.fixed ? entry.name : '',
+          managed: !!entry.managed,
+          managedTitle: entry.managed ? this.managedNotice(entry.managed, entry.type === 'directory' ? 'folder' : 'file') : '',
+          title: `${entry.name}${entry.managed ? `\nManaged: ${SOURCES[entry.managed.kind] || 'volume'} ${entry.managed.name}` : ''}\n${this.kindOf(entry)} · ${entry.type === 'directory' ? (this.can('read') ? 'folder — downloads as a zip' : 'read-only inventory') : this.bytes(entry.size)}\nModified ${entry.modified}\n${entry.type === 'directory' ? 'Click to open · tick to select · ☆ to shortlist' : 'Tick to select · right-click for actions'}`,
           opacity: cutting ? '.5' : '1',
           // The row navigates; the tick box is the only selector.
           click: event => {
@@ -740,6 +830,12 @@ class Component extends DCLogic {
           menu: event => this.openMenu(event, entry)
         }
       }),
+      dropShadow: dropping === '' && this.can('write') ? 'inset 0 0 0 2px #3f6fd1' : 'none',
+      dropNote: dropping === null ? '' : !this.can('write') ? 'Read-only policy — uploads are disabled here'
+        : (dropping ? this.entries().find(e => e.name === dropping)?.managed : this.state.folderManaged) ? 'Managed by the cluster — edit the source instead'
+          : `Drop to upload into ${dropping || this.state.place.folders.at(-1) || this.state.place.share || 'this folder'}`,
+      dropNoteBg: dropping !== null && this.can('write') ? '#e3ebfb' : '#fdf3e0',
+      dropNoteInk: dropping !== null && this.can('write') ? '#22417d' : '#8a5a12',
       stop: event => event.stopPropagation(),
       onBackgroundClick: () => this.setState({ selected: [], menu: null }),
       onBackgroundMenu: event => this.openMenu(event, null),
@@ -1159,7 +1255,8 @@ class Component extends DCLogic {
       const data = await response.json().catch(() => ({}))
       const error = new Error(data.detail || `Request failed (${response.status})`)
       error.status = response.status
-      if (response.status === 401) parent.location.href='/'
+      // Sign in again on the main page; reloading it in place keeps a #/<endpoint>/<path> link.
+      if (response.status === 401) {const view=page();if(view.location.pathname==='/')view.location.reload();else view.location.href='/'+view.location.hash}
       this.say(error.message)
       throw error
     }
@@ -1185,7 +1282,7 @@ class Component extends DCLogic {
   }
   async loadPlace(place) {
     const generation = ++this.navigation
-    this.setState({listing:[], session:null, loading:true, loadError:null, loadNote:null})
+    this.setState({listing:[], session:null, loading:true, loadError:null, loadNote:null, folderManaged:null})
     try {
       let session = await this.sessionFor(place), data
       const list=()=>this.api(`/sessions/${session.id}/list?${new URLSearchParams({path:this.currentPath(place)})}`)
@@ -1201,7 +1298,7 @@ class Component extends DCLogic {
         }
       }
       if (generation !== this.navigation) return
-      this.setState({session, loadNote:null, listing:data.entries.map(row=>({...row, modifiedTime:row.modified ? new Date(typeof row.modified === 'number' ? row.modified*1000 : row.modified).getTime() : 0, modified:row.modified ? new Date(typeof row.modified === 'number' ? row.modified*1000 : row.modified).toLocaleString() : '—'})), loading:false})
+      this.setState({session, loadNote:null, folderManaged:data.managed || null, listing:data.entries.map(row=>({...row, modifiedTime:row.modified ? new Date(typeof row.modified === 'number' ? row.modified*1000 : row.modified).getTime() : 0, modified:row.modified ? new Date(typeof row.modified === 'number' ? row.modified*1000 : row.modified).toLocaleString() : '—'})), loading:false})
       if (data.truncated || data.skipped) this.say(`Listing incomplete: ${data.skipped} excluded entries${data.truncated ? '; entry limit reached' : ''}.`)
     } catch(error) {if(generation===this.navigation)this.setState({loading:false, loadNote:null, loadError:error.message}); throw error}
   }
@@ -1327,6 +1424,7 @@ class Component extends DCLogic {
   }
   async newFolder() {
     if(!this.can('mkdir'))return this.say('Folder creation is not permitted')
+    if(this.state.folderManaged)return this.dialog('Managed by the cluster',this.managedNotice(this.state.folderManaged,'folder'))
     const name=await this.dialog('New folder','Folder name','Untitled folder','Create')
     if(!name)return
     this.validName(name)
@@ -1335,6 +1433,7 @@ class Component extends DCLogic {
   }
   validName(name) {if(!name.trim()||name==='.'||name==='..'||/[\\/:\x00]/.test(name))throw new Error('Use a name without slashes, colons or traversal')}
   async newFile() {
+    if(this.state.folderManaged)return this.dialog('Managed by the cluster',this.managedNotice(this.state.folderManaged,'folder'))
     const name=await this.dialog('New text file','File name','Untitled.txt','Create');if(!name)return;this.validName(name)
     const path=this.childPath(name);await this.uploadBlob(this.state.session.id,path,new Blob(['']))
     await this.refresh();await this.preview(this.entries().find(e=>e.path===path)||{name,path})
@@ -1398,7 +1497,9 @@ class Component extends DCLogic {
       return fail(error.message||'Unable to read the file')
     }
     if(abort.signal.aborted)return
-    area.value=text;area.placeholder='';area.readOnly=!this.can('write');status.textContent=area.readOnly?'Read-only':''
+    // A ConfigMap or Secret file is the cluster's copy: say where to edit it rather than offer a save that fails.
+    const managed=entry.managed||this.state.folderManaged
+    area.value=text;area.placeholder='';area.readOnly=!this.can('write')||!!managed;status.textContent=managed?this.managedNotice(managed):area.readOnly?'Read-only':''
     save.disabled=area.readOnly
     save.onclick=async()=>{save.disabled=true;status.textContent='Saving…';try{await this.uploadBlob(session.id,entry.path,new Blob([area.value]),true);dialog.close();await this.refresh()}catch(error){status.textContent=error.message;save.disabled=false}}
   }
@@ -1407,17 +1508,36 @@ class Component extends DCLogic {
       const xhr=new XMLHttpRequest();this.uploadRequest=xhr
       xhr.open('PUT',`/api/sessions/${id}/file?${new URLSearchParams({path,overwrite:String(overwrite)})}`)
       xhr.upload.onprogress=e=>this.setState({upload:`Uploading ${file.name||path}: ${this.bytes(e.loaded)}${e.lengthComputable?' / '+this.bytes(e.total):''}`})
-      xhr.onload=()=>{this.setState({upload:null});this.uploadRequest=null;if(xhr.status>=200&&xhr.status<300)resolve();else{let message='Upload failed';try{message=JSON.parse(xhr.responseText).detail}catch{}reject(new Error(message))}}
+      xhr.onload=()=>{this.setState({upload:null});this.uploadRequest=null;if(xhr.status>=200&&xhr.status<300)resolve();else{let message='Upload failed';try{message=JSON.parse(xhr.responseText).detail}catch{}reject(Object.assign(new Error(message),{status:xhr.status}))}}
       xhr.onerror=xhr.onabort=()=>{this.setState({upload:null});this.uploadRequest=null;reject(new Error('Upload interrupted; destination was not replaced'))}
       xhr.send(file)
     })
   }
   upload() {
     if(!this.can('write'))return
+    if(this.state.folderManaged)return this.dialog('Managed by the cluster',this.managedNotice(this.state.folderManaged,'folder'))
     const input=document.createElement('input');input.type='file';input.multiple=true
-    const session=this.state.session,place=this.state.place
-    input.onchange=async()=>{try{for(const file of input.files){if(file.size>session.max_write_bytes)throw new Error(`${file.name} exceeds the upload limit`);const existing=this.entries().some(e=>e.name===file.name);if(existing&&!await this.dialog('Replace file',`Replace ${file.name}?`,null,'Replace'))continue;await this.uploadBlob(session.id,this.childPath(file.name,place),file,existing)}}finally{await this.refresh()}}
+    const place=this.state.place
+    input.onchange=()=>this.uploadFiles([...input.files],place)
     input.click()
+  }
+  /** Upload files one at a time through the progress bar. `listed`: the place is the folder shown, so its rows say what exists. */
+  async uploadFiles(files,place=this.state.place,listed=true) {
+    const session=this.state.session
+    try {
+      for(const file of files){
+        if(file.size>session.max_write_bytes)throw new Error(`${file.name} exceeds the upload limit`)
+        const path=this.childPath(file.name,place), existing=listed&&this.entries().some(e=>e.name===file.name)
+        if(existing&&!await this.dialog('Replace file',`Replace ${file.name}?`,null,'Replace'))continue
+        try {await this.uploadBlob(session.id,path,file,existing)}
+        catch(error) {
+          // Into a folder that is not shown, an existing name is only known when the service refuses it.
+          if(error.status!==409||existing)throw error
+          if(!await this.dialog('Replace file',`Replace ${file.name}?`,null,'Replace'))continue
+          await this.uploadBlob(session.id,path,file,true)
+        }
+      }
+    } finally {await this.refresh()}
   }
   async info(entries) {
     const rows=await Promise.all(entries.map(e=>this.api(`/sessions/${this.state.session.id}/stat?${new URLSearchParams({path:e.path})}`)))
@@ -1435,6 +1555,7 @@ class Component extends DCLogic {
     const session=this.state.session
     if(session){await this.api(`/sessions/${session.id}`,undefined,'DELETE');for(const [key,value] of this.sessions)if(value.id===session.id)this.sessions.delete(key)}
     this.setState({place:{host:'',share:'',folders:[]},listing:[],selected:[],session:null})
+    this.syncLink({folders:[]})
   }
   async signout() {await this.api('/login',undefined,'DELETE');this.auth.clear();parent.location.reload()}
 

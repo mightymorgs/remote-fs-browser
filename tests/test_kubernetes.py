@@ -39,8 +39,14 @@ if args[0] == 'get':
     kind, rest = args[1], args[2:]
     namespace = rest[rest.index('-n') + 1]
     name = rest[0] if rest[0] != '-n' else None
+    if kind == 'events':
+        about = next((a.split('=', 2)[2] for a in sys.argv if a.startswith('--field-selector=involvedObject.name=')), None)
+        print(json.dumps({{'items': [e for e in state.get('events', []) if e['involvedObject']['name'] == about]}})); sys.exit(0)
     table = state['pods'] if kind in ('pod', 'pods') else state['claims']
     table = [i for i in table if i['metadata']['namespace'] == namespace]
+    if '-l' in rest:
+        wanted = dict(pair.split('=', 1) for pair in rest[rest.index('-l') + 1].split(','))
+        table = [i for i in table if all(i['metadata'].get('labels', {{}}).get(k) == v for k, v in wanted.items())]
     if name is None:
         print(json.dumps({{'items': table}})); sys.exit(0)
     for item in table:
@@ -73,8 +79,8 @@ sys.exit(3)
 '''
 
 
-def pod(name, container='app', phase='Running', claim='data'):
-    return {'metadata': {'name': name, 'namespace': 'apps'},
+def pod(name, container='app', phase='Running', claim='data', app=None):
+    return {'metadata': {'name': name, 'namespace': 'apps', 'labels': {'app': app or name}},
             'spec': {'containers': [{'name': container, 'volumeMounts': [{'name': 'data', 'mountPath': '/srv/data'},
                                                                        {'name': 'cfg', 'mountPath': '/etc/app', 'readOnly': True}]}],
                      'volumes': [{'name': 'data', 'persistentVolumeClaim': {'claimName': claim}},
@@ -348,3 +354,126 @@ async def test_a_container_without_a_shell_says_so(cluster, tmp_path):
         for _ in range(2):
             with pytest.raises(ValueError, match='no shell'):
                 await session.list('/apps/web/app/srv')
+
+
+def edit_state(tmp_path, change):
+    state = tmp_path / 'state.json'
+    value = json.loads(state.read_text())
+    change(value)
+    state.write_text(json.dumps(value))
+    return value
+
+
+@pytest.mark.parametrize('config', [
+    {'type': 'kubernetes', 'namespaces': ['apps'], 'selector': '-l app=web'},
+    {'type': 'kubernetes', 'namespaces': ['apps'], 'selector': 'app=web; rm -rf /'},
+    {'type': 'kubernetes', 'namespaces': ['apps'], 'selector': ' '},
+    {'type': 'kubernetes', 'namespaces': ['apps'], 'selector': ['app=web']},
+    {'type': 'kubernetes', 'namespaces': ['apps'], 'label': 'two\nlines'},
+    {'type': 'kubernetes', 'namespaces': ['apps'], 'label': ''},
+])
+def test_invalid_selectors_and_labels(config):
+    with pytest.raises(ValueError):
+        Policy(endpoints={'pods': config})
+
+
+def test_selectors_and_labels_are_accepted_and_labels_are_shown():
+    from remote_fs_browser.discovery import discover
+    policy = Policy(endpoints={
+        'wordpress': {'type': 'kubernetes', 'namespaces': ['apps'], 'label': 'WordPress files',
+                      'selector': 'app.kubernetes.io/instance=wordpress,tier!=cache,env in (prod, staging)'},
+        'plain': {'type': 'kubernetes', 'namespaces': ['apps']}})
+    rows = {r['endpoint']: r for r in discover(policy)['endpoints']}
+    assert rows['wordpress']['label'] == 'WordPress files' and rows['plain']['label'] == 'plain'
+
+
+@pytest.mark.asyncio
+async def test_a_selector_scopes_the_endpoint_to_one_apps_pods_and_volumes(cluster, tmp_path):
+    def add_other_app(state):
+        state['pods'].append(pod('blog', claim='blog-data', app='blog'))
+        state['claims'] += [claim('blog-data'), claim('spare')]
+    edit_state(tmp_path, add_other_app)
+    async with Browser(policy_for({**cluster, 'selector': 'app=web'})) as browser:
+        session = await browser.connect({'type': 'kubernetes', 'endpoint': 'pods'})
+        assert [r['name'] for r in (await session.list('/apps'))['entries']] == ['web', 'Volumes']
+        # Its own claim and the claims nobody mounts, not another app's.
+        assert sorted(r['name'] for r in (await session.list('/apps/Volumes'))['entries']) == ['archive', 'data', 'spare']
+        assert [r['name'] for r in (await session.list('/apps/web/app/srv/data'))['entries']]
+        for path in ('/apps/blog', '/apps/blog/app', '/apps/blog/app/srv', '/apps/Volumes/blog-data'):
+            with pytest.raises(FileNotFoundError):
+                await session.list(path)
+        with pytest.raises(FileNotFoundError):
+            await session.stat('/apps/Volumes/blog-data')
+        assert (await session.stat('/apps/Volumes/spare'))['state'] == 'not mounted'
+    created = json.loads((tmp_path / 'state.json').read_text()).get('created', [])
+    assert not [p for p in created if p['spec']['volumes'][0]['persistentVolumeClaim']['claimName'] == 'blog-data']
+
+
+@pytest.mark.asyncio
+async def test_configmap_and_secret_mounts_are_marked_managed_and_refuse_writes_with_the_reason(cluster, tmp_path):
+    def add_secret(state):
+        web = state['pods'][0]
+        web['spec']['containers'][0]['volumeMounts'].append({'name': 'tls', 'mountPath': '/etc/tls', 'readOnly': True})
+        web['spec']['volumes'].append({'name': 'tls', 'secret': {'secretName': 'web-tls'}})
+    value = edit_state(tmp_path, add_secret)
+    subprocess.run(['docker', 'exec', value['container'], 'sh', '-c',
+                    'mkdir -p /etc/tls && printf "listen=80\n" > /etc/app/app.conf && printf key > /etc/tls/tls.key'], check=True)
+    async with Browser(policy_for(cluster)) as browser:
+        session = await browser.connect({'type': 'kubernetes', 'endpoint': 'pods'})
+        volumes = {v['path']: v for v in (await session.stat('/apps/web/app'))['volumes']}
+        assert volumes['/etc/app']['managed'] == {'kind': 'ConfigMap', 'name': 'cfg'}
+        assert volumes['/etc/tls']['managed'] == {'kind': 'Secret', 'name': 'web-tls'}
+        assert 'managed' not in volumes['/srv/data']
+        etc = {r['name']: r for r in (await session.list('/apps/web/app/etc'))['entries']}
+        assert etc['app']['managed'] == {'kind': 'ConfigMap', 'name': 'cfg'} and etc['app']['volume']['read_only'] is True
+        assert 'managed' not in etc.get('hostname', {})
+        inside = await session.list('/apps/web/app/etc/app')
+        assert inside['managed'] == {'kind': 'ConfigMap', 'name': 'cfg'}
+        assert [r['managed']['name'] for r in inside['entries'] if r['name'] == 'app.conf'] == ['cfg']
+        assert (await session.stat('/apps/web/app/etc/tls/tls.key'))['managed']['kind'] == 'Secret'
+        assert 'managed' not in await session.list('/apps/web/app/srv/data')
+        async def chunks():
+            yield b'listen=8080\n'
+        with pytest.raises(PermissionError, match='ConfigMap `cfg`; the cluster rewrites it from its source'):
+            await session.write('/apps/web/app/etc/app/app.conf', chunks(), overwrite=True)
+        with pytest.raises(PermissionError, match='Secret `web-tls`'):
+            await session.mkdir('/apps/web/app/etc/tls/new')
+        with pytest.raises(PermissionError, match='edit the source instead'):
+            await session.rename('/apps/web/app/srv/data/hello.txt', '/apps/web/app/etc/app/hello.txt')
+        with pytest.raises(PermissionError, match='ConfigMap'):
+            await session.remove('/apps/web/app/etc/app/app.conf')
+    assert subprocess.run(['docker', 'exec', value['container'], 'cat', '/etc/app/app.conf'],
+                          capture_output=True, text=True).stdout == 'listen=80\n'
+
+
+def test_projected_and_downward_api_sources_are_named():
+    assert KubernetesFilesystem.source_name({'sources': [{'configMap': {'name': 'a'}}, {'serviceAccountToken': {}},
+                                                         {'secret': {'name': 'b'}}]}) == 'a, b'
+    assert KubernetesFilesystem.source_name({'items': []}) is None
+    assert KubernetesFilesystem.managed_at({'/etc/app': {'managed': {'kind': 'ConfigMap', 'name': 'cfg'}}}, '/etc/application') is None
+    assert KubernetesFilesystem.managed_at({'/': {'managed': {'kind': 'Projected', 'name': 'x'}}}, '/a')['name'] == 'x'
+
+
+def test_a_volume_that_never_attaches_says_what_kubernetes_reports(cluster, tmp_path):
+    from fastapi.testclient import TestClient
+    from remote_fs_browser.http import create_app
+    helper = KubernetesFilesystem.helper_name('archive')
+    def failing(state):
+        state['wait_fails'] = 1
+        state['events'] = [
+            {'involvedObject': {'name': helper}, 'reason': 'Scheduled', 'message': 'Successfully assigned',
+             'lastTimestamp': '2026-10-03T00:00:00Z'},
+            {'involvedObject': {'name': helper}, 'reason': 'FailedAttachVolume', 'lastTimestamp': '2026-10-03T00:00:05Z',
+             'message': 'AttachVolume.Attach failed for volume "pvc-1" : volume is not ready for workloads:\n'
+                        'replica scheduling failed, disks are unavailable'},
+            {'involvedObject': {'name': 'someone-else'}, 'reason': 'FailedScheduling', 'message': 'not ours'}]
+    edit_state(tmp_path, failing)
+    token = 'kubernetes-test-token-at-least-32-chars'
+    with TestClient(create_app(policy_for(cluster), token=token), raise_server_exceptions=False) as client:
+        client.headers['Authorization'] = f'Bearer {token}'
+        session = client.post('/api/sessions', json={'descriptor': {'type': 'kubernetes', 'endpoint': 'pods'}}).json()
+        response = client.get(f"/api/sessions/{session['id']}/list?path=/apps/Volumes/archive")
+        assert response.status_code == 503
+        assert response.json()['detail'] == (
+            'Attaching the volume; this can take up to a minute (AttachVolume.Attach failed for volume "pvc-1" : '
+            'volume is not ready for workloads: replica scheduling failed, disks are unavailable)')
