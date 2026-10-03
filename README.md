@@ -131,11 +131,21 @@ Use the checkboxes to select items. Shift-click a checkbox to add a range, or cl
 
 Use **Copy**, navigate to another folder, share, export or local root, then **Paste**. Copies and rename/move destinations do not overwrite existing entries. **Cut** followed by **Paste** moves within a session using rename; across sessions it copies each item successfully before deleting its source. A failure can leave both copies or partial results. Refresh both locations before retrying.
 
-**Upload files here** accepts multiple files and uploads them sequentially, with byte progress and cancellation. Replacing a same-named file requires confirmation. The default limit is 10 GiB per uploaded file (`policy.max_write_bytes`). There is no directory-upload or resumable-upload interface.
+**Upload files here** accepts multiple files and uploads them sequentially, with byte progress and cancellation. You can also drag files from the desktop onto the file list: the list is outlined and files go into the folder shown, or drop them on a folder row to put them in that folder. Replacing a same-named file requires confirmation. Dropped folders are skipped with a notice; drop the files inside them instead. Without `write` the drop is refused with the reason. The default limit is 10 GiB per uploaded file (`policy.max_write_bytes`). There is no directory-upload or resumable-upload interface.
 
 **New text file** creates an empty file and opens the editor. Preview reads at most 1 MiB, accepts UTF-8 text and rejects NUL-containing/binary content. Save requires `write`; saving replaces the file explicitly and remains subject to the upload limit. The 1 MiB limit applies to opening the preview, not a separate server-side text-edit limit. There is no editing lock or conflict detection; the last explicit save wins.
 
 **Delete** asks for confirmation and permanently deletes selected files and folder contents; there is no recycle bin or undo. Filesystem permissions and server ACLs still apply to every operation.
+
+### Linking into a location
+
+Any configured endpoint (Kubernetes, libvirt or rclone, as listed by `GET /api/discover` under `endpoints`) can be opened from a link:
+
+```
+https://files.example.com/#/<endpoint>/<path>
+```
+
+For example `#/wordpress/apps/wordpress-0/wordpress/var/www/html/wp-content` opens the `wordpress` endpoint at that folder. Each path segment is percent-encoded (`encodeURIComponent`), so `My Plugins` is `My%20Plugins`. If the browser is not signed in, the sign-in screen comes first and the link opens afterwards. A link naming an endpoint this service does not have shows the usual start screen with a notice. While you browse an endpoint the address bar follows along (without adding history), so it can be copied; local, SMB and NFS locations carry no link. Changing the part after `#` in an open tab navigates there.
 
 ### Keyboard shortcuts
 

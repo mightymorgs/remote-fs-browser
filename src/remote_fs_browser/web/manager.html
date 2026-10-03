@@ -228,15 +228,21 @@
           <span></span>
         </div>
 
-        <div onContextMenu="{{ onBackgroundMenu }}" onClick="{{ onBackgroundClick }}" onMouseDown="{{ startBand }}" data-file-list="" style="flex:1;min-height:0;overflow:auto;background:rgba(255,255,255,.7);backdrop-filter:blur(20px) saturate(1.4)">
+        <div onContextMenu="{{ onBackgroundMenu }}" onClick="{{ onBackgroundClick }}" onMouseDown="{{ startBand }}" data-file-list="" style="flex:1;min-height:0;overflow:auto;background:rgba(255,255,255,.7);backdrop-filter:blur(20px) saturate(1.4);box-shadow:{{ dropShadow }}">
+          <sc-if value="{{ dropNote }}">
+            <div role="status" style="position:sticky;top:0;z-index:2;padding:8px 16px;background:{{ dropNoteBg }};color:{{ dropNoteInk }};font-size:13px;border-bottom:1px solid rgba(0,0,0,.06);pointer-events:none">{{ dropNote }}</div>
+          </sc-if>
           <sc-for list="{{ rows }}" as="row" hint-placeholder-count="10">
-            <div onClick="{{ row.click }}" onDoubleClick="{{ row.open }}" onContextMenu="{{ row.menu }}" title="{{ row.title }}" class="manager-file-row" style="display:grid;grid-template-columns:{{ listCols }};gap:12px;align-items:center;padding:0 16px;min-height:40px;border-bottom:1px solid #f0f1f4;background:{{ row.bg }};cursor:default;user-select:none;opacity:{{ row.opacity }}" style-hover="background:{{ row.hoverBg }}">
+            <div onClick="{{ row.click }}" onDoubleClick="{{ row.open }}" onContextMenu="{{ row.menu }}" title="{{ row.title }}" data-folder="{{ row.dropFolder }}" class="manager-file-row" style="display:grid;grid-template-columns:{{ listCols }};gap:12px;align-items:center;padding:0 16px;min-height:40px;border-bottom:1px solid #f0f1f4;background:{{ row.bg }};cursor:default;user-select:none;opacity:{{ row.opacity }}" style-hover="background:{{ row.hoverBg }}">
               <span onClick="{{ row.check }}" role="checkbox" aria-checked="{{ row.selected }}" aria-label="Select {{ row.name }}" style="display:grid;place-items:center;width:32px;height:32px;cursor:pointer">
                 <span style="display:grid;place-items:center;width:16px;height:16px;border:1px solid {{ row.tickLine }};border-radius:4px;background:{{ row.tickBg }};color:{{ row.tickInk }};font-size:11px;line-height:1;font-weight:700">✓</span>
               </span>
               <span style="display:flex;align-items:center;gap:10px;min-width:0">
                 <span style="width:15px;height:13px;border-radius:2.5px;background:{{ row.dot }};flex:none"></span>
                 <span style="font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">{{ row.name }}</span>
+                <sc-if value="{{ row.managed }}">
+                  <span title="{{ row.managedTitle }}" style="flex:none;font:500 10.5px ui-monospace,Menlo,Consolas,monospace;letter-spacing:.06em;text-transform:uppercase;color:#8a5a12;background:#fdf3e0;border:1px solid #f0dcb4;padding:1px 6px;border-radius:999px">Managed</span>
+                </sc-if>
               </span>
               <span style="font:13px ui-monospace,Menlo,Consolas,monospace;color:#6a727c;text-align:right">{{ row.size }}</span>
               <sc-if value="{{ showKind }}" hint-placeholder-val="{{ true }}">

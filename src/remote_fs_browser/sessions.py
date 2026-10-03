@@ -118,10 +118,13 @@ def worker(pipe, config, policy_values):
                 import errno
                 kind = {errno.EEXIST: 'FileExistsError', errno.ENOENT: 'FileNotFoundError',
                         errno.EACCES: 'PermissionError', errno.EPERM: 'PermissionError'}.get(getattr(error, 'errno', None), type(error).__name__)
-                if getattr(error, 'shown', False):
-                    kind = 'NotReady' if getattr(error, 'retry', False) else 'ValueError'
+                shown = getattr(error, 'shown', False)
+                if shown:
+                    # A refusal with a reason worth reading stays a refusal (403), with its reason.
+                    kind = ('NotReady' if getattr(error, 'retry', False) else
+                            'PermissionError' if isinstance(error, PermissionError) else 'ValueError')
                 messages = {'FileExistsError': 'Destination already exists', 'FileNotFoundError': 'File or folder not found',
-                            'PermissionError': 'Permission denied', 'IsADirectoryError': 'Destination is a folder',
+                            'PermissionError': str(error) if shown else 'Permission denied', 'IsADirectoryError': 'Destination is a folder',
                             'NotADirectoryError': 'Parent is not a folder', 'ValueError': str(error), 'NotReady': str(error)}
                 pipe.send({'error': messages.get(kind, 'Filesystem operation failed; check path and permissions'), 'kind': kind})
     except Exception as error:
@@ -258,7 +261,7 @@ class FilesystemSession:
         result = await self._call('list', normalize(path))
         rows = result['entries']
         return {'entries': rows[:self.policy.max_entries], 'truncated': len(rows) > self.policy.max_entries,
-                'skipped': result['skipped']}
+                'skipped': result['skipped'], **({'managed': result['managed']} if result.get('managed') else {})}
 
     async def mkdir(self, path):
         self.policy.require('mkdir')

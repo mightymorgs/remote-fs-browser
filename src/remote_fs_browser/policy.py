@@ -64,8 +64,17 @@ class Policy:
                 if 'helper_image' in config and not (isinstance(config['helper_image'], str)
                                                      and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9./:@_-]*', config['helper_image'])):
                     raise ValueError('The helper image must be an image reference')
+                # Scopes the endpoint to one application's pods (and the claims they or nobody mount).
+                if 'selector' in config and not (isinstance(config['selector'], str) and not config['selector'].startswith('-')
+                                                 and re.fullmatch(r'[A-Za-z0-9._/=!(), -]{1,512}', config['selector'])
+                                                 and config['selector'].strip()):
+                    raise ValueError('The Kubernetes selector must be a label selector, such as app=wordpress')
             else:
                 raise ValueError('Endpoint type must be rclone, libvirt or kubernetes')
+            # Display name in the GUI and picker; the endpoint name stays the alias in descriptors and links.
+            if 'label' in config and not (isinstance(config['label'], str) and config['label'].strip() and len(config['label']) <= 128
+                                          and not any(ord(c) < 32 or ord(c) == 127 for c in config['label'])):
+                raise ValueError('An endpoint label must be a short name on one line')
             if 'read_only' in config and not isinstance(config['read_only'], bool):
                 raise ValueError('read_only must be a boolean')
         self.local_roots = [str(Path(p).resolve(strict=True)) for p in self.local_roots]

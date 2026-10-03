@@ -7,6 +7,10 @@ BusyBox works. Nothing is installed in the pod and no shell runs on the host.
 
 /<namespace>/Volumes/<claim>/... reaches a PersistentVolumeClaim that no running
 pod mounts, through a small helper pod this session starts and deletes.
+
+An endpoint with a `selector` is scoped to one application: only the pods the
+label selector picks are listed or reachable, and only the claims those pods
+mount or that no pod mounts.
 """
 import hashlib
 import io
@@ -42,6 +46,12 @@ CACHE_SECONDS = 30
 # so a session keeps one shell open per container it is browsing.
 MAX_SHELLS = 4
 MANAGED = {'app.kubernetes.io/managed-by': 'remotefs'}
+# Volume sources the cluster writes from an object (read-only, rewritten on change).
+SOURCES = {'configMap': 'ConfigMap', 'secret': 'Secret', 'projected': 'Projected', 'downwardAPI': 'DownwardAPI'}
+SOURCE_NAMES = {'ConfigMap': 'the ConfigMap', 'Secret': 'the Secret', 'Projected': 'the projected volume',
+                'DownwardAPI': 'the downward API volume'}
+# Events that say why a helper pod's volume is not attaching.
+ATTACH_EVENTS = ('FailedAttachVolume', 'FailedScheduling', 'FailedMount')
 UNITS = {'Ki': 2**10, 'Mi': 2**20, 'Gi': 2**30, 'Ti': 2**40, 'Pi': 2**50,
          'k': 10**3, 'M': 10**6, 'G': 10**9, 'T': 10**12, 'P': 10**15}
 
@@ -85,10 +95,22 @@ class NotReady(KubernetesError):
     retry = True
 
 
+def managed_message(managed):
+    """Why a file under a ConfigMap, Secret or similar mount cannot be changed here."""
+    return (f"This file comes from {SOURCE_NAMES.get(managed['kind'], 'the volume')} `{managed['name']}`; "
+            'the cluster rewrites it from its source (GitOps) — edit the source instead.')
+
+
+class Managed(PermissionError):
+    """A write under a ConfigMap, Secret or similar mount; the reason is shown as is."""
+    shown = True
+
+
 class KubernetesFilesystem:
     def __init__(self, config):
         self.config = config
         self.namespaces = config['namespaces']
+        self.selector = config.get('selector')
         self.timeout = config['_timeout']
         self.claims = {}
         self.helpers = set()
@@ -217,6 +239,25 @@ class KubernetesFilesystem:
             return (head[0], pod['metadata']['name'], 'files'), normalize('/volume' + inner), pod
         return tuple(head), inner, self.container(*head)
 
+    # --- scope -----------------------------------------------------------
+
+    def pods(self, namespace):
+        """The pods this endpoint shows: every pod, or those its selector picks."""
+        return self.get('pods', '-n', namespace, *(['-l', self.selector] if self.selector else []))['items']
+
+    def scoped(self, namespace, name):
+        """A pod by name; one the selector does not pick is answered as missing."""
+        if self.selector and name not in {p['metadata']['name'] for p in self.pods(namespace)}:
+            raise FileNotFoundError('Pod or container not found')
+        return self.get('pod', name, '-n', namespace)
+
+    def visible(self, namespace, claim, everyone=None):
+        """A scoped endpoint shows the claims its pods mount and those no pod mounts, not another app's."""
+        if not self.selector:
+            return True
+        users = self.users(everyone if everyone is not None else self.get('pods', '-n', namespace)['items'], claim)
+        return not users or bool(set(users) & {p['metadata']['name'] for p in self.pods(namespace)})
+
     # --- volumes no running pod mounts ------------------------------------
 
     @staticmethod
@@ -236,7 +277,7 @@ class KubernetesFilesystem:
                 and any(v.get('persistentVolumeClaim', {}).get('claimName') == claim for v in p['spec'].get('volumes', []))]
 
     def helper(self, namespace, claim):
-        if not self.get_or_none('pvc', claim, '-n', namespace):
+        if not self.get_or_none('pvc', claim, '-n', namespace) or not self.visible(namespace, claim):
             raise FileNotFoundError('Volume claim not found')
         name = self.helper_name(claim)
         pod = self.get_or_none('pod', name, '-n', namespace)
@@ -259,10 +300,25 @@ class KubernetesFilesystem:
                 self.run([*self.kubectl(), 'wait', '--for=condition=Ready', f'pod/{name}', '-n', namespace,
                           f'--timeout={ATTACH_WAIT}s'])
             except (OSError, ValueError):
-                raise NotReady('Attaching the volume; this can take up to a minute') from None
+                problem = self.attach_problem(namespace, name)
+                raise NotReady('Attaching the volume; this can take up to a minute'
+                               + (f' ({problem})' if problem else '')) from None
             self.cache.clear()
             pod = self.get('pod', name, '-n', namespace)
         return pod
+
+    def attach_problem(self, namespace, name):
+        """What Kubernetes last said about a helper that is not ready, such as a failed attach."""
+        try:
+            events = json.loads(self.run([*self.kubectl(), 'get', 'events', '-n', namespace,
+                                          f'--field-selector=involvedObject.name={name}', '-o', 'json']))['items']
+            found = [e for e in events if e.get('reason') in ATTACH_EVENTS and e.get('message')]
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            return None
+        if not found:
+            return None
+        found.sort(key=lambda e: e.get('lastTimestamp') or e.get('eventTime') or e.get('metadata', {}).get('creationTimestamp') or '')
+        return ' '.join(str(found[-1]['message']).split())[:300]
 
     @staticmethod
     def ready(pod):
@@ -303,7 +359,7 @@ class KubernetesFilesystem:
                 'in_use_by': users, 'state': state}
 
     def pod(self, namespace, name):
-        pod = self.get('pod', name, '-n', namespace)
+        pod = self.scoped(namespace, name)
         if pod.get('status', {}).get('phase') != 'Running':
             raise KubernetesError('Only running pods can be browsed')
         return pod
@@ -330,8 +386,31 @@ class KubernetesFilesystem:
             claim = source.get('persistentVolumeClaim', {}).get('claimName')
             if claim:
                 value.update(claim=claim, longhorn=self.longhorn(namespace, claim))
+            for key, kind in SOURCES.items():
+                if key in source:
+                    value['managed'] = {'kind': kind, 'name': self.source_name(source[key]) or mount['name']}
             found[path] = value
         return found
+
+    @staticmethod
+    def source_name(source):
+        if not isinstance(source, dict):
+            return None
+        if source.get('name') or source.get('secretName'):
+            return source.get('name') or source.get('secretName')
+        # A projected volume combines several objects; name the ConfigMaps and Secrets in it.
+        names = [s[k].get('name') for s in source.get('sources', []) for k in ('configMap', 'secret') if s.get(k, {}).get('name')]
+        return ', '.join(names) or None
+
+    @staticmethod
+    def managed_at(mounts, inner):
+        """The managed mount (ConfigMap, Secret, ...) a container path lies in, if any."""
+        best = None
+        for path, mount in mounts.items():
+            if mount.get('managed') and (inner == path or inner.startswith(path.rstrip('/') + '/')):
+                if best is None or len(path) > len(best[0]):
+                    best = (path, mount['managed'])
+        return best[1] if best else None
 
     def longhorn(self, namespace, claim):
         key = (namespace, claim)
@@ -368,9 +447,11 @@ class KubernetesFilesystem:
                 claim = self.get_or_none('pvc', parts[2], '-n', parts[0])
                 if not claim:
                     raise FileNotFoundError('Volume claim not found')
+                if not self.visible(parts[0], parts[2]):
+                    raise FileNotFoundError('Volume claim not found')
                 return self.claim_row(claim, self.get('pods', '-n', parts[0])['items'], path)
         elif len(parts) == 2:
-            pod = self.get('pod', parts[1], '-n', parts[0])
+            pod = self.scoped(parts[0], parts[1])
             row['state'] = pod.get('status', {}).get('phase')
         elif len(parts) == 3:
             pod = self.container(*parts)
@@ -382,8 +463,11 @@ class KubernetesFilesystem:
         parts, inner = self.split(path)
         if len(parts) < 3 or inner == '/':
             return self.inventory(parts, path)
-        target, inner, _ = self.enter(parts, inner)
+        target, inner, pod = self.enter(parts, inner)
         row = self.parse(self.shell(target, STAT, inner).decode('utf-8', 'replace').rstrip('\n'), path)
+        managed = None if parts[1] == VOLUMES else self.managed_at(self.volumes(pod, parts[2]), inner)
+        if managed:
+            row['managed'] = managed
         if row.get('link'):
             # Planning a delete or copy sees the link itself, as a file, so a
             # recursive delete removes the link and never walks into its target.
@@ -396,17 +480,18 @@ class KubernetesFilesystem:
         if not parts:
             names = [(n, {'kind': 'Namespace'}) for n in self.namespaces]
         elif len(parts) == 1:
-            pods = self.get('pods', '-n', parts[0])['items']
+            pods = self.pods(parts[0])
             names = [(p['metadata']['name'], {'state': p.get('status', {}).get('phase'),
                                               'kind': f"Pod · {p.get('status', {}).get('phase', 'Unknown')}"}) for p in pods]
             names.append((VOLUMES, {'state': 'volume claims', 'kind': 'Volume claims'}))
         elif parts[1] == VOLUMES and len(parts) == 2:
             claims = self.get('pvc', '-n', parts[0])['items']
             pods = self.get('pods', '-n', parts[0])['items']
-            rows = [self.claim_row(c, pods, child_path(path, c['metadata']['name'])) for c in claims]
+            rows = [self.claim_row(c, pods, child_path(path, c['metadata']['name'])) for c in claims
+                    if self.visible(parts[0], c['metadata']['name'], pods)]
             return listing(rows[:limit + 1], 0)
         elif len(parts) == 2:
-            pod = self.get('pod', parts[1], '-n', parts[0])
+            pod = self.scoped(parts[0], parts[1])
             running = {s['name'] for s in pod.get('status', {}).get('containerStatuses', []) if 'running' in s.get('state', {})}
             names = [(c['name'], {'state': 'running' if c['name'] in running else 'not running',
                                   'kind': 'Container · ' + ('running' if c['name'] in running else 'not running')})
@@ -430,6 +515,8 @@ class KubernetesFilesystem:
         target, inner, pod = self.enter(parts, inner)
         if mounts is None:
             mounts = self.volumes(pod, parts[2])
+        # Everything below a ConfigMap or Secret mount is the cluster's copy of that object.
+        here = self.managed_at(mounts, inner)
         rows, skipped = [], 0
         for raw in self.shell(target, LIST, inner).split(b'\n'):
             if not raw:
@@ -448,10 +535,16 @@ class KubernetesFilesystem:
             mount = mounts.get(normalize(inner.rstrip('/') + '/' + name))
             if mount:
                 row['volume'] = mount
+            managed = (mount or {}).get('managed') or here
+            if managed:
+                row['managed'] = managed
             rows.append(row)
             if len(rows) > limit:
                 break
-        return listing(rows, skipped)
+        result = listing(rows, skipped)
+        if here:
+            result['managed'] = here
+        return result
 
     # --- files -----------------------------------------------------------
 
@@ -471,7 +564,11 @@ class KubernetesFilesystem:
         parts, inner = self.split(path)
         if len(parts) < 3 or inner == '/':
             raise PermissionError('Namespaces, pods, containers and volumes cannot be changed here')
-        target, inner, _ = self.enter(parts, inner)
+        target, inner, pod = self.enter(parts, inner)
+        # These mounts are read-only and rewritten from their object; say so instead of a bare failure.
+        managed = None if parts[1] == VOLUMES else self.managed_at(self.volumes(pod, parts[2]), inner)
+        if managed:
+            raise Managed(managed_message(managed))
         return target, inner
 
     def mkdir(self, path):
